@@ -1,0 +1,101 @@
+{
+  "realm": "altaris",
+  "enabled": true,
+  "displayName": "Altaris Platform",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": true,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "accessTokenLifespan": 3600,
+  "ssoSessionIdleTimeout": 28800,
+  "ssoSessionMaxLifespan": 86400,
+  "oauth2DeviceCodeLifespan": 600,
+  "oauth2DevicePollingInterval": 5,
+  "attributes": {
+    "frontendUrl": "http://localhost:8081"
+  },
+  "roles": {
+    "realm": [
+      { "name": "tenant_admin", "description": "Tenant administrator" },
+      { "name": "tenant_member", "description": "Tenant member (default)" },
+      { "name": "platform_admin", "description": "Cross-tenant Argus operator" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "altaris-cli",
+      "name": "Altaris CLI",
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "attributes": {
+        "oauth2.device.authorization.grant.enabled": "true",
+        "pkce.code.challenge.method": "S256"
+      },
+      "defaultClientScopes": ["openid", "email", "profile", "tenant"],
+      "redirectUris": ["http://localhost:*"]
+    },
+    {
+      "clientId": "altaris-web",
+      "name": "Altaris Web Portal",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "rootUrl": "http://localhost:3000",
+      "redirectUris": ["http://localhost:3000/api/auth/callback/keycloak"],
+      "webOrigins": ["http://localhost:3000"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "defaultClientScopes": ["openid", "email", "profile", "tenant"]
+    },
+    {
+      "clientId": "altaris-api",
+      "name": "Altaris API",
+      "bearerOnly": true,
+      "publicClient": false,
+      "secret": "dev-only-altaris-api-secret-replace-in-prod"
+    }
+  ],
+  "clientScopes": [
+    {
+      "name": "tenant",
+      "description": "Inject tenant_id into tokens",
+      "protocol": "openid-connect",
+      "attributes": { "include.in.token.scope": "true", "display.on.consent.screen": "false" },
+      "protocolMappers": [
+        {
+          "name": "tenant_id",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "tenant_id",
+            "claim.name": "tid",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "burak",
+      "enabled": true,
+      "email": "burak@argusteknoloji.com",
+      "firstName": "Burak",
+      "lastName": "Demirsoy",
+      "emailVerified": true,
+      "attributes": {
+        "tenant_id": ["argus"]
+      },
+      "credentials": [
+        { "type": "password", "value": "altaris_dev", "temporary": false }
+      ],
+      "realmRoles": ["tenant_admin", "platform_admin"]
+    }
+  ]
+}

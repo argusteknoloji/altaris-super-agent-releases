@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  cli:
+    name: CLI (Bun)
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: cli } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: latest }
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: ./bin/altaris --version
+      - name: Verify no Claude leakage in user-facing output
+        run: |
+          if ./bin/altaris --help 2>&1 | grep -iE "openclaude|claude code|claude\.md"; then
+            echo "❌ Claude/openclaude references leaked into help output"
+            exit 1
+          fi
+          echo "✓ Help output clean"
+
+  api:
+    name: API (.NET 9)
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: api } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: "9.0.x" }
+      - run: dotnet restore Altaris.sln
+      - run: dotnet build Altaris.sln --no-restore --configuration Release
+      - run: dotnet test Altaris.sln --no-build --configuration Release --verbosity normal
+        continue-on-error: true # no tests yet
+
+  web:
+    name: Web (Next.js 16)
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: web } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: "pnpm" }
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm build
+        env:
+          AUTH_SECRET: dummy-ci-secret-not-used-at-runtime
+          AUTH_KEYCLOAK_ID: altaris-web
+          AUTH_KEYCLOAK_ISSUER: http://localhost:8081/realms/altaris
+
+  smoke:
+    name: Docker compose smoke
+    runs-on: ubuntu-latest
+    needs: [api, web, cli]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start infra
+        working-directory: infra
+        run: |
+          docker compose up -d postgres keycloak-db redis
+          for i in $(seq 1 30); do
+            if docker compose exec -T postgres pg_isready -U altaris -d altaris; then
+              echo "Postgres ready"; break
+            fi
+            sleep 2
+          done
+      - name: Verify schema
+        working-directory: infra
+        run: |
+          docker compose exec -T postgres psql -U altaris -d altaris -c "\dt"
+          docker compose exec -T postgres psql -U altaris -d altaris -c "SELECT slug FROM tenants"
+      - name: Tear down
+        if: always()
+        working-directory: infra
+        run: docker compose down -v

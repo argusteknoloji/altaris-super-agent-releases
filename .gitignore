@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+**/node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+out/
+*.tsbuildinfo
+.next/
+.turbo/
+**/bin/Debug/
+**/bin/Release/
+**/obj/
+
+# .NET
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+artifacts/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+appsettings.Development.json
+appsettings.Local.json
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+.idea/
+*.swp
+.DS_Store
+
+# Test / coverage
+coverage/
+*.lcov
+TestResults/
+
+# Infra runtime data
+infra/data/
+infra/keycloak-data/
+infra/postgres-data/
+
+# CLI binary outputs
+cli/dist/
+cli/release/

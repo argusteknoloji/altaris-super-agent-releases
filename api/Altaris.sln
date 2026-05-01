@@ -1,0 +1,62 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{1032DECA-BC2B-4C0F-A4E0-B1E677DF3F2A}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Altaris.Api", "src\Altaris.Api\Altaris.Api.csproj", "{BBD9D328-8F74-4315-8750-1AA8EDEDDA37}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Altaris.Domain", "src\Altaris.Domain\Altaris.Domain.csproj", "{B1F18B25-B306-4CC3-87B8-035344DF88E8}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Altaris.Infrastructure", "src\Altaris.Infrastructure\Altaris.Infrastructure.csproj", "{9B3517A9-1841-4C75-ADC6-CA233CB47337}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Altaris.Modules.Sessions", "src\Altaris.Modules.Sessions\Altaris.Modules.Sessions.csproj", "{7C84E4B9-7A14-44D5-8E81-1A430CB54950}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Altaris.Modules.Tenants", "src\Altaris.Modules.Tenants\Altaris.Modules.Tenants.csproj", "{C4B618AA-1F98-4F0C-9407-FE1D14BC69E5}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Altaris.Modules.Users", "src\Altaris.Modules.Users\Altaris.Modules.Users.csproj", "{02BEF5D2-E552-4394-9B02-9EC42E69E259}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{BBD9D328-8F74-4315-8750-1AA8EDEDDA37}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{BBD9D328-8F74-4315-8750-1AA8EDEDDA37}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{BBD9D328-8F74-4315-8750-1AA8EDEDDA37}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{BBD9D328-8F74-4315-8750-1AA8EDEDDA37}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B1F18B25-B306-4CC3-87B8-035344DF88E8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B1F18B25-B306-4CC3-87B8-035344DF88E8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B1F18B25-B306-4CC3-87B8-035344DF88E8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B1F18B25-B306-4CC3-87B8-035344DF88E8}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9B3517A9-1841-4C75-ADC6-CA233CB47337}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9B3517A9-1841-4C75-ADC6-CA233CB47337}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9B3517A9-1841-4C75-ADC6-CA233CB47337}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9B3517A9-1841-4C75-ADC6-CA233CB47337}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7C84E4B9-7A14-44D5-8E81-1A430CB54950}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7C84E4B9-7A14-44D5-8E81-1A430CB54950}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7C84E4B9-7A14-44D5-8E81-1A430CB54950}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7C84E4B9-7A14-44D5-8E81-1A430CB54950}.Release|Any CPU.Build.0 = Release|Any CPU
+		{C4B618AA-1F98-4F0C-9407-FE1D14BC69E5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{C4B618AA-1F98-4F0C-9407-FE1D14BC69E5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{C4B618AA-1F98-4F0C-9407-FE1D14BC69E5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{C4B618AA-1F98-4F0C-9407-FE1D14BC69E5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{02BEF5D2-E552-4394-9B02-9EC42E69E259}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{02BEF5D2-E552-4394-9B02-9EC42E69E259}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{02BEF5D2-E552-4394-9B02-9EC42E69E259}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{02BEF5D2-E552-4394-9B02-9EC42E69E259}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{BBD9D328-8F74-4315-8750-1AA8EDEDDA37} = {1032DECA-BC2B-4C0F-A4E0-B1E677DF3F2A}
+		{B1F18B25-B306-4CC3-87B8-035344DF88E8} = {1032DECA-BC2B-4C0F-A4E0-B1E677DF3F2A}
+		{9B3517A9-1841-4C75-ADC6-CA233CB47337} = {1032DECA-BC2B-4C0F-A4E0-B1E677DF3F2A}
+		{7C84E4B9-7A14-44D5-8E81-1A430CB54950} = {1032DECA-BC2B-4C0F-A4E0-B1E677DF3F2A}
+		{C4B618AA-1F98-4F0C-9407-FE1D14BC69E5} = {1032DECA-BC2B-4C0F-A4E0-B1E677DF3F2A}
+		{02BEF5D2-E552-4394-9B02-9EC42E69E259} = {1032DECA-BC2B-4C0F-A4E0-B1E677DF3F2A}
+	EndGlobalSection
+EndGlobal

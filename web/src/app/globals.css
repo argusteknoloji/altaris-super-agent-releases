@@ -1,0 +1,9 @@
+@import "tailwindcss";
+
+:root {
+  --altaris-accent: #f97316;
+}
+
+body {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}

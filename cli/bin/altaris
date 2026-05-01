@@ -1,0 +1,31 @@
+#!/usr/bin/env node
+
+/**
+ * Altaris — Argus Teknoloji enterprise agentic AI terminal.
+ * Built on the openclaude runtime; rebranded and extended for multi-tenant
+ * Argus deployments (CLI + Web Portal + .NET API + Keycloak SSO).
+ */
+
+import { existsSync } from 'fs'
+import { join, dirname } from 'path'
+import { fileURLToPath, pathToFileURL } from 'url'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const distPath = join(__dirname, '..', 'dist', 'cli.mjs')
+
+if (existsSync(distPath)) {
+  await import(pathToFileURL(distPath).href)
+} else {
+  console.error(`
+  altaris: dist/cli.mjs not found.
+
+  Build first:
+    bun run build
+
+  Or run directly with Bun:
+    bun run dev
+
+  See README.md for setup instructions.
+`)
+  process.exit(1)
+}
