@@ -153,7 +153,7 @@ export function checkIsClaudeNativeProvider(): boolean {
     provider === 'bedrock' ||
     provider === 'vertex' ||
     provider === 'foundry' ||
-    (provider === 'firstParty' && isFirstPartyAnthropicBaseUrl())
+    (provider === 'firstParty' && false /* isFirstPartyAnthropicBaseUrl: bypassed in Altaris */)
   )
 }
 

@@ -253,7 +253,10 @@ export function isMediaSizeErrorMessage(msg: AssistantMessage): boolean {
   )
 }
 export const CREDIT_BALANCE_TOO_LOW_ERROR_MESSAGE = 'Credit balance is too low'
-export const INVALID_API_KEY_ERROR_MESSAGE = 'Not logged in · Please run /login'
+export const INVALID_API_KEY_ERROR_MESSAGE =
+  'Provider yetkilendirmesi yok · Ortam değişkenlerini ayarla: ' +
+  'ALTARIS_USE_OPENAI=1 OPENAI_BASE_URL=… OPENAI_API_KEY=… OPENAI_MODEL=… ' +
+  '(veya ANTHROPIC_API_KEY). Web panel: http://localhost:3000/admin/providers'
 export const INVALID_API_KEY_ERROR_MESSAGE_EXTERNAL =
   'Invalid API key · Fix external API key'
 export const ORG_DISABLED_ERROR_MESSAGE_ENV_KEY_WITH_OAUTH =

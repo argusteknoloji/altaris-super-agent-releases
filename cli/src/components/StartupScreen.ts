@@ -161,7 +161,9 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
   const resolvedModel = parseUserSpecifiedModel(modelSetting)
   const baseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'
   const isLocal = isLocalProviderUrl(baseUrl)
-  return { name: 'Altaris Cloud', model: resolvedModel, baseUrl: 'altaris cloud', isLocal }
+  // Keep real baseUrl so the runtime can parse it (isFirstPartyAnthropicBaseUrl
+  // and friends require a valid URL); the UI substitutes a brand label below.
+  return { name: 'Altaris Cloud', model: resolvedModel, baseUrl, isLocal }
 }
 
 // ─── Box drawing ──────────────────────────────────────────────────────────────
@@ -214,7 +216,12 @@ export function printStartupScreen(modelOverride?: string): void {
   out.push(boxRow(r, W, l))
   ;[r, l] = lbl('Model', p.model)
   out.push(boxRow(r, W, l))
-  const ep = p.baseUrl.length > 38 ? p.baseUrl.slice(0, 35) + '...' : p.baseUrl
+  // Hide the real first-party endpoint behind the brand label; for local /
+  // self-hosted providers the actual host is shown so operators know what's
+  // serving the requests.
+  const ep = p.isLocal
+    ? (p.baseUrl.length > 38 ? p.baseUrl.slice(0, 35) + '...' : p.baseUrl)
+    : 'altaris cloud'
   ;[r, l] = lbl('Endpoint', ep)
   out.push(boxRow(r, W, l))
 

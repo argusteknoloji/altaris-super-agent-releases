@@ -40,9 +40,12 @@ CREATE TABLE IF NOT EXISTS agent_sessions (
     status          TEXT NOT NULL DEFAULT 'active',
     started_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     ended_at        TIMESTAMPTZ,
-    metadata        JSONB NOT NULL DEFAULT '{}'::jsonb
+    metadata        JSONB NOT NULL DEFAULT '{}'::jsonb,
+    remote_control     BOOLEAN     NOT NULL DEFAULT false,
+    remote_control_at  TIMESTAMPTZ
 );
 CREATE INDEX IF NOT EXISTS agent_sessions_tenant_user_idx ON agent_sessions(tenant_id, user_id);
+CREATE INDEX IF NOT EXISTS agent_sessions_remote_control_idx ON agent_sessions(tenant_id) WHERE remote_control = true;
 
 -- Session messages (full transcript)
 CREATE TABLE IF NOT EXISTS session_messages (
@@ -66,7 +69,7 @@ CREATE TABLE IF NOT EXISTS audit_events (
     action          TEXT NOT NULL,
     resource_type   TEXT,
     resource_id     TEXT,
-    ip              INET,
+    ip              TEXT,
     user_agent      TEXT,
     payload         JSONB NOT NULL DEFAULT '{}'::jsonb,
     occurred_at     TIMESTAMPTZ NOT NULL DEFAULT now()

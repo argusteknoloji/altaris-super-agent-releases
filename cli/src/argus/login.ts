@@ -11,6 +11,14 @@ import { setTimeout as delay } from "node:timers/promises";
 import { writeFile, mkdir, readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { createHash, randomBytes } from "node:crypto";
+
+// PKCE (RFC 7636) — required by altaris-cli realm client (S256).
+function makePkce(): { verifier: string; challenge: string } {
+  const verifier = randomBytes(32).toString("base64url");
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  return { verifier, challenge };
+}
 
 interface DeviceCodeResponse {
   device_code: string;
@@ -58,11 +66,17 @@ export async function altarisLogin(opts: { issuer?: string; clientId?: string } 
   process.stdout.write(`\nAltaris — Argus Identity Provider'a giriş\n`);
   process.stdout.write(`  Authority: ${issuer}\n  Client:    ${clientId}\n\n`);
 
-  // 1. Initiate device flow
+  // 1. Initiate device flow with PKCE
+  const pkce = makePkce();
   const deviceRes = await fetch(`${issuer}/protocol/openid-connect/auth/device`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ client_id: clientId, scope: "openid email profile tenant" })
+    body: new URLSearchParams({
+      client_id: clientId,
+      scope: "openid",
+      code_challenge: pkce.challenge,
+      code_challenge_method: "S256"
+    })
   });
   if (!deviceRes.ok) {
     process.stderr.write(`Hata: device endpoint ${deviceRes.status} döndü.\n`);
@@ -86,7 +100,8 @@ export async function altarisLogin(opts: { issuer?: string; clientId?: string } 
       body: new URLSearchParams({
         grant_type: "urn:ietf:params:oauth:grant-type:device_code",
         device_code: device.device_code,
-        client_id: clientId
+        client_id: clientId,
+        code_verifier: pkce.verifier
       })
     });
 

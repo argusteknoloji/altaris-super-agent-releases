@@ -88,7 +88,7 @@ export default function LiveSessionPage({ params }: { params: Promise<{ id: stri
   }, [id, mode]);
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-[calc(100vh-3rem)] flex-col">
       <header className="flex items-center justify-between border-b border-neutral-800 bg-neutral-950 px-6 py-3">
         <div className="flex items-center gap-3">
           <Link href={`/admin/sessions/${id}`} className="text-xs text-neutral-400 hover:text-orange-400">← Detay</Link>

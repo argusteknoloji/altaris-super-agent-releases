@@ -19,9 +19,15 @@ public record ChatRequest(
     Guid? SessionId,
     List<ChatMessage> Messages,
     int MaxTokens = 1024,
-    string? SystemPrompt = null);
+    string? SystemPrompt = null,
+    Guid? ProviderConfigId = null);
 
-public record ChatMessage(string Role, string Content);
+// Content is intentionally JsonElement so the same shape covers both
+//   • plain text:    "merhaba"
+//   • multimodal:    [{type:"text",text:"bu nedir"}, {type:"image_url", image_url:{url:"data:image/png;base64,..."}}]
+// Forwarded as-is to OpenAI-compatible providers (LM Studio, OpenAI).
+// Anthropic / Ollama need a per-message shape transform — TODO.
+public record ChatMessage(string Role, System.Text.Json.JsonElement Content);
 
 public static class ChatEndpoints
 {
@@ -62,14 +68,15 @@ public static class ChatEndpoints
                 Source = "web",
                 Provider = req.Provider,
                 Model = req.Model,
-                Title = req.Messages.FirstOrDefault()?.Content[..Math.Min(80, req.Messages.FirstOrDefault()?.Content.Length ?? 0)],
+                Title = ExtractTitle(req.Messages.FirstOrDefault()?.Content),
                 StartedAt = DateTimeOffset.UtcNow
             };
             db.Sessions.Add(session);
             await db.SaveChangesAsync(cancel);
         }
 
-        // Persist incoming user message (last in array)
+        // Persist incoming user message (last in array). content is forwarded
+        // as-is so multimodal parts (image_url, etc.) survive replay.
         var lastUser = req.Messages.LastOrDefault(m => m.Role == "user");
         if (lastUser != null)
         {
@@ -78,7 +85,7 @@ public static class ChatEndpoints
                 TenantId = tenant.TenantId.Value,
                 SessionId = session.Id,
                 Role = "user",
-                Content = JsonSerializer.Serialize(new { text = lastUser.Content }),
+                Content = lastUser.Content.GetRawText(),
                 CreatedAt = DateTimeOffset.UtcNow
             });
             await db.SaveChangesAsync(cancel);
@@ -94,19 +101,31 @@ public static class ChatEndpoints
 
         var collected = new StringBuilder();
 
+        // Resolve tenant provider config (gives us the real baseUrl + apiKey)
+        Domain.Entities.ProviderConfig? cfg = null;
+        if (req.ProviderConfigId is { } cfgId)
+        {
+            cfg = await db.ProviderConfigs.AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Id == cfgId && p.TenantId == tenant.TenantId, cancel);
+        }
+        cfg ??= await db.ProviderConfigs.AsNoTracking()
+            .Where(p => p.TenantId == tenant.TenantId && p.Provider == req.Provider && p.Enabled)
+            .OrderByDescending(p => p.IsDefault)
+            .FirstOrDefaultAsync(cancel);
+
         try
         {
             switch (req.Provider.ToLowerInvariant())
             {
                 case "anthropic":
-                    await StreamAnthropic(req, config, httpFactory, ctx, collected, cancel);
+                    await StreamAnthropic(req, cfg, config, httpFactory, ctx, collected, cancel);
                     break;
                 case "ollama":
-                    await StreamOllama(req, config, httpFactory, ctx, collected, cancel);
+                    await StreamOllama(req, cfg, config, httpFactory, ctx, collected, cancel);
                     break;
                 case "lmstudio":
                 case "openai":
-                    await StreamOpenAiCompatible(req, config, httpFactory, ctx, collected, cancel);
+                    await StreamOpenAiCompatible(req, cfg, config, httpFactory, ctx, collected, cancel);
                     break;
                 default:
                     await Sse(ctx, "error", JsonSerializer.Serialize(new { message = $"Unknown provider: {req.Provider}" }), cancel);
@@ -134,10 +153,13 @@ public static class ChatEndpoints
     }
 
     private static async Task StreamAnthropic(
-        ChatRequest req, IConfiguration cfg, IHttpClientFactory hf,
+        ChatRequest req, Domain.Entities.ProviderConfig? pc, IConfiguration cfg, IHttpClientFactory hf,
         HttpContext ctx, StringBuilder collected, CancellationToken cancel)
     {
-        var apiKey = cfg["Providers:Anthropic:ApiKey"] ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
+        var apiKey = pc?.ApiKeyEnc
+                     ?? cfg["Providers:Anthropic:ApiKey"]
+                     ?? Environment.GetEnvironmentVariable("ANTHROPIC_API_KEY");
+        var endpoint = !string.IsNullOrEmpty(pc?.BaseUrl) ? pc!.BaseUrl!.TrimEnd('/') : "https://api.anthropic.com";
         if (string.IsNullOrEmpty(apiKey))
         {
             await Sse(ctx, "error", "{\"message\":\"ANTHROPIC_API_KEY not configured\"}", cancel);
@@ -151,10 +173,10 @@ public static class ChatEndpoints
             max_tokens = req.MaxTokens,
             stream = true,
             system = req.SystemPrompt,
-            messages = req.Messages.Select(m => new { role = m.Role, content = m.Content }).ToArray()
+            messages = req.Messages.Select(m => new { role = m.Role, content = (object)m.Content }).ToArray()
         };
 
-        var hreq = new HttpRequestMessage(HttpMethod.Post, "https://api.anthropic.com/v1/messages")
+        var hreq = new HttpRequestMessage(HttpMethod.Post, $"{endpoint}/v1/messages")
         {
             Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
         };
@@ -189,16 +211,16 @@ public static class ChatEndpoints
     }
 
     private static async Task StreamOllama(
-        ChatRequest req, IConfiguration cfg, IHttpClientFactory hf,
+        ChatRequest req, Domain.Entities.ProviderConfig? pc, IConfiguration cfg, IHttpClientFactory hf,
         HttpContext ctx, StringBuilder collected, CancellationToken cancel)
     {
-        var baseUrl = cfg["Providers:Ollama:BaseUrl"] ?? "http://localhost:11434";
+        var baseUrl = pc?.BaseUrl?.TrimEnd('/') ?? cfg["Providers:Ollama:BaseUrl"] ?? "http://localhost:11434";
         var client = hf.CreateClient();
         var payload = new
         {
             model = req.Model,
             stream = true,
-            messages = req.Messages.Select(m => new { role = m.Role, content = m.Content }).ToArray()
+            messages = req.Messages.Select(m => new { role = m.Role, content = (object)m.Content }).ToArray()
         };
 
         var hreq = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/api/chat")
@@ -236,15 +258,17 @@ public static class ChatEndpoints
     }
 
     private static async Task StreamOpenAiCompatible(
-        ChatRequest req, IConfiguration cfg, IHttpClientFactory hf,
+        ChatRequest req, Domain.Entities.ProviderConfig? pc, IConfiguration cfg, IHttpClientFactory hf,
         HttpContext ctx, StringBuilder collected, CancellationToken cancel)
     {
-        var baseUrl = req.Provider == "lmstudio"
-            ? cfg["Providers:LMStudio:BaseUrl"] ?? "http://localhost:1234/v1"
-            : cfg["Providers:OpenAI:BaseUrl"] ?? "https://api.openai.com/v1";
-        var apiKey = req.Provider == "lmstudio"
-            ? cfg["Providers:LMStudio:ApiKey"] ?? "lm-studio"
-            : cfg["Providers:OpenAI:ApiKey"] ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? "";
+        var baseUrl = pc?.BaseUrl?.TrimEnd('/')
+                      ?? (req.Provider == "lmstudio"
+                          ? cfg["Providers:LMStudio:BaseUrl"] ?? "http://localhost:1234/v1"
+                          : cfg["Providers:OpenAI:BaseUrl"] ?? "https://api.openai.com/v1");
+        var apiKey = pc?.ApiKeyEnc
+                     ?? (req.Provider == "lmstudio"
+                         ? cfg["Providers:LMStudio:ApiKey"] ?? "lm-studio"
+                         : cfg["Providers:OpenAI:ApiKey"] ?? Environment.GetEnvironmentVariable("OPENAI_API_KEY") ?? "");
 
         var client = hf.CreateClient();
         var payload = new
@@ -252,7 +276,7 @@ public static class ChatEndpoints
             model = req.Model,
             stream = true,
             max_tokens = req.MaxTokens,
-            messages = req.Messages.Select(m => new { role = m.Role, content = m.Content }).ToArray()
+            messages = req.Messages.Select(m => new { role = m.Role, content = (object)m.Content }).ToArray()
         };
 
         var hreq = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/chat/completions")
@@ -290,6 +314,24 @@ public static class ChatEndpoints
             }
             catch (JsonException) { }
         }
+    }
+
+    /// <summary>Pull a short title out of a content JsonElement (string or array of parts).</summary>
+    private static string? ExtractTitle(JsonElement? raw)
+    {
+        if (raw is not { } el) return null;
+        string? text = el.ValueKind switch
+        {
+            JsonValueKind.String => el.GetString(),
+            JsonValueKind.Array  => el.EnumerateArray()
+                .Where(p => p.ValueKind == JsonValueKind.Object &&
+                            p.TryGetProperty("type", out var t) && t.GetString() == "text")
+                .Select(p => p.TryGetProperty("text", out var x) ? x.GetString() : null)
+                .FirstOrDefault(s => !string.IsNullOrWhiteSpace(s)),
+            _ => null
+        };
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        return text.Length <= 80 ? text : text[..80];
     }
 
     private static async Task Sse(HttpContext ctx, string evt, string json, CancellationToken cancel)

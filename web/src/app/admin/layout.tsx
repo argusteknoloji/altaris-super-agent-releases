@@ -8,7 +8,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   if (!session) redirect("/");
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-[calc(100vh-3rem)]">
       <aside className="w-56 border-r border-neutral-800 bg-neutral-950 px-3 py-6">
         <div className="mb-6 px-2">
           <h1 className="text-base font-semibold tracking-tight">Altaris Admin</h1>

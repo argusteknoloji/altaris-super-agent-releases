@@ -299,7 +299,7 @@ export function isToolSearchEnabledOptimistic(): boolean {
   if (
     !process.env.ENABLE_TOOL_SEARCH &&
     getAPIProvider() === 'firstParty' &&
-    !isFirstPartyAnthropicBaseUrl()
+    true /* !isFirstPartyAnthropicBaseUrl: bypassed in Altaris */
   ) {
     if (!loggedOptimistic) {
       loggedOptimistic = true

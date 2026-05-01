@@ -58,6 +58,8 @@ public class AltarisDbContext : DbContext
             e.Property(x => x.StartedAt).HasColumnName("started_at");
             e.Property(x => x.EndedAt).HasColumnName("ended_at");
             e.Property(x => x.Metadata).HasColumnName("metadata").HasColumnType("jsonb");
+            e.Property(x => x.RemoteControl).HasColumnName("remote_control");
+            e.Property(x => x.RemoteControlAt).HasColumnName("remote_control_at");
         });
 
         modelBuilder.Entity<SessionMessage>(e =>

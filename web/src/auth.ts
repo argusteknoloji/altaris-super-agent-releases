@@ -14,7 +14,7 @@ export const { handlers, signIn, signOut, auth: nextAuth } = NextAuth({
       clientId: process.env.AUTH_KEYCLOAK_ID!,
       clientSecret: process.env.AUTH_KEYCLOAK_SECRET ?? "",
       issuer: process.env.AUTH_KEYCLOAK_ISSUER!,
-      authorization: { params: { scope: "openid email profile tenant" } }
+      authorization: { params: { scope: "openid" } }
     })
   ],
   callbacks: {

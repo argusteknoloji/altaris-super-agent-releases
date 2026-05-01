@@ -445,7 +445,7 @@ export function meetsAvailabilityRequirement(cmd: Command): boolean {
         if (
           !isClaudeAISubscriber() &&
           !isUsing3PServices() &&
-          isFirstPartyAnthropicBaseUrl()
+          false /* isFirstPartyAnthropicBaseUrl: bypassed in Altaris */
         )
           return true
         break

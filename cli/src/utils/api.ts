@@ -247,7 +247,7 @@ export async function toolToAPISchema(
     // with Altaris 4.5 reject this field with 400. See GH#32742, PR #21729.
     if (
       getAPIProvider() === 'firstParty' &&
-      isFirstPartyAnthropicBaseUrl() &&
+      false /* isFirstPartyAnthropicBaseUrl: bypassed in Altaris */ &&
       (getFeatureValue_CACHED_MAY_BE_STALE('tengu_fgts', false) ||
         isEnvTruthy(process.env.ALTARIS_ENABLE_FINE_GRAINED_TOOL_STREAMING))
     ) {

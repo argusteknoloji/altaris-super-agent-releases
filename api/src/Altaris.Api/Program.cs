@@ -6,6 +6,7 @@ using Altaris.Infrastructure.MultiTenancy;
 using Altaris.Infrastructure.Persistence;
 using Altaris.Infrastructure.Presence;
 using Altaris.Infrastructure.Pty;
+using Altaris.Infrastructure.RemoteControl;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
@@ -68,6 +69,7 @@ try
     builder.Services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisConn));
     builder.Services.AddSingleton<PresenceTracker>();
     builder.Services.AddSingleton<PtySessionManager>();
+    builder.Services.AddSingleton<RemoteControlBroker>();
 
     var pgConn = builder.Configuration.GetConnectionString("Postgres")
                  ?? "Host=localhost;Port=5433;Database=altaris;Username=altaris;Password=altaris_dev";
@@ -202,6 +204,8 @@ try
     app.MapAdminEndpoints();
     app.MapSessionEndpoints();
     app.MapPresenceEndpoints();
+    app.MapFileEndpoints();
+    app.MapRemoteControlEndpoints();
 
     Log.Information("Altaris API starting in {Env}", app.Environment.EnvironmentName);
     app.Run();

@@ -4485,10 +4485,22 @@ Examples:
       await completionHandler(shell, opts, program);
     });
   }
-  // Argus extensions (login, logout, whoami, session ...)
+  // Argus extensions (login, logout, whoami, session ...) + auto-bootstrap
+  // tenant provider env vars from the API if the user is logged in.
   try {
     const { registerArgusCommands } = await import('./argus/index.js');
     registerArgusCommands(program);
+    const { argusBootstrap } = await import('./argus/bootstrap.js');
+    await argusBootstrap();
+    // --remote-control flag: strip from argv so commander doesn't 'unknown option'
+    // and start the publisher (registers session, opens WS, patches stdio).
+    const wantsRC = process.argv.includes('--remote-control')
+                    || isEnvTruthy(process.env.ALTARIS_REMOTE_CONTROL);
+    if (wantsRC) {
+      process.argv = process.argv.filter(a => a !== '--remote-control');
+      const { startRemoteControl } = await import('./argus/remoteControl.js');
+      await startRemoteControl();
+    }
   } catch (e) {
     // non-fatal: argus extensions optional in dev
   }

@@ -27,7 +27,7 @@ export default async function HomePage() {
       <section className="mt-20 grid gap-6 md:grid-cols-3">
         <Card title="Terminal" desc="`altaris` komutu ile lokal LLM destekli agentik terminal. macOS, Linux, Windows tek binary." />
         <Card title="Web Chat" desc="Tarayıcıdan oturum aç, ekibinizle paylaşılan kurumsal hafızada sohbet et." />
-        <Card title="Remote Access" desc="Tarayıcıdan canlı terminal görüntüleme. Mobil uygulama ileride." />
+        <Card title="Remote Control" desc="Lokal `altaris` oturumlarını web'den izle ve yönet. Mobil uygulama ileride." />
       </section>
 
       <section className="mt-16 rounded-lg border border-neutral-800 bg-neutral-900/40 p-6">

@@ -13,6 +13,8 @@ public class AgentSession
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset? EndedAt { get; set; }
     public string Metadata { get; set; } = "{}";
+    public bool RemoteControl { get; set; }
+    public DateTimeOffset? RemoteControlAt { get; set; }
 
     public Tenant Tenant { get; set; } = default!;
     public User User { get; set; } = default!;

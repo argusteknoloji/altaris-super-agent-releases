@@ -42,33 +42,74 @@ public static class PtyEndpoints
         { ctx.Response.StatusCode = 403; return; }
 
         using var ws = await ctx.WebSockets.AcceptWebSocketAsync();
-        var shell = OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/bash";
-        var args = OperatingSystem.IsWindows() ? "" : "--login -i";
+
+        // ?command=altaris  → spawn the Altaris agentic AI binary (default)
+        // ?command=shell    → spawn the OS login shell (bash/cmd)
+        // ?command=<path>   → spawn an explicit absolute-path executable (admin)
+        var requested = (ctx.Request.Query["command"].ToString() ?? "altaris").Trim().ToLowerInvariant();
+        var titleHint = (ctx.Request.Query["title"].ToString() ?? "").Trim();
+
+        string fileName;
+        string args;
+        string source;
+        string provider;
+        string model;
+
+        if (requested == "shell")
+        {
+            fileName = OperatingSystem.IsWindows() ? "cmd.exe" : "/bin/bash";
+            args = OperatingSystem.IsWindows() ? "" : "--login -i";
+            source = "remote"; provider = "shell"; model = fileName;
+        }
+        else if (requested.StartsWith('/') && File.Exists(requested))
+        {
+            fileName = requested;
+            args = "";
+            source = "remote"; provider = "custom"; model = Path.GetFileName(fileName);
+        }
+        else
+        {
+            // Default: Altaris agentic CLI. Resolve the binary so the spawned
+            // process keeps working even when the API is started from a path
+            // where ~/.local/bin is not in PATH.
+            fileName = ResolveAltarisBinary();
+            args = "";
+            source = "agent"; provider = "altaris-cli"; model = "altaris";
+        }
 
         var session = new AgentSession
         {
             Id = Guid.NewGuid(),
             TenantId = tenant.TenantId.Value,
             UserId = tenant.UserId.Value,
-            Source = "remote",
-            Provider = "shell",
-            Model = shell,
-            Title = $"Remote terminal {DateTime.UtcNow:yyyy-MM-dd HH:mm}",
+            Source = source,
+            Provider = provider,
+            Model = model,
+            Title = string.IsNullOrEmpty(titleHint)
+                ? $"{(provider == "altaris-cli" ? "Altaris agent" : "Remote terminal")} {DateTime.UtcNow:yyyy-MM-dd HH:mm}"
+                : titleHint,
             Status = "active",
             StartedAt = DateTimeOffset.UtcNow,
             Metadata = JsonSerializer.Serialize(new
             {
                 remoteIp = ctx.Connection.RemoteIpAddress?.ToString(),
-                userAgent = ctx.Request.Headers.UserAgent.ToString()
+                userAgent = ctx.Request.Headers.UserAgent.ToString(),
+                command = requested
             })
         };
         db.Sessions.Add(session);
         await Audit(db, tenant, "terminal.open", "session", session.Id.ToString(), ctx);
         await db.SaveChangesAsync();
 
+        // Wrap interactive Ink-based programs (altaris) with `script` so the
+        // child sees a real PTY and won't bail out on stdin.isTTY checks.
+        // Plain shells work without it, but it's cheap and gives them job
+        // control too — so we wrap unconditionally on Unix.
+        var (spawnFile, spawnArgs) = WrapWithPty(fileName, args);
+
         var psi = new ProcessStartInfo
         {
-            FileName = shell, Arguments = args,
+            FileName = spawnFile, Arguments = spawnArgs,
             RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
             UseShellExecute = false, CreateNoWindow = true,
             WorkingDirectory = Environment.GetEnvironmentVariable("HOME") ?? "/tmp"
@@ -76,6 +117,10 @@ public static class PtyEndpoints
         psi.Environment["TERM"] = "xterm-256color";
         psi.Environment["ALTARIS_REMOTE"] = "1";
         psi.Environment["ALTARIS_SESSION_ID"] = session.Id.ToString();
+        // Tag bootstrap so the CLI can opt-out of duplicate work / banners.
+        psi.Environment["ALTARIS_PARENT"] = "web-pty";
+        psi.Environment["FORCE_COLOR"] = "1";
+        psi.Environment["NO_UPDATE_NOTIFIER"] = "1";
 
         var proc = Process.Start(psi);
         if (proc is null)
@@ -89,8 +134,11 @@ public static class PtyEndpoints
         var pty = mgr.Open(session.Id, tenant.TenantId.Value, tenant.UserId.Value, proc);
         var sub = pty.Attach(ws, tenant.UserId.Value, "master");
 
-        await Send(ws, JsonSerializer.Serialize(new { type = "ready", pid = proc.Id, shell, sessionId = session.Id }), ctx.RequestAborted);
-        await PersistMessage(db, tenant, session.Id, "system", JsonSerializer.Serialize(new { kind = "open", pid = proc.Id, shell }));
+        await Send(ws, JsonSerializer.Serialize(new {
+            type = "ready", pid = proc.Id, command = fileName, kind = provider,
+            sessionId = session.Id, title = session.Title
+        }), ctx.RequestAborted);
+        await PersistMessage(db, tenant, session.Id, "system", JsonSerializer.Serialize(new { kind = "open", pid = proc.Id, command = fileName }));
         await presence.TouchAsync(tenant.TenantSlug, session.Id, tenant.UserId.Value, "remote");
 
         // Pump shell → broadcast to all subs
@@ -258,6 +306,63 @@ public static class PtyEndpoints
             OccurredAt = DateTimeOffset.UtcNow
         });
         await db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    ///   Wrap a command with the system's `script` utility so the child
+    ///   process gets a real pty (Ink, htop, vim, less, … all need this).
+    ///   - macOS / BSD:  script -q /dev/null <cmd> [args]
+    ///   - Linux:        script -qec "<cmd> [args]" /dev/null
+    ///   - Windows:      no wrap (ConPTY would need a different binding)
+    /// </summary>
+    private static (string file, string args) WrapWithPty(string cmd, string args)
+    {
+        if (OperatingSystem.IsWindows()) return (cmd, args);
+        var combined = string.IsNullOrEmpty(args) ? cmd : $"{cmd} {args}";
+        if (OperatingSystem.IsMacOS())
+        {
+            // BSD script: trailing tokens become the executed command.
+            var trailing = string.IsNullOrEmpty(args) ? cmd : $"{cmd} {args}";
+            return ("/usr/bin/script", $"-q /dev/null {trailing}");
+        }
+        // Linux util-linux script: -c takes the command string.
+        return ("/usr/bin/script", $"-qec \"{combined.Replace("\"", "\\\"")}\" /dev/null");
+    }
+
+    /// <summary>
+    ///   Resolve the `altaris` binary path. Order:
+    ///     1. ALTARIS_BIN env var (operator override)
+    ///     2. ~/.local/bin/altaris
+    ///     3. PATH lookup
+    ///     4. Repo-relative cli/bin/altaris (dev fallback)
+    /// </summary>
+    private static string ResolveAltarisBinary()
+    {
+        var envOverride = Environment.GetEnvironmentVariable("ALTARIS_BIN");
+        if (!string.IsNullOrEmpty(envOverride) && File.Exists(envOverride)) return envOverride;
+
+        var home = Environment.GetEnvironmentVariable("HOME") ?? "";
+        var localBin = Path.Combine(home, ".local", "bin", "altaris");
+        if (File.Exists(localBin)) return localBin;
+
+        var path = Environment.GetEnvironmentVariable("PATH") ?? "";
+        foreach (var p in path.Split(Path.PathSeparator))
+        {
+            try
+            {
+                var candidate = Path.Combine(p, "altaris");
+                if (File.Exists(candidate)) return candidate;
+            }
+            catch { }
+        }
+
+        // Dev fallback: API is usually started from api/, so the cli is two levels up.
+        var devPath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory,
+            "..", "..", "..", "..", "..", "cli", "bin", "altaris"));
+        if (File.Exists(devPath)) return devPath;
+
+        // Last resort: trust PATH at exec time (will fail visibly if missing).
+        return "altaris";
     }
 
     private static async Task Send(WebSocket ws, string json, CancellationToken ct)

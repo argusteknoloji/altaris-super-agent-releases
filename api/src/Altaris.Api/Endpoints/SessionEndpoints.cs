@@ -13,6 +13,55 @@ public static class SessionEndpoints
 {
     public static IEndpointRouteBuilder MapSessionEndpoints(this IEndpointRouteBuilder app)
     {
+        // Tenant-scoped read of provider configs (chat picker — no secrets)
+        app.MapGet("/api/v1/providers", async (AltarisDbContext db, ITenantContext tc) =>
+        {
+            if (tc.TenantId is null) return Results.Forbid();
+            var rows = await db.ProviderConfigs
+                .Where(p => p.TenantId == tc.TenantId && p.Enabled)
+                .OrderByDescending(p => p.IsDefault).ThenBy(p => p.Provider).ThenBy(p => p.Name)
+                .Select(p => new { p.Id, p.Provider, p.Name, p.DefaultModel, p.IsDefault })
+                .ToListAsync();
+            return Results.Ok(rows);
+        }).RequireAuthorization();
+
+        // Tenant-scoped read of the ACTIVE provider with full credentials.
+        // Used by altaris CLI bootstrap so users don't have to export env vars.
+        // ?provider=lmstudio narrows by type; otherwise the tenant's default
+        // (or first enabled) is returned. Writes a terminal.bootstrap audit row.
+        app.MapGet("/api/v1/providers/active", async (
+            AltarisDbContext db, ITenantContext tc, HttpContext ctx, string? provider) =>
+        {
+            if (tc.TenantId is null) return Results.Forbid();
+            var q = db.ProviderConfigs.Where(p => p.TenantId == tc.TenantId && p.Enabled);
+            if (!string.IsNullOrEmpty(provider)) q = q.Where(p => p.Provider == provider);
+            var row = await q
+                .OrderByDescending(p => p.IsDefault)
+                .ThenBy(p => p.Provider).ThenBy(p => p.Name)
+                .Select(p => new { p.Id, p.Provider, p.Name, p.BaseUrl, p.ApiKeyEnc, p.DefaultModel, p.IsDefault })
+                .FirstOrDefaultAsync();
+            if (row is null) return Results.NotFound(new { error = "no enabled provider configured" });
+
+            db.AuditEvents.Add(new Domain.Entities.AuditEvent
+            {
+                TenantId = tc.TenantId, UserId = tc.UserId,
+                Actor = tc.UserEmail ?? "unknown",
+                Action = "providers.active.read",
+                ResourceType = "provider_config", ResourceId = row.Id.ToString(),
+                Ip = ctx.Connection.RemoteIpAddress?.ToString(),
+                UserAgent = ctx.Request.Headers.UserAgent.ToString(),
+                Payload = "{}", OccurredAt = DateTimeOffset.UtcNow
+            });
+            await db.SaveChangesAsync();
+
+            return Results.Ok(new
+            {
+                id = row.Id, provider = row.Provider, name = row.Name,
+                baseUrl = row.BaseUrl, apiKey = row.ApiKeyEnc,
+                model = row.DefaultModel, isDefault = row.IsDefault
+            });
+        }).RequireAuthorization();
+
         // Caller's own session detail + messages
         app.MapGet("/api/v1/sessions/{id:guid}", GetOwnSession).RequireAuthorization();
         app.MapGet("/api/v1/sessions/{id:guid}/messages", GetOwnMessages).RequireAuthorization();

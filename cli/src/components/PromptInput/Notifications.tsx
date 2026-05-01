@@ -303,11 +303,13 @@ function NotificationContent({
             ({apiKeyHelperSlow})
           </Text>
         </Box>}
-      {(apiKeyStatus === 'invalid' || apiKeyStatus === 'missing') && <Box>
-          <Text color="error" wrap="truncate">
-            {isEnvTruthy(process.env.ALTARIS_REMOTE) ? 'Authentication error · Try again' : 'Not logged in · Run /login'}
-          </Text>
-        </Box>}
+      {/*
+        Upstream API-key auth check disabled: Altaris uses Argus Identity
+        Provider (Keycloak Device Flow via `altaris login`) and routes chat
+        through tenant-configured providers. The Anthropic Console session
+        status this banner used to surface is irrelevant here, and the real
+        provider error — if any — already appears inline on the request.
+      */}
       {debug && <Box>
           <Text color="warning" wrap="truncate">
             Debug mode

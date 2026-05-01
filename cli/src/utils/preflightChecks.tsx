@@ -16,6 +16,13 @@ export interface PreflightCheckResult {
   sslHint?: string;
 }
 async function checkEndpoints(): Promise<PreflightCheckResult> {
+  // Altaris is local-first: a single hardcoded "platform" URL means nothing
+  // here. The provider call itself surfaces the real connectivity error if
+  // the configured endpoint is unreachable, so this preflight is dead weight.
+  // Set ALTARIS_ENABLE_PREFLIGHT=1 to opt back into the legacy probe.
+  if (process.env.ALTARIS_ENABLE_PREFLIGHT !== '1') {
+    return { success: true };
+  }
   try {
     const oauthConfig = getOauthConfig();
     const tokenUrl = new URL(oauthConfig.TOKEN_URL);

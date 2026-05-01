@@ -296,9 +296,10 @@ public static class AdminEndpoints
         p.Enabled = req.Enabled;
         if (!string.IsNullOrEmpty(req.ApiKey))
         {
-            // Dev: store hex(SHA256(apikey)) until proper KMS wiring lands
-            // Replace with libsodium / Azure KeyVault / AWS KMS in production
-            p.ApiKeyEnc = "sha256:" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(req.ApiKey)));
+            // MVP: store raw key — provider invocation needs plaintext.
+            // TODO: wrap in libsodium / Azure KeyVault / AWS KMS envelope encryption
+            // before exposing this column outside the host machine.
+            p.ApiKeyEnc = req.ApiKey;
         }
         p.UpdatedAt = DateTimeOffset.UtcNow;
 
