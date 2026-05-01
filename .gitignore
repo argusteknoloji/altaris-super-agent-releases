@@ -47,7 +47,9 @@ TestResults/
 # Infra runtime data
 infra/data/
 infra/keycloak-data/
+infra/keycloak-db-data/
 infra/postgres-data/
+infra/redis-data/
 
 # CLI binary outputs
 cli/dist/
