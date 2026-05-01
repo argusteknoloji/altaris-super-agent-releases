@@ -54,3 +54,11 @@ infra/redis-data/
 # CLI binary outputs
 cli/dist/
 cli/release/
+
+# Desktop (Tauri) build outputs
+desktop/dist/
+desktop/src-tauri/target/
+desktop/src-tauri/Cargo.lock
+desktop/src-tauri/icons/android/
+desktop/src-tauri/icons/ios/
+desktop/icon-source.png

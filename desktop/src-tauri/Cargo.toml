@@ -14,7 +14,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.0", features = [] }
 
 [dependencies]
-tauri = { version = "2.1", features = ["macos-private-api"] }
+tauri = { version = "2.1", features = [] }
 tauri-plugin-shell = "2.0"
 tauri-plugin-store = "2.1"
 serde = { version = "1", features = ["derive"] }
@@ -27,6 +27,7 @@ anyhow = "1"
 futures-util = "0.3"
 portable-pty = "0.8"
 bytes = "1"
+base64 = "0.22"
 
 [features]
 default = ["custom-protocol"]
