@@ -7,6 +7,7 @@ using Altaris.Infrastructure.Persistence;
 using Altaris.Infrastructure.Presence;
 using Altaris.Infrastructure.Pty;
 using Altaris.Infrastructure.RemoteControl;
+using Altaris.Infrastructure.Vaults;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
@@ -70,6 +71,15 @@ try
     builder.Services.AddSingleton<PresenceTracker>();
     builder.Services.AddSingleton<PtySessionManager>();
     builder.Services.AddSingleton<RemoteControlBroker>();
+
+    // Vault filesystem storage
+    var vaultsRoot = builder.Configuration["Vaults:RootDir"]
+                     ?? Environment.GetEnvironmentVariable("ALTARIS_VAULTS_ROOT")
+                     ?? Path.Combine(Environment.GetEnvironmentVariable("HOME") ?? "/tmp",
+                                     ".altaris", "server-vaults");
+    Directory.CreateDirectory(vaultsRoot);
+    builder.Services.AddSingleton(new VaultStorageOptions { RootDir = vaultsRoot });
+    builder.Services.AddSingleton<VaultStorage>();
 
     var pgConn = builder.Configuration.GetConnectionString("Postgres")
                  ?? "Host=localhost;Port=5433;Database=altaris;Username=altaris;Password=altaris_dev";
@@ -206,6 +216,7 @@ try
     app.MapPresenceEndpoints();
     app.MapFileEndpoints();
     app.MapRemoteControlEndpoints();
+    app.MapVaultEndpoints();
 
     Log.Information("Altaris API starting in {Env}", app.Environment.EnvironmentName);
     app.Run();

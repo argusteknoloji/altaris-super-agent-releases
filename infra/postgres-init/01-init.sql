@@ -92,6 +92,10 @@ CREATE POLICY tenant_isolation_messages ON session_messages
 CREATE POLICY tenant_isolation_audit ON audit_events
     USING (tenant_id::text = current_setting('app.tenant_id', true));
 
+ALTER TABLE vaults ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_vaults ON vaults
+    USING (tenant_id::text = current_setting('app.tenant_id', true));
+
 -- Invitations (tenant onboarding)
 CREATE TABLE IF NOT EXISTS invitations (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

@@ -15,6 +15,7 @@ public class AltarisDbContext : DbContext
     public DbSet<Invitation> Invitations => Set<Invitation>();
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<ProviderConfig> ProviderConfigs => Set<ProviderConfig>();
+    public DbSet<Vault> Vaults => Set<Vault>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -121,6 +122,23 @@ public class AltarisDbContext : DbContext
             e.Property(x => x.Metadata).HasColumnName("metadata").HasColumnType("jsonb");
             e.Property(x => x.CreatedAt).HasColumnName("created_at");
             e.Property(x => x.UpdatedAt).HasColumnName("updated_at");
+        });
+
+        modelBuilder.Entity<Vault>(e =>
+        {
+            e.ToTable("vaults");
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.TenantId).HasColumnName("tenant_id");
+            e.Property(x => x.OwnerUserId).HasColumnName("owner_user_id");
+            e.Property(x => x.Slug).HasColumnName("slug");
+            e.Property(x => x.Name).HasColumnName("name");
+            e.Property(x => x.Status).HasColumnName("status");
+            e.Property(x => x.Visibility).HasColumnName("visibility");
+            e.Property(x => x.FileCount).HasColumnName("file_count");
+            e.Property(x => x.ByteSize).HasColumnName("byte_size");
+            e.Property(x => x.CreatedAt).HasColumnName("created_at");
+            e.Property(x => x.UpdatedAt).HasColumnName("updated_at");
+            e.HasIndex(x => new { x.TenantId, x.Slug }).IsUnique();
         });
 
         modelBuilder.Entity<AuditEvent>(e =>
