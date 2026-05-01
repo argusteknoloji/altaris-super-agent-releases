@@ -33,7 +33,7 @@
         "oauth2.device.authorization.grant.enabled": "true",
         "pkce.code.challenge.method": "S256"
       },
-      "defaultClientScopes": ["basic", "tenant"],
+      "defaultClientScopes": ["basic", "tenant", "roles"],
       "optionalClientScopes": ["email", "profile"],
       "redirectUris": ["http://localhost:*"]
     },
@@ -49,7 +49,7 @@
       "attributes": {
         "pkce.code.challenge.method": "S256"
       },
-      "defaultClientScopes": ["basic", "tenant"],
+      "defaultClientScopes": ["basic", "tenant", "roles"],
       "optionalClientScopes": ["email", "profile"]
     },
     {
@@ -58,6 +58,15 @@
       "bearerOnly": true,
       "publicClient": false,
       "secret": "dev-only-altaris-api-secret-replace-in-prod"
+    },
+    {
+      "clientId": "altaris-admin-svc",
+      "name": "Altaris Admin Service Account",
+      "publicClient": false,
+      "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "secret": "dev-only-altaris-admin-svc-secret-replace-in-prod"
     }
   ],
   "clientScopes": [
@@ -112,6 +121,19 @@
             "included.client.audience": "altaris-api",
             "id.token.claim": "false",
             "access.token.claim": "true"
+          }
+        },
+        {
+          "name": "realm_roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "realm_access.roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
           }
         }
       ]

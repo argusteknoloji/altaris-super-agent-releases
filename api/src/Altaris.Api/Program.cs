@@ -1,15 +1,34 @@
 using Altaris.Api.Endpoints;
 using Altaris.Api.Middleware;
+using Altaris.Infrastructure.Keycloak;
 using Altaris.Infrastructure.MultiTenancy;
 using Altaris.Infrastructure.Persistence;
+using Altaris.Infrastructure.Presence;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddOpenApi();
 builder.Services.AddHttpClient();
+
+// Keycloak admin client (service account)
+builder.Services.AddSingleton(sp => new KeycloakAdminOptions
+{
+    AdminBase = builder.Configuration["Keycloak:AdminBase"] ?? "http://localhost:8081/admin",
+    RealmBase = builder.Configuration["Keycloak:Authority"] ?? "http://localhost:8081/realms/altaris",
+    Realm = builder.Configuration["Keycloak:Realm"] ?? "altaris",
+    AdminClientId = builder.Configuration["Keycloak:AdminClientId"] ?? "altaris-admin-svc",
+    AdminClientSecret = builder.Configuration["Keycloak:AdminClientSecret"] ?? "dev-only-altaris-admin-svc-secret-replace-in-prod"
+});
+builder.Services.AddHttpClient<KeycloakAdminClient>();
+
+// Redis presence
+var redisConn = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6380";
+builder.Services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisConn));
+builder.Services.AddSingleton<PresenceTracker>();
 
 builder.Services.AddDbContext<AltarisDbContext>(opts =>
     opts.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")
@@ -95,5 +114,8 @@ app.MapGet("/api/v1/sessions", async (AltarisDbContext db, ITenantContext tc) =>
 
 app.MapChatEndpoints();
 app.MapPtyEndpoints();
+app.MapAdminEndpoints();
+app.MapSessionEndpoints();
+app.MapPresenceEndpoints();
 
 app.Run();

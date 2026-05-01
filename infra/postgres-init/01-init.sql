@@ -89,6 +89,65 @@ CREATE POLICY tenant_isolation_messages ON session_messages
 CREATE POLICY tenant_isolation_audit ON audit_events
     USING (tenant_id::text = current_setting('app.tenant_id', true));
 
+-- Invitations (tenant onboarding)
+CREATE TABLE IF NOT EXISTS invitations (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    email           TEXT NOT NULL,
+    role            TEXT NOT NULL DEFAULT 'tenant_member',
+    token           TEXT NOT NULL UNIQUE,
+    invited_by      UUID REFERENCES users(id) ON DELETE SET NULL,
+    expires_at      TIMESTAMPTZ NOT NULL,
+    accepted_at     TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS invitations_tenant_idx ON invitations(tenant_id);
+
+-- API keys (CLI device long-lived tokens)
+CREATE TABLE IF NOT EXISTS api_keys (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name            TEXT NOT NULL,
+    prefix          TEXT NOT NULL,
+    hash            TEXT NOT NULL,
+    last_used_at    TIMESTAMPTZ,
+    expires_at      TIMESTAMPTZ,
+    revoked_at      TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS api_keys_tenant_user_idx ON api_keys(tenant_id, user_id);
+CREATE INDEX IF NOT EXISTS api_keys_prefix_idx ON api_keys(prefix);
+
+-- Provider configurations per tenant (Anthropic, Ollama, LM Studio endpoints + secrets)
+CREATE TABLE IF NOT EXISTS provider_configs (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    provider        TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    base_url        TEXT,
+    api_key_enc     TEXT,
+    default_model   TEXT,
+    is_default      BOOLEAN NOT NULL DEFAULT false,
+    enabled         BOOLEAN NOT NULL DEFAULT true,
+    metadata        JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (tenant_id, provider, name)
+);
+CREATE INDEX IF NOT EXISTS provider_configs_tenant_idx ON provider_configs(tenant_id);
+
+ALTER TABLE invitations      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE api_keys         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE provider_configs ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolation_invites  ON invitations
+    USING (tenant_id::text = current_setting('app.tenant_id', true));
+CREATE POLICY tenant_isolation_keys     ON api_keys
+    USING (tenant_id::text = current_setting('app.tenant_id', true));
+CREATE POLICY tenant_isolation_provider ON provider_configs
+    USING (tenant_id::text = current_setting('app.tenant_id', true));
+
 -- Seed: dev tenant
 INSERT INTO tenants (slug, name, keycloak_realm)
 VALUES ('argus', 'Argus Teknoloji (dev)', 'altaris')
