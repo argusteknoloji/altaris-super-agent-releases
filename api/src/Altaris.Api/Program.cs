@@ -4,6 +4,7 @@ using Altaris.Infrastructure.Keycloak;
 using Altaris.Infrastructure.MultiTenancy;
 using Altaris.Infrastructure.Persistence;
 using Altaris.Infrastructure.Presence;
+using Altaris.Infrastructure.Pty;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -29,6 +30,7 @@ builder.Services.AddHttpClient<KeycloakAdminClient>();
 var redisConn = builder.Configuration.GetConnectionString("Redis") ?? "localhost:6380";
 builder.Services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisConn));
 builder.Services.AddSingleton<PresenceTracker>();
+builder.Services.AddSingleton<PtySessionManager>();
 
 builder.Services.AddDbContext<AltarisDbContext>(opts =>
     opts.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")

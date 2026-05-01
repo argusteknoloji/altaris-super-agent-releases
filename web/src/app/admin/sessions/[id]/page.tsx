@@ -47,6 +47,11 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
           {live
             ? <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-3 py-1 text-xs text-emerald-400 ring-1 ring-emerald-500/30"><span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>connected</span>
             : <span className="inline-flex items-center gap-1.5 rounded-md bg-neutral-800 px-3 py-1 text-xs text-neutral-500"><span className="h-2 w-2 rounded-full bg-neutral-600"></span>not connected</span>}
+          {live && (detail.source === "remote" || detail.source === "cli") && (
+            <Link href={`/admin/sessions/${id}/live`} className="mt-2 inline-block rounded-md bg-orange-500 px-3 py-1 text-xs font-medium text-white hover:bg-orange-600">
+              Canlı izle / Takeover →
+            </Link>
+          )}
           <p className="mt-2 text-xs text-neutral-500">başlangıç {new Date(detail.startedAt).toLocaleString("tr-TR")}</p>
           {detail.endedAt && <p className="text-xs text-neutral-500">bitiş {new Date(detail.endedAt).toLocaleString("tr-TR")}</p>}
         </div>
