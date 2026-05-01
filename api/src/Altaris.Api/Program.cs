@@ -13,7 +13,7 @@ builder.Services.AddHttpClient();
 
 builder.Services.AddDbContext<AltarisDbContext>(opts =>
     opts.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")
-                   ?? "Host=localhost;Port=5432;Database=altaris;Username=altaris;Password=altaris_dev"));
+                   ?? "Host=localhost;Port=5433;Database=altaris;Username=altaris;Password=altaris_dev"));
 
 builder.Services.AddScoped<ITenantContext, TenantContext>();
 

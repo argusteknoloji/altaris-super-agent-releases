@@ -1,7 +1,14 @@
 import NextAuth from "next-auth";
 import Keycloak from "next-auth/providers/keycloak";
 
-export const { handlers, signIn, signOut, auth } = NextAuth({
+export type AltarisSession = {
+  accessToken?: string;
+  tenantSlug?: string;
+  user?: { name?: string | null; email?: string | null; image?: string | null };
+  expires: string;
+};
+
+export const { handlers, signIn, signOut, auth: nextAuth } = NextAuth({
   providers: [
     Keycloak({
       clientId: process.env.AUTH_KEYCLOAK_ID!,
@@ -12,17 +19,23 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   ],
   callbacks: {
     async jwt({ token, account, profile }) {
-      if (account?.access_token) token.accessToken = account.access_token;
-      if (profile && (profile as Record<string, unknown>).tid) {
-        token.tenantSlug = (profile as Record<string, unknown>).tid as string;
-      }
+      if (account?.access_token) (token as Record<string, unknown>).accessToken = account.access_token;
+      const tid = (profile as { tid?: string } | undefined)?.tid;
+      if (tid) (token as Record<string, unknown>).tenantSlug = tid;
       return token;
     },
     async session({ session, token }) {
-      (session as Record<string, unknown>).accessToken = token.accessToken;
-      (session as Record<string, unknown>).tenantSlug = token.tenantSlug;
+      const t = token as Record<string, unknown>;
+      const s = session as unknown as Record<string, unknown>;
+      s.accessToken = t.accessToken;
+      s.tenantSlug = t.tenantSlug;
       return session;
     }
   },
   trustHost: true
 });
+
+export async function auth(): Promise<AltarisSession | null> {
+  const s = await nextAuth();
+  return s as AltarisSession | null;
+}

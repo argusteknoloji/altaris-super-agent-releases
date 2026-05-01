@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: altaris_dev
       POSTGRES_DB: altaris
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - ./postgres-data:/var/lib/postgresql/data
       - ./postgres-init:/docker-entrypoint-initdb.d:ro
@@ -60,7 +60,7 @@ services:
     image: redis:7-alpine
     container_name: altaris-redis
     ports:
-      - "6379:6379"
+      - "6380:6379"
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - ./redis-data:/data

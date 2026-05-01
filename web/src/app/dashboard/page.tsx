@@ -26,8 +26,8 @@ export default async function Dashboard() {
   const session = await auth();
   if (!session) redirect("/");
 
-  const token = (session as Record<string, unknown>).accessToken as string | undefined;
-  const tenantSlug = (session as Record<string, unknown>).tenantSlug as string | undefined;
+  const token = session.accessToken;
+  const tenantSlug = session.tenantSlug;
   const sessions = token ? await getSessions(token) : [];
 
   return (
