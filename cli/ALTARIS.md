@@ -1,6 +1,6 @@
 # Altaris CLI
 
-`altaris` — Argus Teknoloji'nin kurumsal agentic AI terminali. openclaude runtime'ı üzerine inşa edilmiştir; Argus multi-tenant API'sine, Keycloak SSO'ya ve Argus'un yönettiği lokal LLM provider'larına bağlanır.
+`altaris` — Argus Teknoloji'nin kurumsal agentic AI terminali. Argus multi-tenant API'sine, Keycloak SSO'ya ve Argus'un yönettiği lokal LLM provider'larına bağlanır.
 
 ## Build
 
@@ -33,8 +33,5 @@ bun build --compile --target=bun-windows-x64 ./dist/cli.mjs --outfile release/al
 `altaris` ilk başta lokal LLM önerir:
 - LM Studio (`https://llm.argusteknoloji.com/v1` veya `http://localhost:1234/v1`)
 - Ollama (`http://localhost:11434`)
-- Anthropic Claude (bulut isteyen müşteriler için)
+- Bulut model provider (Anthropic / OpenAI uyumlu — bulut isteyen müşteriler için)
 
-## Upstream İlişkisi
-
-openclaude'dan türetilmiştir. Upstream merge'leri için `docs/upstream-merge-playbook.md`. Bu repo'nun lisans/IP durumu için root `docs/legal/derivation-risk.md`.

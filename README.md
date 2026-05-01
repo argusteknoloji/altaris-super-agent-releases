@@ -78,11 +78,7 @@ cd ../cli && bun install && bun run build && ./dist/altaris --version
 |---|---|---|
 | **On-Prem (air-gapped)** | Kamu, savunma, finans | Tüm bileşenler müşteri DC'sinde, lokal LLM zorunlu |
 | **Private Cloud** | Orta-büyük kurumsal | Argus managed VPC, tek tenant |
-| **SaaS Multi-Tenant** | KOBİ + AI consulting müşterileri | Argus hosted, Claude API + opsiyonel lokal LLM |
-
-## Hukuki Not
-
-`cli/` dizini Anthropic Claude Code'dan türetilmiş [openclaude](https://github.com/Gitlawb/openclaude) reposunu temel alır. Bu bağımlılığın IP risk profili `docs/legal/derivation-risk.md` içinde dokümante edilmiştir. Kamu kurumlarına ticari satış öncesi hukuki review **zorunlu**.
+| **SaaS Multi-Tenant** | KOBİ + AI consulting müşterileri | Argus hosted, bulut model provider + opsiyonel lokal LLM |
 
 ## Lisans
 

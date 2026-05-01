@@ -145,21 +145,23 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/Gitlawb/openclaude.git"
+    "url": "https://github.com/argusteknoloji/altaris-super-agent.git",
+    "directory": "cli"
   },
   "keywords": [
-    "claude-code",
-    "openai",
+    "altaris",
+    "argus",
+    "agentic",
     "llm",
     "cli",
     "agent",
-    "deepseek",
     "ollama",
-    "gemini"
+    "lmstudio"
   ],
-  "license": "SEE LICENSE FILE",
+  "license": "UNLICENSED",
+  "private": true,
   "publishConfig": {
-    "access": "public"
+    "access": "restricted"
   },
   "overrides": {
     "lodash-es": "4.18.1"
