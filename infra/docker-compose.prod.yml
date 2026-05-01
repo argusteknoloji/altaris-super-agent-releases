@@ -1,0 +1,184 @@
+# Production compose. Run as:
+#   docker compose -f docker-compose.prod.yml --env-file .env.production up -d
+#
+# Reverse proxy: Caddy auto-provisions Let's Encrypt certs for the hostnames
+# defined in CADDY_DOMAINS_* env vars. For air-gapped deploys swap Caddy for
+# a self-signed bundle and remove the LETSENCRYPT_EMAIL var.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: altaris-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:?required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_DB:       ${POSTGRES_DB:?required}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [internal]
+
+  keycloak-db:
+    image: postgres:16-alpine
+    container_name: altaris-keycloak-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${KC_DB_USER:?required}
+      POSTGRES_PASSWORD: ${KC_DB_PASSWORD:?required}
+      POSTGRES_DB:       ${KC_DB_NAME:?required}
+    volumes:
+      - keycloak-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [internal]
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    container_name: altaris-keycloak
+    restart: unless-stopped
+    command: ["start", "--optimized", "--import-realm"]
+    environment:
+      KC_DB:           postgres
+      KC_DB_URL:       jdbc:postgresql://keycloak-db:5432/${KC_DB_NAME}
+      KC_DB_USERNAME:  ${KC_DB_USER}
+      KC_DB_PASSWORD:  ${KC_DB_PASSWORD}
+      KC_HOSTNAME:     ${KC_HOSTNAME:?required}
+      KC_HOSTNAME_STRICT_BACKCHANNEL: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HTTP_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+      KEYCLOAK_ADMIN:          ${KC_ADMIN_USER:?required}
+      KEYCLOAK_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:?required}
+    volumes:
+      - ./keycloak/realms:/opt/keycloak/data/import:ro
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    networks: [internal]
+
+  redis:
+    image: redis:7-alpine
+    container_name: altaris-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?required}"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [internal]
+
+  api:
+    image: ghcr.io/argusteknoloji/altaris-api:${ALTARIS_VERSION:-latest}
+    build:
+      context: ../api
+      dockerfile: Dockerfile
+    container_name: altaris-api
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};Pooling=true;Maximum Pool Size=64"
+      ConnectionStrings__Redis:    "redis:6379,password=${REDIS_PASSWORD}"
+      Keycloak__Authority:         "https://${KC_HOSTNAME}/realms/${KC_REALM:-altaris}"
+      Keycloak__AdminBase:         "https://${KC_HOSTNAME}/admin"
+      Keycloak__Realm:             "${KC_REALM:-altaris}"
+      Keycloak__AdminClientId:     "altaris-admin-svc"
+      Keycloak__AdminClientSecret: "${KC_ADMIN_SVC_SECRET:?required}"
+      Cors__AllowedOrigins__0:     "https://${WEB_HOSTNAME:?required}"
+    depends_on:
+      postgres:    { condition: service_healthy }
+      keycloak-db: { condition: service_healthy }
+      redis:       { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:5000/health/live || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks: [internal]
+
+  web:
+    image: ghcr.io/argusteknoloji/altaris-web:${ALTARIS_VERSION:-latest}
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+    container_name: altaris-web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      AUTH_SECRET:          ${WEB_AUTH_SECRET:?required}
+      AUTH_KEYCLOAK_ID:     altaris-web
+      AUTH_KEYCLOAK_SECRET: ${WEB_KEYCLOAK_SECRET:-}
+      AUTH_KEYCLOAK_ISSUER: "https://${KC_HOSTNAME}/realms/${KC_REALM:-altaris}"
+      ALTARIS_API_BASE:     "http://api:5000"
+      AUTH_TRUST_HOST:      "true"
+      NEXTAUTH_URL:         "https://${WEB_HOSTNAME}"
+    depends_on:
+      api: { condition: service_healthy }
+    networks: [internal]
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: altaris-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      WEB_HOSTNAME:       ${WEB_HOSTNAME}
+      KC_HOSTNAME:        ${KC_HOSTNAME}
+      API_HOSTNAME:       ${API_HOSTNAME:-}
+      LETSENCRYPT_EMAIL:  ${LETSENCRYPT_EMAIL:-internal@argusteknoloji.com}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [web, api, keycloak]
+    networks: [internal]
+
+  pg-backup:
+    image: postgres:16-alpine
+    container_name: altaris-pg-backup
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      PGUSER:     ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+      PGHOST:     postgres
+      RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    volumes:
+      - ./backups:/backups
+      - ./scripts/pg-backup.sh:/usr/local/bin/pg-backup.sh:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      "while true; do
+         /usr/local/bin/pg-backup.sh;
+         sleep 86400;
+       done"
+    networks: [internal]
+
+volumes:
+  postgres-data:
+  keycloak-db-data:
+  redis-data:
+  caddy-data:
+  caddy-config:
+
+networks:
+  internal:
+    driver: bridge

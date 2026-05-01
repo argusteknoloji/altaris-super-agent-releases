@@ -1,0 +1,63 @@
+# Altaris Caddy reverse proxy
+# Auto-TLS via Let's Encrypt; for air-gapped deploys replace `tls` directives
+# with self-signed bundle paths.
+
+{
+    email {$LETSENCRYPT_EMAIL}
+    servers {
+        protocols h1 h2 h3
+    }
+}
+
+# ── Web portal ───────────────────────────────────────────────────────────────
+{$WEB_HOSTNAME} {
+    encode zstd gzip
+    reverse_proxy web:3000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        X-Content-Type-Options    "nosniff"
+        X-Frame-Options           "DENY"
+        Referrer-Policy           "strict-origin-when-cross-origin"
+        -Server
+    }
+}
+
+# ── Keycloak (SSO endpoint) ─────────────────────────────────────────────────
+{$KC_HOSTNAME} {
+    encode zstd gzip
+    reverse_proxy keycloak:8080 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        -Server
+    }
+}
+
+# ── API (optional public exposure for CLI / Desktop / native apps) ──────────
+# Expose API publicly only when CLI / Desktop need to reach it from outside
+# the web portal. Internal-only deploys can leave API_HOSTNAME unset and
+# route everything through the web origin.
+{$API_HOSTNAME:api.localhost} {
+    encode zstd gzip
+    reverse_proxy api:5000 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+        # WebSocket support for /ws/pty endpoints
+        flush_interval -1
+    }
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+        -Server
+    }
+}
