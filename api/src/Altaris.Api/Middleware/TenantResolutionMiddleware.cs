@@ -20,16 +20,17 @@ public class TenantResolutionMiddleware
         }
 
         var tenantSlug = context.User.FindFirst("tid")?.Value;
-        var sub = context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
-                  ?? context.User.FindFirst("sub")?.Value;
-        var email = context.User.FindFirst(ClaimTypes.Email)?.Value
-                    ?? context.User.FindFirst("email")?.Value
+        var sub = context.User.FindFirst("sub")?.Value
+                  ?? context.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var email = context.User.FindFirst("email")?.Value
+                    ?? context.User.FindFirst(ClaimTypes.Email)?.Value
                     ?? "unknown";
 
         if (string.IsNullOrEmpty(tenantSlug) || string.IsNullOrEmpty(sub))
         {
+            var allClaims = string.Join(", ", context.User.Claims.Select(c => c.Type));
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            await context.Response.WriteAsync("Missing tenant or subject claim.");
+            await context.Response.WriteAsync($"Missing tenant or subject claim. Saw: {allClaims}");
             return;
         }
 

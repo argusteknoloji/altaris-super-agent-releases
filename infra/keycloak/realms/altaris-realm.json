@@ -27,13 +27,14 @@
       "name": "Altaris CLI",
       "publicClient": true,
       "standardFlowEnabled": false,
-      "directAccessGrantsEnabled": false,
+      "directAccessGrantsEnabled": true,
       "serviceAccountsEnabled": false,
       "attributes": {
         "oauth2.device.authorization.grant.enabled": "true",
         "pkce.code.challenge.method": "S256"
       },
-      "defaultClientScopes": ["openid", "email", "profile", "tenant"],
+      "defaultClientScopes": ["basic", "tenant"],
+      "optionalClientScopes": ["email", "profile"],
       "redirectUris": ["http://localhost:*"]
     },
     {
@@ -48,7 +49,8 @@
       "attributes": {
         "pkce.code.challenge.method": "S256"
       },
-      "defaultClientScopes": ["openid", "email", "profile", "tenant"]
+      "defaultClientScopes": ["basic", "tenant"],
+      "optionalClientScopes": ["email", "profile"]
     },
     {
       "clientId": "altaris-api",
@@ -76,6 +78,40 @@
             "id.token.claim": "true",
             "access.token.claim": "true",
             "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "subject",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-sub-mapper",
+          "config": {
+            "introspection.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true"
+          }
+        },
+        {
+          "name": "email_in_token",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "config": {
+            "user.attribute": "email",
+            "claim.name": "email",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "altaris-api",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
           }
         }
       ]

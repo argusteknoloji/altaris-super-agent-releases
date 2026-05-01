@@ -27,6 +27,7 @@ builder.Services
         o.Authority = keycloakAuthority;
         o.Audience = "altaris-api";
         o.RequireHttpsMetadata = false; // dev only
+        o.MapInboundClaims = false; // keep raw JWT claim names (sub, tid, email)
         o.TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
