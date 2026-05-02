@@ -17,6 +17,7 @@ public class AltarisDbContext : DbContext
     public DbSet<ProviderConfig> ProviderConfigs => Set<ProviderConfig>();
     public DbSet<Vault> Vaults => Set<Vault>();
     public DbSet<VaultFile> VaultFiles => Set<VaultFile>();
+    public DbSet<UserCapability> UserCapabilities => Set<UserCapability>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -160,6 +161,19 @@ public class AltarisDbContext : DbContext
             e.Property(x => x.Bytes).HasColumnName("bytes");
             e.Property(x => x.IndexedAt).HasColumnName("indexed_at");
             e.HasIndex(x => new { x.VaultId, x.Path }).IsUnique();
+        });
+
+        modelBuilder.Entity<UserCapability>(e =>
+        {
+            e.ToTable("user_capabilities");
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.TenantId).HasColumnName("tenant_id");
+            e.Property(x => x.UserId).HasColumnName("user_id");
+            e.Property(x => x.Capability).HasColumnName("capability");
+            e.Property(x => x.Effect).HasColumnName("effect");
+            e.Property(x => x.GrantedBy).HasColumnName("granted_by");
+            e.Property(x => x.GrantedAt).HasColumnName("granted_at");
+            e.HasIndex(x => new { x.UserId, x.Capability }).IsUnique();
         });
 
         modelBuilder.Entity<AuditEvent>(e =>

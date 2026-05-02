@@ -41,6 +41,11 @@ public static class AdminEndpoints
         grp.MapPatch("/users/{userId:guid}", UpdateUser);
         grp.MapDelete("/users/{userId:guid}", DeleteUser);
         grp.MapPost("/users/{userId:guid}/reset-password", ResetPassword);
+        // Capability management (per-user override on top of role defaults)
+        grp.MapGet ("/users/{userId:guid}/capabilities",      GetUserCapabilities);
+        grp.MapPut ("/users/{userId:guid}/capabilities",      ReplaceUserCapabilities);
+        // Catalogue (registry + role defaults) for the admin UI matrix
+        grp.MapGet ("/capabilities/catalog",                  GetCapabilityCatalog);
 
         // ===== INVITATIONS =====
         grp.MapGet("/invitations", ListInvitations);
@@ -198,6 +203,86 @@ public static class AdminEndpoints
         if (u is null) return Results.NotFound();
         await kc.ResetPasswordAsync(u.KeycloakSub, req.NewPassword, req.Temporary);
         return Results.NoContent();
+    }
+
+    // ---- CAPABILITIES ----
+    private static async Task<IResult> GetCapabilityCatalog() => await Task.FromResult(Results.Ok(new
+    {
+        all = Altaris.Domain.Permissions.Capabilities.All,
+        defaults = new
+        {
+            tenant_member  = Altaris.Domain.Permissions.RoleDefaults.Member.OrderBy(s => s),
+            tenant_admin   = Altaris.Domain.Permissions.RoleDefaults.TenantAdmin.OrderBy(s => s),
+            platform_admin = Altaris.Domain.Permissions.RoleDefaults.PlatformAdmin.OrderBy(s => s),
+        }
+    }));
+
+    private static async Task<IResult> GetUserCapabilities(Guid userId, AltarisDbContext db, ITenantContext tc)
+    {
+        var u = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == userId && x.TenantId == tc.TenantId);
+        if (u is null) return Results.NotFound();
+
+        var defaults = Altaris.Domain.Permissions.RoleDefaults.ForRole(u.Role);
+        var overrides = await db.UserCapabilities.AsNoTracking()
+            .Where(c => c.UserId == userId)
+            .Select(c => new { c.Capability, c.Effect, c.GrantedAt })
+            .ToListAsync();
+        var effective = new HashSet<string>(defaults);
+        foreach (var o in overrides)
+        {
+            if (o.Effect == "allow") effective.Add(o.Capability);
+            else if (o.Effect == "deny") effective.Remove(o.Capability);
+        }
+        return Results.Ok(new
+        {
+            userId,
+            role = u.Role,
+            defaults = defaults.OrderBy(s => s),
+            overrides,
+            effective = effective.OrderBy(s => s),
+        });
+    }
+
+    public record CapabilityOverrideEntry(string Capability, string Effect);
+    public record ReplaceUserCapabilitiesRequest(IReadOnlyList<CapabilityOverrideEntry> Overrides);
+
+    /// <summary>
+    ///   Tüm override'ları wholesale değiştir. UI matrix bu şekilde gönderir
+    ///   (delete-all + insert) — küçük tablo, yarış yok, basit semantik.
+    /// </summary>
+    private static async Task<IResult> ReplaceUserCapabilities(
+        Guid userId, ReplaceUserCapabilitiesRequest req, AltarisDbContext db, ITenantContext tc)
+    {
+        if (tc.TenantId is null || tc.UserId is null) return Results.Forbid();
+        var u = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == userId && x.TenantId == tc.TenantId);
+        if (u is null) return Results.NotFound();
+
+        var validCaps = new HashSet<string>(Altaris.Domain.Permissions.Capabilities.All);
+        var entries = (req.Overrides ?? new List<CapabilityOverrideEntry>())
+            .Where(e => validCaps.Contains(e.Capability))
+            .Where(e => e.Effect == "allow" || e.Effect == "deny")
+            .GroupBy(e => e.Capability)
+            .Select(g => g.Last())
+            .ToList();
+
+        await db.UserCapabilities
+            .Where(c => c.UserId == userId)
+            .ExecuteDeleteAsync();
+        foreach (var e in entries)
+        {
+            db.UserCapabilities.Add(new Domain.Entities.UserCapability
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tc.TenantId.Value,
+                UserId = userId,
+                Capability = e.Capability,
+                Effect = e.Effect,
+                GrantedBy = tc.UserId,
+                GrantedAt = DateTimeOffset.UtcNow,
+            });
+        }
+        await db.SaveChangesAsync();
+        return Results.Ok(new { count = entries.Count });
     }
 
     // ---- INVITATIONS ----

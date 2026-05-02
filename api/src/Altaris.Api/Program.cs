@@ -86,6 +86,7 @@ try
     builder.Services.AddDbContext<AltarisDbContext>(opts => opts.UseNpgsql(pgConn));
 
     builder.Services.AddScoped<ITenantContext, TenantContext>();
+    builder.Services.AddScoped<Altaris.Infrastructure.Permissions.CapabilityResolver>();
     builder.Services.AddHostedService<Altaris.Api.Services.CodexTokenRefreshWorker>();
 
     // ── Health checks (liveness vs readiness) ──────────────────────────────
@@ -205,6 +206,22 @@ try
                 ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS account_id               TEXT;
                 ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS access_token_expires_at  TIMESTAMPTZ;
                 ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS last_refreshed_at        TIMESTAMPTZ;
+
+                CREATE TABLE IF NOT EXISTS user_capabilities (
+                    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                    tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    capability      TEXT NOT NULL,
+                    effect          TEXT NOT NULL CHECK (effect IN ('allow','deny')),
+                    granted_by      UUID REFERENCES users(id) ON DELETE SET NULL,
+                    granted_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    UNIQUE (user_id, capability)
+                );
+                CREATE INDEX IF NOT EXISTS user_capabilities_user_idx ON user_capabilities(user_id);
+                ALTER TABLE user_capabilities ENABLE ROW LEVEL SECURITY;
+                DROP POLICY IF EXISTS tenant_isolation_user_caps ON user_capabilities;
+                CREATE POLICY tenant_isolation_user_caps ON user_capabilities
+                    USING (tenant_id::text = current_setting('app.tenant_id', true));
             ");
         }
         catch (Exception ex)
@@ -240,10 +257,14 @@ try
         return Results.Ok(new { issuer, clientId, webBase });
     }).AllowAnonymous();
 
-    app.MapGet("/api/v1/me", (HttpContext http, ITenantContext tc) =>
+    app.MapGet("/api/v1/me/capabilities", async (Altaris.Infrastructure.Permissions.CapabilityResolver cr) =>
+        Results.Ok(new { capabilities = (await cr.EffectiveAsync()).OrderBy(s => s).ToArray() })
+    ).RequireAuthorization();
+
+    app.MapGet("/api/v1/me", async (HttpContext http, ITenantContext tc, Altaris.Infrastructure.Permissions.CapabilityResolver cr) =>
     {
-        // Expose realm roles to the UI so it can hide/show admin pages and
-        // tenant picker without each page re-decoding the JWT.
+        // Expose realm roles + effective capabilities to the UI so pages can
+        // hide/show actions without each one re-decoding the JWT or refetching.
         var roles = new List<string>();
         var raClaim = http.User.FindFirst("realm_access")?.Value;
         if (!string.IsNullOrEmpty(raClaim))
@@ -260,6 +281,7 @@ try
             }
             catch { /* malformed claim — fall through with empty roles */ }
         }
+        var caps = await cr.EffectiveAsync();
         return Results.Ok(new
         {
             tenantId   = tc.TenantId,
@@ -268,7 +290,8 @@ try
             email      = tc.UserEmail,
             roles,
             isPlatformAdmin = roles.Contains("platform_admin"),
-            isTenantAdmin   = roles.Contains("tenant_admin") || roles.Contains("platform_admin")
+            isTenantAdmin   = roles.Contains("tenant_admin") || roles.Contains("platform_admin"),
+            capabilities = caps.OrderBy(s => s).ToArray()
         });
     }).RequireAuthorization();
 

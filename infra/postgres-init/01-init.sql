@@ -123,6 +123,28 @@ ALTER TABLE vault_files ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation_vault_files ON vault_files
     USING (tenant_id::text = current_setting('app.tenant_id', true));
 
+-- ============================================================
+-- Per-user capability overrides
+--
+-- Default capability set'leri kodda tanımlı (Capabilities.cs).
+-- Bu tablo her user için DEFAULT'a ek allow / deny override taşır.
+-- Effective set: RoleDefaults(user.role) UNION allows MINUS denies.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS user_capabilities (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    capability      TEXT NOT NULL,
+    effect          TEXT NOT NULL CHECK (effect IN ('allow','deny')),
+    granted_by      UUID REFERENCES users(id) ON DELETE SET NULL,
+    granted_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (user_id, capability)
+);
+CREATE INDEX IF NOT EXISTS user_capabilities_user_idx ON user_capabilities(user_id);
+ALTER TABLE user_capabilities ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_user_caps ON user_capabilities
+    USING (tenant_id::text = current_setting('app.tenant_id', true));
+
 -- Invitations (tenant onboarding)
 CREATE TABLE IF NOT EXISTS invitations (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
