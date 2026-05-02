@@ -146,31 +146,29 @@ public static class SetupEndpoints
         // altaris-desktop-<label>-<bundler-output-name>
         var assets = new[]
         {
+            // macOS universal binary — hem Apple Silicon hem Intel Mac.
+            // Workflow staging dosya adı: altaris-desktop-macos-universal-Altaris_<ver>_universal.dmg
             new DesktopAsset(
-                Os: "macos", Arch: "arm64",
-                Filename: "altaris-desktop-macos-arm64-Altaris.dmg",
-                DownloadUrl: Url("altaris-desktop-macos-arm64-Altaris.dmg"),
+                Os: "macos", Arch: "universal",
+                Filename: "altaris-desktop-macos-universal.dmg",
+                DownloadUrl: Url("altaris-desktop-macos-universal.dmg"),
                 InstallHint: "Çift tıkla → Altaris.app'i Applications'a sürükle. " +
+                             "Hem Apple Silicon hem Intel Mac'lerde çalışır. " +
                              "İlk açılışta Right-Click → Open (notarization yok)."),
             new DesktopAsset(
-                Os: "macos", Arch: "x64",
-                Filename: "altaris-desktop-macos-x64-Altaris.dmg",
-                DownloadUrl: Url("altaris-desktop-macos-x64-Altaris.dmg"),
-                InstallHint: "Çift tıkla → Altaris.app'i Applications'a sürükle."),
-            new DesktopAsset(
                 Os: "linux", Arch: "x64",
-                Filename: "altaris-desktop-linux-x64-altaris-desktop_amd64.AppImage",
-                DownloadUrl: Url("altaris-desktop-linux-x64-altaris-desktop_amd64.AppImage"),
-                InstallHint: "chmod +x altaris-desktop*.AppImage && ./altaris-desktop*.AppImage"),
+                Filename: "altaris-desktop-linux-x64.AppImage",
+                DownloadUrl: Url("altaris-desktop-linux-x64.AppImage"),
+                InstallHint: "chmod +x altaris-desktop-linux-x64.AppImage && ./altaris-desktop-linux-x64.AppImage"),
             new DesktopAsset(
                 Os: "linux", Arch: "x64-deb",
-                Filename: "altaris-desktop-linux-x64-altaris-desktop_amd64.deb",
-                DownloadUrl: Url("altaris-desktop-linux-x64-altaris-desktop_amd64.deb"),
-                InstallHint: "sudo dpkg -i altaris-desktop_amd64.deb"),
+                Filename: "altaris-desktop-linux-x64.deb",
+                DownloadUrl: Url("altaris-desktop-linux-x64.deb"),
+                InstallHint: "sudo dpkg -i altaris-desktop-linux-x64.deb"),
             new DesktopAsset(
                 Os: "windows", Arch: "x64",
-                Filename: "altaris-desktop-windows-x64-Altaris_x64-setup.exe",
-                DownloadUrl: Url("altaris-desktop-windows-x64-Altaris_x64-setup.exe"),
+                Filename: "altaris-desktop-windows-x64-setup.exe",
+                DownloadUrl: Url("altaris-desktop-windows-x64-setup.exe"),
                 InstallHint: "Çift tıkla → kurulum sihirbazı. SmartScreen 'More info → Run anyway'."),
         };
 

@@ -38,12 +38,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14            # Apple Silicon
-            label: macos-arm64
-            target: aarch64-apple-darwin
-          - os: macos-13            # Intel
-            label: macos-x64
-            target: x86_64-apple-darwin
+          # Tek macOS runner'da universal binary üretiyoruz — hem Apple
+          # Silicon hem Intel Mac'lerde çalışır. macos-13 (Intel) runner'lar
+          # GitHub Actions free tier'da çok kıt (50dk+ kuyruk), buna gerek yok.
+          # Universal target için macos-14 önce x86_64 toolchain'i de ekler.
+          - os: macos-14
+            label: macos-universal
+            target: universal-apple-darwin
           - os: ubuntu-22.04
             label: linux-x64
             target: x86_64-unknown-linux-gnu
@@ -56,9 +57,11 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
+        # Universal Apple binary için hem aarch64 hem x86_64 target lazım.
+        # Diğer target'larda matrix.target tek satır.
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.target == 'universal-apple-darwin' && 'aarch64-apple-darwin,x86_64-apple-darwin' || matrix.target }}
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -115,6 +118,8 @@ jobs:
           mkdir -p staging
           BASE="src-tauri/target/${{ matrix.target }}/release/bundle"
           # Tüm bilinen Tauri bundle çıktılarını tek find ile yakala.
+          # İsimleri sadeleştir: altaris-desktop-<label>.<ext> — versiyon
+          # numarasını dosya adında tutmuyoruz (release tag zaten var).
           find "$BASE" -maxdepth 3 -type f \( \
               -name '*.dmg'      -o \
               -name '*.AppImage' -o \
@@ -123,7 +128,16 @@ jobs:
               -name '*-setup.exe' \
             \) | while read -r f; do
               base="$(basename "$f")"
-              cp "$f" "staging/altaris-desktop-${{ matrix.label }}-${base}"
+              # Extension koru, prefix'i normalize et
+              case "$base" in
+                *.dmg)        ext="dmg" ;;
+                *.AppImage)   ext="AppImage" ;;
+                *.deb)        ext="deb" ;;
+                *.msi)        ext="msi" ;;
+                *-setup.exe)  ext="setup.exe" ;;
+                *)            ext="${base##*.}" ;;
+              esac
+              cp "$f" "staging/altaris-desktop-${{ matrix.label }}.${ext}"
             done
           echo "=== staging/ ==="
           ls -la staging/
@@ -171,16 +185,19 @@ jobs:
           BASE="https://github.com/${{ env.RELEASES_REPO }}/releases/download/${TAG}"
 
           # Tauri 2 updater manifest schema
+          # Universal macOS dmg hem aarch64 hem x86_64 platform key'leri için
+          # aynı asset URL'i — Tauri updater tek dmg ile her iki mimari için
+          # download başlatır.
           cat > latest.json <<EOF
           {
             "version": "${VERSION}",
             "notes": "Altaris Desktop ${TAG}",
             "pub_date": "${PUB_DATE}",
             "platforms": {
-              "darwin-aarch64": { "signature": "", "url": "${BASE}/altaris-desktop-macos-arm64-Altaris.app.tar.gz" },
-              "darwin-x86_64":  { "signature": "", "url": "${BASE}/altaris-desktop-macos-x64-Altaris.app.tar.gz" },
-              "linux-x86_64":   { "signature": "", "url": "${BASE}/altaris-desktop-linux-x64-altaris-desktop_amd64.AppImage" },
-              "windows-x86_64": { "signature": "", "url": "${BASE}/altaris-desktop-windows-x64-Altaris_x64-setup.nsis.exe" }
+              "darwin-aarch64": { "signature": "", "url": "${BASE}/altaris-desktop-macos-universal.dmg" },
+              "darwin-x86_64":  { "signature": "", "url": "${BASE}/altaris-desktop-macos-universal.dmg" },
+              "linux-x86_64":   { "signature": "", "url": "${BASE}/altaris-desktop-linux-x64.AppImage" },
+              "windows-x86_64": { "signature": "", "url": "${BASE}/altaris-desktop-windows-x64-setup.exe" }
             }
           }
           EOF
