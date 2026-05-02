@@ -1,7 +1,6 @@
 using Altaris.Domain.Permissions;
 using Altaris.Infrastructure.MultiTenancy;
 using Altaris.Infrastructure.Persistence;
-using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 
 namespace Altaris.Infrastructure.Permissions;
@@ -73,19 +72,5 @@ public class CapabilityResolver
     }
 }
 
-public static class CapabilityHttpExtensions
-{
-    /// <summary>
-    ///   Endpoint guard: if user lacks the capability, return 403 + diagnostic.
-    ///   Returns null when authorised — caller continues; otherwise returns
-    ///   IResult to short-circuit.
-    /// </summary>
-    public static async Task<IResult?> RequireCapabilityAsync(
-        this HttpContext _, CapabilityResolver resolver, string capability, CancellationToken ct = default)
-    {
-        if (await resolver.HasAsync(capability, ct)) return null;
-        return Results.Json(
-            new { error = "forbidden", missing_capability = capability },
-            statusCode: StatusCodes.Status403Forbidden);
-    }
-}
+// HTTP extension method'u API project'inde (Altaris.Api/Permissions) — bu
+// dosya yalnız domain + EF erişiyor, AspNetCore'a bağımlı değil.
