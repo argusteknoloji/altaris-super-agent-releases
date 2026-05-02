@@ -66,7 +66,6 @@ Tüm sürümler ve sürüm notları **[Releases](https://github.com/argusteknolo
 ## İletişim & Destek
 
 - **Web:** [argusteknoloji.com](https://argusteknoloji.com)
-- **Demo / Satış:** sales@argusteknoloji.com
-- **Destek:** support@argusteknoloji.com
+- **E-posta:** innovahub@argusteknoloji.com.tr
 
 © Argus Teknoloji
