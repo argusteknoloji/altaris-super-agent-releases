@@ -486,9 +486,15 @@ public static class VaultEndpoints
     /// </summary>
     private static async Task<IResult> ReindexAll(
         string slug, AltarisDbContext db, ITenantContext tc, VaultStorage store,
-        Altaris.Infrastructure.Embeddings.EmbeddingIndexer indexer, CancellationToken ct)
+        Altaris.Infrastructure.Embeddings.EmbeddingIndexer indexer,
+        Altaris.Infrastructure.Permissions.CapabilityResolver caps, HttpContext http,
+        CancellationToken ct)
     {
         if (tc.TenantId is null || tc.TenantSlug is null) return Results.Forbid();
+        // Reindex tenant-wide pahalı bir işlem — sadece tenant_admin (vault.delete capability'si) yapabilir.
+        var deny = await Altaris.Api.Permissions.CapabilityHttpExtensions.RequireCapabilityAsync(
+            http, caps, Altaris.Domain.Permissions.Capabilities.VaultDelete, ct);
+        if (deny is not null) return deny;
         var v = await db.Vaults.AsNoTracking()
             .FirstOrDefaultAsync(x => x.TenantId == tc.TenantId && x.Slug == slug, ct);
         if (v is null) return Results.NotFound();

@@ -67,9 +67,14 @@ public static class ExecutiveBrainEndpoints
         a.ScheduleCron, a.SchedulePrompt, a.Enabled, a.CreatedAt, a.UpdatedAt
     );
 
-    private static async Task<IResult> ListAgents(AltarisDbContext db, ITenantContext tc)
+    private static async Task<IResult> ListAgents(
+        AltarisDbContext db, ITenantContext tc,
+        Altaris.Infrastructure.Permissions.CapabilityResolver caps, HttpContext http)
     {
         if (tc.TenantId is null) return Results.Forbid();
+        var deny = await Altaris.Api.Permissions.CapabilityHttpExtensions.RequireCapabilityAsync(
+            http, caps, Altaris.Domain.Permissions.Capabilities.ExecutiveBrainUse);
+        if (deny is not null) return deny;
         var rows = await db.ExecutiveAgents.AsNoTracking()
             .Where(a => a.TenantId == tc.TenantId)
             .OrderBy(a => a.Name)
@@ -77,8 +82,13 @@ public static class ExecutiveBrainEndpoints
         return Results.Ok(rows.Select(ToDto));
     }
 
-    private static async Task<IResult> GetAgent(Guid id, AltarisDbContext db, ITenantContext tc)
+    private static async Task<IResult> GetAgent(
+        Guid id, AltarisDbContext db, ITenantContext tc,
+        Altaris.Infrastructure.Permissions.CapabilityResolver caps, HttpContext http)
     {
+        var deny = await Altaris.Api.Permissions.CapabilityHttpExtensions.RequireCapabilityAsync(
+            http, caps, Altaris.Domain.Permissions.Capabilities.ExecutiveBrainUse);
+        if (deny is not null) return deny;
         var a = await db.ExecutiveAgents.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tc.TenantId);
         if (a is null) return Results.NotFound();
         return Results.Ok(ToDto(a));
@@ -305,10 +315,13 @@ public static class ExecutiveBrainEndpoints
 
     private static async Task<IResult> ListJobs(
         AltarisDbContext db, ITenantContext tc,
-        Altaris.Infrastructure.Permissions.CapabilityResolver caps,
+        Altaris.Infrastructure.Permissions.CapabilityResolver caps, HttpContext http,
         Guid? threadId, Guid? agentId, string? status, int take = 50, int skip = 0)
     {
         if (tc.TenantId is null) return Results.Forbid();
+        var deny = await Altaris.Api.Permissions.CapabilityHttpExtensions.RequireCapabilityAsync(
+            http, caps, Altaris.Domain.Permissions.Capabilities.ExecutiveBrainUse);
+        if (deny is not null) return deny;
         var canViewAll = await caps.HasAsync(Altaris.Domain.Permissions.Capabilities.ExecutiveBrainViewAllJobs);
         var q = db.ExecutiveJobs.AsNoTracking().Where(j => j.TenantId == tc.TenantId);
         if (!canViewAll) q = q.Where(j => j.UserId == tc.UserId);
@@ -329,10 +342,19 @@ public static class ExecutiveBrainEndpoints
         return Results.Ok(new { items = rows, total });
     }
 
-    private static async Task<IResult> GetJob(Guid id, AltarisDbContext db, ITenantContext tc)
+    private static async Task<IResult> GetJob(
+        Guid id, AltarisDbContext db, ITenantContext tc,
+        Altaris.Infrastructure.Permissions.CapabilityResolver caps, HttpContext http)
     {
+        var deny = await Altaris.Api.Permissions.CapabilityHttpExtensions.RequireCapabilityAsync(
+            http, caps, Altaris.Domain.Permissions.Capabilities.ExecutiveBrainUse);
+        if (deny is not null) return deny;
         var j = await db.ExecutiveJobs.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tc.TenantId);
         if (j is null) return Results.NotFound();
+        // ViewAllJobs yoksa sadece kendi job'ını görebilir
+        if (j.UserId != tc.UserId &&
+            !await caps.HasAsync(Altaris.Domain.Permissions.Capabilities.ExecutiveBrainViewAllJobs))
+            return Results.Forbid();
         return Results.Ok(j);
     }
 
@@ -345,8 +367,14 @@ public static class ExecutiveBrainEndpoints
     ///   chunk-chunk yazılırsa (EB-3.5 tool framework'te plan), UI typewriter
     ///   etkisi görür. MVP polling-based; ileride NOTIFY/LISTEN ile push.
     /// </summary>
-    private static async Task StreamJob(HttpContext ctx, Guid id, AltarisDbContext db, ITenantContext tc, CancellationToken ct)
+    private static async Task StreamJob(
+        HttpContext ctx, Guid id, AltarisDbContext db, ITenantContext tc,
+        Altaris.Infrastructure.Permissions.CapabilityResolver caps, CancellationToken ct)
     {
+        if (!await caps.HasAsync(Altaris.Domain.Permissions.Capabilities.ExecutiveBrainUse, ct))
+        {
+            ctx.Response.StatusCode = 403; return;
+        }
         ctx.Response.Headers["Content-Type"] = "text/event-stream";
         ctx.Response.Headers["Cache-Control"] = "no-cache, no-transform";
         ctx.Response.Headers["X-Accel-Buffering"] = "no";   // nginx/Caddy buffer kapat
@@ -406,10 +434,19 @@ public static class ExecutiveBrainEndpoints
         }
     }
 
-    private static async Task<IResult> CancelJob(Guid id, AltarisDbContext db, ITenantContext tc)
+    private static async Task<IResult> CancelJob(
+        Guid id, AltarisDbContext db, ITenantContext tc,
+        Altaris.Infrastructure.Permissions.CapabilityResolver caps, HttpContext http)
     {
+        var deny = await Altaris.Api.Permissions.CapabilityHttpExtensions.RequireCapabilityAsync(
+            http, caps, Altaris.Domain.Permissions.Capabilities.ExecutiveBrainUse);
+        if (deny is not null) return deny;
         var j = await db.ExecutiveJobs.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tc.TenantId);
         if (j is null) return Results.NotFound();
+        // Başkasının job'ını cancel etmek için ViewAllJobs gerek
+        if (j.UserId != tc.UserId &&
+            !await caps.HasAsync(Altaris.Domain.Permissions.Capabilities.ExecutiveBrainViewAllJobs))
+            return Results.Forbid();
         if (j.Status is not ("pending" or "running")) return Results.BadRequest(new { error = "cannot_cancel" });
         j.Status = "cancelled";
         j.CompletedAt = DateTimeOffset.UtcNow;
@@ -417,10 +454,18 @@ public static class ExecutiveBrainEndpoints
         return Results.NoContent();
     }
 
-    private static async Task<IResult> RetryJob(Guid id, AltarisDbContext db, ITenantContext tc)
+    private static async Task<IResult> RetryJob(
+        Guid id, AltarisDbContext db, ITenantContext tc,
+        Altaris.Infrastructure.Permissions.CapabilityResolver caps, HttpContext http)
     {
+        var deny = await Altaris.Api.Permissions.CapabilityHttpExtensions.RequireCapabilityAsync(
+            http, caps, Altaris.Domain.Permissions.Capabilities.ExecutiveBrainUse);
+        if (deny is not null) return deny;
         var j = await db.ExecutiveJobs.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tc.TenantId);
         if (j is null) return Results.NotFound();
+        if (j.UserId != tc.UserId &&
+            !await caps.HasAsync(Altaris.Domain.Permissions.Capabilities.ExecutiveBrainViewAllJobs))
+            return Results.Forbid();
         if (j.Status != "failed") return Results.BadRequest(new { error = "only_failed_jobs_can_retry" });
         j.Status = "pending";
         j.ErrorText = null;
@@ -441,9 +486,13 @@ public static class ExecutiveBrainEndpoints
         AltarisDbContext db, ITenantContext tc,
         EmbeddingClient embed, EmbeddingIndexer indexer,
         IHttpClientFactory httpFactory,
+        Altaris.Infrastructure.Permissions.CapabilityResolver caps, HttpContext http,
         CancellationToken ct)
     {
         if (tc.TenantId is null) return Results.Forbid();
+        var deny = await Altaris.Api.Permissions.CapabilityHttpExtensions.RequireCapabilityAsync(
+            http, caps, Altaris.Domain.Permissions.Capabilities.ExecutiveBrainUse, ct);
+        if (deny is not null) return deny;
         if (string.IsNullOrWhiteSpace(req.Question))
             return Results.BadRequest(new { error = "question_required" });
 
