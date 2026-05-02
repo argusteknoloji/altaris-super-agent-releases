@@ -32,12 +32,12 @@ export default function AuditPage() {
   function prevPage()    { if (page > 0) { setPage(page - 1); load(page - 1); } }
 
   return (
-    <div className="px-8 py-8">
+    <div className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
       <h2 className="text-2xl font-semibold">Denetim kaydı</h2>
       <p className="mt-1 text-sm text-neutral-400">Tenant'ta yapılan tüm yönetim ve oturum işlemleri.</p>
 
       <form onSubmit={e => { e.preventDefault(); applyFilter(); }}
-            className="mt-6 grid gap-2 rounded-lg border border-neutral-800 bg-neutral-900/40 p-3 md:grid-cols-7">
+            className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-lg border border-neutral-800 bg-neutral-900/40 p-3 md:grid-cols-7">
         <input placeholder="Hızlı ara (actor/action/IP)" value={filter.q} onChange={e => setFilter({...filter, q: e.target.value})}
           className="md:col-span-2 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-1.5 text-xs" />
         <input placeholder="Aktör" value={filter.actor} onChange={e => setFilter({...filter, actor: e.target.value})}
@@ -50,7 +50,7 @@ export default function AuditPage() {
           className="rounded-md border border-neutral-800 bg-neutral-950 px-3 py-1.5 text-xs" />
         <input type="date" value={filter.to} onChange={e => setFilter({...filter, to: e.target.value})}
           className="rounded-md border border-neutral-800 bg-neutral-950 px-3 py-1.5 text-xs" />
-        <div className="md:col-span-7 flex items-center gap-2">
+        <div className="sm:col-span-2 md:col-span-7 flex flex-wrap items-center gap-2">
           <button className="rounded-md bg-orange-500 px-4 py-1.5 text-xs font-medium text-white hover:bg-orange-600">Filtrele</button>
           <button type="button"
             onClick={() => { setFilter({ q: "", actor: "", action: "", resourceType: "", from: "", to: "" }); setPage(0); setTimeout(() => load(0), 0); }}
@@ -65,8 +65,8 @@ export default function AuditPage() {
         </div>
       </form>
 
-      <div className="mt-4 overflow-hidden rounded-lg border border-neutral-800">
-        <table className="w-full text-sm">
+      <div className="mt-4 overflow-x-auto rounded-lg border border-neutral-800">
+        <table className="w-full min-w-[760px] text-sm">
           <thead className="bg-neutral-900 text-left text-xs uppercase tracking-wide text-neutral-400">
             <tr><th className="px-4 py-2">Zaman</th><th className="px-4 py-2">Aktör</th><th className="px-4 py-2">İşlem</th><th className="px-4 py-2">Kaynak</th><th className="px-4 py-2">IP</th></tr>
           </thead>

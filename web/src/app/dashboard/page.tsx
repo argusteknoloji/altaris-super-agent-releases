@@ -32,13 +32,13 @@ export default async function Dashboard() {
   const sessions = token ? await getSessions(token) : [];
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-10">
-      <div className="flex items-center justify-between">
+    <main className="mx-auto max-w-6xl px-4 sm:px-6 py-6 sm:py-10">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Oturumlar</h1>
           <p className="text-xs text-neutral-400">Tenant: <span className="font-mono">{tenantSlug ?? "—"}</span></p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <a href="/admin" className="rounded-md border border-neutral-700 px-4 py-2 text-sm font-medium text-neutral-200 hover:bg-neutral-800">
             Admin
           </a>
@@ -51,8 +51,8 @@ export default async function Dashboard() {
         </div>
       </div>
 
-      <div className="mt-6 overflow-hidden rounded-lg border border-neutral-800">
-        <table className="w-full text-sm">
+      <div className="mt-6 overflow-x-auto rounded-lg border border-neutral-800">
+        <table className="w-full min-w-[640px] text-sm">
           <thead className="bg-neutral-900 text-left text-xs uppercase tracking-wide text-neutral-400">
             <tr>
               <th className="px-4 py-3">Başlık</th>

@@ -64,11 +64,11 @@ export default function ProvidersPage() {
   }
 
   return (
-    <div className="px-8 py-8">
+    <div className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
       <h2 className="text-2xl font-semibold">Provider config</h2>
       <p className="mt-1 text-sm text-neutral-400">Tenant için model provider endpoint + API anahtarlarını yönet. Lokal LLM (Ollama, LM Studio) için API anahtarı gereksiz.</p>
 
-      <form onSubmit={save} className={`mt-6 grid gap-3 rounded-lg border p-4 md:grid-cols-6 ${editing ? "border-orange-500/40 bg-orange-500/5" : "border-neutral-800 bg-neutral-900/40"}`}>
+      <form onSubmit={save} className={`mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-lg border p-4 md:grid-cols-6 ${editing ? "border-orange-500/40 bg-orange-500/5" : "border-neutral-800 bg-neutral-900/40"}`}>
         {editing && (
           <div className="md:col-span-6 flex items-center justify-between text-xs">
             <span className="text-orange-300">✏️ Düzenleme: <span className="font-mono">{editing.name}</span></span>
@@ -102,8 +102,8 @@ export default function ProvidersPage() {
 
       {err && <p className="mt-4 text-xs text-red-400">Hata: {err}</p>}
 
-      <div className="mt-6 overflow-hidden rounded-lg border border-neutral-800">
-        <table className="w-full text-sm">
+      <div className="mt-6 overflow-x-auto rounded-lg border border-neutral-800">
+        <table className="w-full min-w-[820px] text-sm">
           <thead className="bg-neutral-900 text-left text-xs uppercase tracking-wide text-neutral-400">
             <tr><th className="px-4 py-3">Provider</th><th className="px-4 py-3">İsim</th><th className="px-4 py-3">URL</th><th className="px-4 py-3">Model</th><th className="px-4 py-3">Durum</th><th className="px-4 py-3 text-right">İşlem</th></tr>
           </thead>
@@ -116,7 +116,7 @@ export default function ProvidersPage() {
                 <td className="px-4 py-3 font-mono text-xs text-neutral-400">{p.baseUrl ?? "—"}</td>
                 <td className="px-4 py-3 font-mono text-xs">{p.defaultModel ?? "—"}</td>
                 <td className="px-4 py-3 text-xs">{p.enabled ? <span className="text-emerald-400">aktif</span> : <span className="text-neutral-500">kapalı</span>}</td>
-                <td className="px-4 py-3 text-right space-x-2">
+                <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
                   <button onClick={() => startEdit(p)} className="rounded-md border border-neutral-700 px-3 py-1 text-xs text-neutral-300 hover:bg-neutral-900">Düzenle</button>
                   <button onClick={() => del(p.id)} className="rounded-md border border-red-500/30 px-3 py-1 text-xs text-red-400 hover:bg-red-500/10">Sil</button>
                 </td>

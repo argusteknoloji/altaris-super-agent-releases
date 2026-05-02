@@ -63,8 +63,8 @@ export default function BriefsPage() {
   const agentMap = new Map(agents.map(a => [a.id, a]));
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-10">
-      <div className="mb-6 flex items-baseline justify-between">
+    <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6 sm:py-10">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-baseline sm:justify-between">
         <div>
           <Link href="/executive-brain" className="text-xs text-neutral-400 hover:text-orange-400">← Beyin</Link>
           <h1 className="mt-2 text-3xl font-semibold">📰 Brief Feed</h1>
@@ -80,7 +80,7 @@ export default function BriefsPage() {
       {/* Active scheduled agents */}
       <section className="mb-8">
         <h2 className="mb-3 text-sm font-semibold text-neutral-300">Cron-aktif ajanlar</h2>
-        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {agents.filter(a => a.enabled && a.scheduleCron).length === 0 && (
             <p className="col-span-full text-sm text-neutral-500">
               Cron-aktif ajan yok. <Link href="/executive-brain/agents" className="underline">Ajan oluştur</Link> ve "schedule_cron" set et.
@@ -103,7 +103,7 @@ export default function BriefsPage() {
       </section>
 
       {/* Filter */}
-      <div className="mb-4 flex items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900/40 p-2">
+      <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-neutral-800 bg-neutral-900/40 p-2">
         <select value={filter.agentId} onChange={e => setFilter({...filter, agentId: e.target.value})}
           className="rounded-md border border-neutral-800 bg-neutral-950 px-3 py-1 text-xs">
           <option value="">— Tüm ajanlar —</option>
@@ -132,7 +132,7 @@ export default function BriefsPage() {
           try { citations = b.citations ? JSON.parse(b.citations) : []; } catch {}
           return (
             <article key={b.id} className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-5">
-              <header className="mb-3 flex items-baseline justify-between">
+              <header className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
                 <div>
                   <h3 className="text-base font-semibold text-orange-400">{agent?.name ?? "—"}</h3>
                   <p className="text-xs text-neutral-500">{b.question}</p>

@@ -66,7 +66,7 @@ export default function TenantsPage() {
 
   if (forbidden) {
     return (
-      <div className="px-8 py-16 text-center">
+      <div className="px-4 sm:px-6 lg:px-8 py-12 sm:py-16 text-center">
         <h2 className="text-2xl font-semibold">Yetki yok</h2>
         <p className="mt-2 text-sm text-neutral-400">Tenant yönetimi için <code className="font-mono text-orange-400">platform_admin</code> rolü gereklidir.</p>
       </div>
@@ -74,11 +74,11 @@ export default function TenantsPage() {
   }
 
   return (
-    <div className="px-8 py-8">
+    <div className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
       <h2 className="text-2xl font-semibold">Tenant'lar (platform yönetimi)</h2>
       <p className="mt-1 text-sm text-neutral-400">Yeni kuruluş için tenant açın. Slug login sırasında JWT'de <code className="font-mono">tid</code> claim'i olur.</p>
 
-      <form onSubmit={create} className="mt-6 grid gap-3 rounded-lg border border-neutral-800 bg-neutral-900/40 p-4 md:grid-cols-3">
+      <form onSubmit={create} className="mt-6 grid grid-cols-1 gap-3 rounded-lg border border-neutral-800 bg-neutral-900/40 p-4 md:grid-cols-3">
         <input required placeholder="slug (ör. acme-corp)" value={form.slug} onChange={e => setForm({ ...form, slug: e.target.value })}
           className="rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm font-mono" />
         <input required placeholder="Tam ad (ör. Acme Corporation)" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
@@ -87,8 +87,8 @@ export default function TenantsPage() {
       </form>
       {err && <p className="mt-4 text-xs text-red-400">Hata: {err}</p>}
 
-      <div className="mt-6 overflow-hidden rounded-lg border border-neutral-800">
-        <table className="w-full text-sm">
+      <div className="mt-6 overflow-x-auto rounded-lg border border-neutral-800">
+        <table className="w-full min-w-[680px] text-sm">
           <thead className="bg-neutral-900 text-left text-xs uppercase tracking-wide text-neutral-400">
             <tr>
               <th className="px-4 py-3">Slug</th>
@@ -113,7 +113,7 @@ export default function TenantsPage() {
                     )}>{t.status}</span>
                 </td>
                 <td className="px-4 py-3 text-xs text-neutral-400">{fmtDateTimeTR(t.createdAt)}</td>
-                <td className="px-4 py-3 text-right space-x-2">
+                <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
                   <button onClick={() => openEdit(t)} className="rounded-md border border-neutral-700 px-3 py-1 text-xs text-neutral-200 hover:bg-neutral-800">Düzenle</button>
                   <button onClick={() => del(t)} className="rounded-md border border-red-500/30 px-3 py-1 text-xs text-red-400 hover:bg-red-500/10">Sil</button>
                 </td>
@@ -124,7 +124,7 @@ export default function TenantsPage() {
       </div>
 
       {editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setEditing(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setEditing(null)}>
           <form onSubmit={saveEdit} onClick={e => e.stopPropagation()} className="w-full max-w-md space-y-3 rounded-lg border border-neutral-700 bg-neutral-950 p-6">
             <h3 className="text-base font-semibold">Tenant düzenle</h3>
             <p className="text-xs text-neutral-500 font-mono">{editing.slug}</p>

@@ -72,8 +72,8 @@ export default function AgentsPage() {
   }
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-10">
-      <div className="mb-6 flex items-baseline justify-between">
+    <main className="mx-auto max-w-6xl px-4 sm:px-6 py-6 sm:py-10">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-baseline sm:justify-between">
         <div>
           <Link href="/executive-brain" className="text-xs text-neutral-400 hover:text-orange-400">← Beyin'e dön</Link>
           <h1 className="mt-2 text-3xl font-semibold">🧠 Ajanlar</h1>
@@ -90,7 +90,7 @@ export default function AgentsPage() {
       {/* Templates */}
       <section className="mb-8">
         <h2 className="mb-3 text-sm font-semibold text-neutral-300">Hazır şablonlar</h2>
-        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {templates.map(t => (
             <div key={t.slug} className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-4">
               <h3 className="text-sm font-semibold text-orange-400">{t.name}</h3>
@@ -118,13 +118,13 @@ export default function AgentsPage() {
             Henüz ajan tanımlanmamış. Yukarıdaki şablonlardan birini seç veya boş ajan oluştur.
           </p>
         ) : (
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {agents.map(a => (
               <div key={a.id} className={
                 "rounded-lg border bg-neutral-900/40 p-4 " +
                 (a.enabled ? "border-neutral-800" : "border-neutral-800 opacity-60")
               }>
-                <div className="flex items-start justify-between">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                   <div className="min-w-0">
                     <h3 className="flex items-center gap-2 text-base font-semibold">
                       {a.name}
@@ -132,7 +132,7 @@ export default function AgentsPage() {
                     </h3>
                     <p className="text-xs font-mono text-neutral-500">{a.slug}</p>
                   </div>
-                  <div className="flex gap-1">
+                  <div className="flex flex-wrap gap-1">
                     <button onClick={() => toggleEnabled(a)} className="rounded border border-neutral-700 px-2 py-0.5 text-[10px] text-neutral-300 hover:bg-neutral-800">
                       {a.enabled ? "Kapat" : "Aç"}
                     </button>
@@ -244,7 +244,7 @@ function AgentEditor({ agent, vaults, onClose, onSaved }: { agent: Agent | null;
       <form onSubmit={save} onClick={e => e.stopPropagation()} className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-neutral-700 bg-neutral-950 p-6 space-y-4">
         <h3 className="text-lg font-semibold">{isNew ? "Yeni ajan" : `Düzenle: ${agent!.name}`}</h3>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <input required disabled={!isNew} placeholder="slug (a-z 0-9 - _)" value={form.slug}
             onChange={e => setForm({...form, slug: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, "")})}
             className="rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm font-mono disabled:opacity-50" />
@@ -261,7 +261,7 @@ function AgentEditor({ agent, vaults, onClose, onSaved }: { agent: Agent | null;
           <p className="mt-1 text-[10px] text-neutral-500">İpucu: net kurallar yaz. "Sadece kaynaktan cevap", "Türkçe", "[n] cite et", "Sayıları aynen alıntıla".</p>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <input placeholder="Model override (opsiyonel — boşsa tenant default)" value={form.model} onChange={e => setForm({...form, model: e.target.value})}
             className="rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs font-mono" />
           <input placeholder="Embedding model override" value={form.embeddingModel} onChange={e => setForm({...form, embeddingModel: e.target.value})}
@@ -304,7 +304,7 @@ function AgentEditor({ agent, vaults, onClose, onSaved }: { agent: Agent | null;
           <p className="mt-1 text-[10px] text-neutral-500">Tool'lar EB-3.5'de tam destek alacak; şu an UI placeholder.</p>
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <input placeholder="Cron (örn: 0 0 6 * * *)" value={form.scheduleCron} onChange={e => setForm({...form, scheduleCron: e.target.value})}
             className="rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs font-mono" />
           <input placeholder="Cron prompt (otomatik soru)" value={form.schedulePrompt} onChange={e => setForm({...form, schedulePrompt: e.target.value})}

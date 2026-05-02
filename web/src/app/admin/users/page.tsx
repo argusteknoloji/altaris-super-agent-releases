@@ -127,13 +127,13 @@ export default function UsersPage() {
   }
 
   return (
-    <div className="px-8 py-8">
+    <div className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
       <h2 className="text-2xl font-semibold">Kullanıcılar</h2>
       <p className="mt-1 text-sm text-neutral-400">
         Tenant'a kullanıcı ekle, düzenle, rol ata, şifre sıfırla, sil. Keycloak'ta otomatik karşılığı oluşturulur.
       </p>
 
-      <form onSubmit={create} className="mt-6 grid gap-3 rounded-lg border border-neutral-800 bg-neutral-900/40 p-4 md:grid-cols-6">
+      <form onSubmit={create} className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-lg border border-neutral-800 bg-neutral-900/40 p-4 md:grid-cols-6">
         <input required type="email" placeholder="E-posta" value={form.email} onChange={e => setForm({...form, email: e.target.value})}
           className="md:col-span-2 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm" />
         <input placeholder="Ad" value={form.firstName} onChange={e => setForm({...form, firstName: e.target.value})}
@@ -166,8 +166,8 @@ export default function UsersPage() {
 
       {err && <p className="mt-4 text-xs text-red-400">Hata: {err}</p>}
 
-      <div className="mt-6 overflow-hidden rounded-lg border border-neutral-800">
-        <table className="w-full text-sm">
+      <div className="mt-6 overflow-x-auto rounded-lg border border-neutral-800">
+        <table className="w-full min-w-[720px] text-sm">
           <thead className="bg-neutral-900 text-left text-xs uppercase tracking-wide text-neutral-400">
             <tr>
               <th className="px-4 py-3">E-posta</th>
@@ -186,7 +186,7 @@ export default function UsersPage() {
                 <td className="px-4 py-3">{u.displayName || <span className="text-neutral-500">—</span>}</td>
                 <td className="px-4 py-3"><span className="rounded bg-neutral-800 px-2 py-0.5 text-xs">{u.role}</span></td>
                 <td className="px-4 py-3 text-xs text-neutral-400">{fmtDateTimeTR(u.createdAt)}</td>
-                <td className="px-4 py-3 text-right space-x-2">
+                <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
                   <Link href={`/admin/users/${u.id}`} className="rounded-md border border-sky-500/30 px-3 py-1 text-xs text-sky-300 hover:bg-sky-500/10">Yetkiler</Link>
                   <button onClick={() => openEdit(u)} className="rounded-md border border-neutral-700 px-3 py-1 text-xs text-neutral-200 hover:bg-neutral-800">Düzenle</button>
                   <button onClick={() => openReset(u)} className="rounded-md border border-amber-500/30 px-3 py-1 text-xs text-amber-300 hover:bg-amber-500/10">Şifre sıfırla</button>
@@ -200,7 +200,7 @@ export default function UsersPage() {
 
       {/* Edit modal */}
       {editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setEditing(null)}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setEditing(null)}>
           <form onSubmit={saveEdit} onClick={e => e.stopPropagation()} className="w-full max-w-lg space-y-3 rounded-lg border border-neutral-700 bg-neutral-950 p-6">
             <h3 className="text-base font-semibold">Kullanıcıyı düzenle</h3>
             <p className="text-xs text-neutral-500">{editing.email} · sub <span className="font-mono">{editing.keycloakSub.slice(0, 8)}…</span></p>

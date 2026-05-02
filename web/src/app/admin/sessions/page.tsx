@@ -46,11 +46,11 @@ export default function AdminSessionsPage() {
   const totalPages = Math.max(1, Math.ceil(total / TAKE));
 
   return (
-    <div className="px-8 py-8">
+    <div className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
       <h2 className="text-2xl font-semibold">Tüm oturumlar</h2>
       <p className="mt-1 text-sm text-neutral-400">Tenant'taki tüm kullanıcıların CLI / Web / Remote terminal oturumları. Canlı durum, transcript erişimi.</p>
 
-      <form onSubmit={e => { e.preventDefault(); setPage(0); load(); }} className="mt-6 grid gap-3 rounded-lg border border-neutral-800 bg-neutral-900/40 p-4 md:grid-cols-7">
+      <form onSubmit={e => { e.preventDefault(); setPage(0); load(); }} className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-lg border border-neutral-800 bg-neutral-900/40 p-4 md:grid-cols-7">
         <input placeholder="Arama (e-posta, başlık, model)" value={filters.q} onChange={e => setFilters({ ...filters, q: e.target.value })}
           className="md:col-span-2 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm" />
         <select value={filters.source} onChange={e => setFilters({ ...filters, source: e.target.value })} className="rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm">
@@ -71,8 +71,8 @@ export default function AdminSessionsPage() {
         <span><span className="inline-block h-2 w-2 rounded-full bg-emerald-400 mr-1.5"></span>{active.size} canlı</span>
       </div>
 
-      <div className="mt-3 overflow-hidden rounded-lg border border-neutral-800">
-        <table className="w-full text-sm">
+      <div className="mt-3 overflow-x-auto rounded-lg border border-neutral-800">
+        <table className="w-full min-w-[900px] text-sm">
           <thead className="bg-neutral-900 text-left text-xs uppercase tracking-wide text-neutral-400">
             <tr>
               <th className="px-3 py-2">Canlı</th>

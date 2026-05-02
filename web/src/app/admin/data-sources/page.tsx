@@ -79,7 +79,7 @@ export default function DataSourcesPage() {
   }
 
   return (
-    <main className="px-8 py-8">
+    <main className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
       <div className="mb-6 flex items-baseline justify-between">
         <div>
           <h1 className="text-2xl font-semibold">🔌 Connector'lar</h1>
@@ -93,7 +93,7 @@ export default function DataSourcesPage() {
       {/* Templates */}
       <section className="mb-8">
         <h2 className="mb-3 text-sm font-semibold text-neutral-300">Hazır şablonlar</h2>
-        <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {templates.map(t => (
             <div key={t.kind} className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-4">
               <div className="flex items-center gap-2">
@@ -121,8 +121,8 @@ export default function DataSourcesPage() {
             Henüz connector yok. Yukarıdaki bir şablondan başla.
           </p>
         ) : (
-          <div className="overflow-hidden rounded-lg border border-neutral-800">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto rounded-lg border border-neutral-800">
+            <table className="w-full min-w-[900px] text-sm">
               <thead className="bg-neutral-900 text-left text-xs uppercase tracking-wide text-neutral-400">
                 <tr>
                   <th className="px-3 py-2">Tür</th>
@@ -163,7 +163,7 @@ export default function DataSourcesPage() {
                           </span>
                         ) : "—"}
                       </td>
-                      <td className="px-3 py-2 text-right space-x-1">
+                      <td className="px-3 py-2 text-right space-x-1 whitespace-nowrap">
                         <button onClick={() => testConn(d)} disabled={busy === d.id}
                           className="rounded border border-neutral-700 px-2 py-0.5 text-[10px] text-neutral-300 hover:bg-neutral-800 disabled:opacity-50">
                           Test
@@ -255,7 +255,7 @@ function DataSourceEditor({ source, template, vaults, onClose, onSaved }: {
       <form onSubmit={save} onClick={e => e.stopPropagation()} className="max-h-[90vh] w-full max-w-3xl space-y-4 overflow-y-auto rounded-lg border border-neutral-700 bg-neutral-950 p-6">
         <h3 className="text-lg font-semibold">{isNew ? `Yeni connector — ${template?.label ?? ""}` : `Düzenle: ${source!.name}`}</h3>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <input required disabled={!isNew} placeholder="Tür" value={form.kind} onChange={e => setForm({...form, kind: e.target.value})}
             className="rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm font-mono disabled:opacity-50" />
           <input required placeholder="Ad" value={form.name} onChange={e => setForm({...form, name: e.target.value})}
@@ -278,7 +278,7 @@ function DataSourceEditor({ source, template, vaults, onClose, onSaved }: {
             className="mt-1 w-full rounded-md border border-neutral-800 bg-neutral-900 p-3 font-mono text-[11px]" />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <input type="password" placeholder={isNew ? "Secret (token / app password)" : "Secret (boş bırak = değişmez)"}
             value={form.secret} onChange={e => setForm({...form, secret: e.target.value})}
             className="rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm" />

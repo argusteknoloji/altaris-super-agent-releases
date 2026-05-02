@@ -48,8 +48,8 @@ export default function SimulatePage() {
   }
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-10">
-      <div className="mb-6 flex items-baseline justify-between">
+    <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6 sm:py-10">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-baseline sm:justify-between">
         <div>
           <Link href="/executive-brain" className="text-xs text-neutral-400 hover:text-orange-400">← Beyin</Link>
           <h1 className="mt-2 text-3xl font-semibold">🔮 What-if simülatör</h1>
@@ -63,7 +63,7 @@ export default function SimulatePage() {
         </Link>
       </div>
 
-      <section className="mb-8 grid gap-3 md:grid-cols-3">
+      <section className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
         {scenarios.map(s => (
           <button key={s.slug} onClick={() => pick(s)}
             className={`rounded-lg border p-4 text-left transition ${
@@ -84,7 +84,7 @@ export default function SimulatePage() {
       {selected && (
         <section className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-5">
           <h2 className="mb-4 text-base font-semibold">{selected.icon} {selected.name}</h2>
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {selected.params.map(p => (
               <label key={p.key} className="text-xs text-neutral-300">
                 <span className="block mb-1 text-neutral-400">{p.label}</span>
@@ -99,7 +99,7 @@ export default function SimulatePage() {
             ))}
           </div>
 
-          <div className="mt-5 flex items-center gap-3">
+          <div className="mt-5 flex flex-wrap items-center gap-3">
             <button onClick={run} disabled={busy}
               className="rounded-md bg-orange-500 px-4 py-2 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-50">
               {busy ? "Senaryo çalıştırılıyor…" : "🔮 Simülasyonu başlat"}

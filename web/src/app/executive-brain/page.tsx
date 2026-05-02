@@ -159,17 +159,17 @@ export default function ExecutiveBrainPage() {
 
   return (
     <main className="mx-auto flex h-[calc(100vh-3rem)] max-w-5xl flex-col">
-      <header className="border-b border-neutral-800 bg-neutral-950 px-6 py-4">
-        <div className="flex items-center justify-between gap-4">
+      <header className="border-b border-neutral-800 bg-neutral-950 px-4 sm:px-6 py-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h1 className="flex items-center gap-2 text-2xl font-semibold">
+            <h1 className="flex flex-wrap items-center gap-2 text-xl sm:text-2xl font-semibold">
               <span className="text-orange-400">🧠</span>
               Executive Brain
               {threadId && <span className="font-mono text-[10px] text-neutral-500">thread {threadId.slice(0, 8)}</span>}
             </h1>
             <p className="mt-1 text-sm text-neutral-400">Şirketin İkinci Beyni — vault'lardan kaynaklı cevap.</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <select value={agentId} onChange={e => setAgentId(e.target.value)}
               className="rounded-md border border-neutral-800 bg-neutral-950 px-3 py-1.5 text-xs">
               <option value="">— Default ajan —</option>
@@ -186,7 +186,7 @@ export default function ExecutiveBrainPage() {
         </div>
       </header>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-6">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 sm:px-6 py-6">
         {turns.length === 0 && (
           <div className="mx-auto max-w-2xl">
             <p className="mb-4 text-sm text-neutral-400">Yöneticinin masasında üç tip soru var:</p>
@@ -248,7 +248,7 @@ export default function ExecutiveBrainPage() {
       </div>
 
       <form onSubmit={e => { e.preventDefault(); ask(input); }}
-            className="border-t border-neutral-800 bg-neutral-950 px-6 py-4">
+            className="border-t border-neutral-800 bg-neutral-950 px-4 sm:px-6 py-4">
         <div className="flex gap-2">
           <input value={input} onChange={e => setInput(e.target.value)} disabled={busy}
             placeholder={threadId ? "Konuşmaya devam et — geçen turları hatırlıyor…" : "Yöneticinin sorusunu yaz…"}

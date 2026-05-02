@@ -48,7 +48,7 @@ export default function TenantSettingsPage() {
   }
 
   return (
-    <div className="px-8 py-8 max-w-3xl">
+    <div className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8 max-w-3xl">
       <h2 className="text-2xl font-semibold">Tenant ayarları</h2>
       <p className="mt-1 text-sm text-neutral-400">Güvenlik ve uyumluluk ayarları — tüm tenant'ı etkiler.</p>
 

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { auth, isAdmin, isPlatformAdmin } from "@/auth";
 import { redirect } from "next/navigation";
 import PresenceBadge from "@/app/_components/PresenceBadge";
+import AdminMobileNav from "./_AdminMobileNav";
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -12,9 +13,22 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   const platformAdmin = isPlatformAdmin(session);
 
+  const items = [
+    { href: "/admin/users",            label: "Kullanıcılar" },
+    { href: "/admin/sessions",         label: "Tüm oturumlar" },
+    { href: "/admin/invitations",      label: "Davetler" },
+    { href: "/admin/api-keys",         label: "API anahtarları" },
+    { href: "/admin/providers",        label: "Provider config" },
+    { href: "/admin/data-sources",     label: "🔌 Connector'lar" },
+    { href: "/admin/audit",            label: "Denetim kaydı" },
+    { href: "/admin/tenant-settings",  label: "🔐 Tenant ayarları" },
+    ...(platformAdmin ? [{ href: "/admin/tenants", label: "Tenant'lar (platform)" }] : []),
+  ];
+
   return (
-    <div className="flex min-h-[calc(100vh-3rem)]">
-      <aside className="w-56 border-r border-neutral-800 bg-neutral-950 px-3 py-6">
+    <div className="flex flex-col md:flex-row min-h-[calc(100vh-3rem)]">
+      <AdminMobileNav items={items} tenantSlug={session.tenantSlug ?? "—"} role={platformAdmin ? "platform_admin" : "tenant_admin"} />
+      <aside className="hidden md:block w-56 shrink-0 border-r border-neutral-800 bg-neutral-950 px-3 py-6">
         <div className="mb-6 px-2">
           <h1 className="text-base font-semibold tracking-tight">Altaris Admin</h1>
           <p className="text-xs text-neutral-500">Tenant: <span className="font-mono">{session.tenantSlug ?? "—"}</span></p>
@@ -22,21 +36,15 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <p className="mt-1.5"><PresenceBadge /></p>
         </div>
         <nav className="space-y-1 text-sm">
-          <Item href="/admin/users"        label="Kullanıcılar" />
-          <Item href="/admin/sessions"     label="Tüm oturumlar" />
-          <Item href="/admin/invitations"  label="Davetler" />
-          <Item href="/admin/api-keys"     label="API anahtarları" />
-          <Item href="/admin/providers"    label="Provider config" />
-          <Item href="/admin/data-sources" label="🔌 Connector'lar" />
-          <Item href="/admin/audit"        label="Denetim kaydı" />
-          <Item href="/admin/tenant-settings" label="🔐 Tenant ayarları" />
-          {platformAdmin && <Item href="/admin/tenants" label="Tenant'lar (platform)" />}
+          {items.map(i => (
+            <Item key={i.href} href={i.href} label={i.label} />
+          ))}
         </nav>
         <div className="mt-8 border-t border-neutral-900 pt-4">
           <Link href="/dashboard" className="block rounded-md px-3 py-2 text-xs text-neutral-400 hover:bg-neutral-900">← Panele dön</Link>
         </div>
       </aside>
-      <main className="flex-1 overflow-auto bg-neutral-950">{children}</main>
+      <main className="flex-1 min-w-0 overflow-auto bg-neutral-950">{children}</main>
     </div>
   );
 }

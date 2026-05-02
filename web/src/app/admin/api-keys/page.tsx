@@ -35,11 +35,11 @@ export default function ApiKeysPage() {
   }
 
   return (
-    <div className="px-8 py-8">
+    <div className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
       <h2 className="text-2xl font-semibold">API anahtarları</h2>
       <p className="mt-1 text-sm text-neutral-400">CLI / Desktop cihazları için uzun ömürlü token. Sırrı sadece oluşturma anında bir kez gösterilir.</p>
 
-      <form onSubmit={create} className="mt-6 grid gap-3 rounded-lg border border-neutral-800 bg-neutral-900/40 p-4 md:grid-cols-4">
+      <form onSubmit={create} className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-lg border border-neutral-800 bg-neutral-900/40 p-4 md:grid-cols-4">
         <input required placeholder="Anahtar adı (ör. ofis-macbook)" value={name} onChange={e => setName(e.target.value)}
           className="md:col-span-2 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm" />
         <input type="number" min="1" placeholder="Geçerlilik (gün)" value={validDays} onChange={e => setValidDays(e.target.value === "" ? "" : +e.target.value)}
@@ -56,8 +56,8 @@ export default function ApiKeysPage() {
       )}
       {err && <p className="mt-4 text-xs text-red-400">Hata: {err}</p>}
 
-      <div className="mt-6 overflow-hidden rounded-lg border border-neutral-800">
-        <table className="w-full text-sm">
+      <div className="mt-6 overflow-x-auto rounded-lg border border-neutral-800">
+        <table className="w-full min-w-[680px] text-sm">
           <thead className="bg-neutral-900 text-left text-xs uppercase tracking-wide text-neutral-400">
             <tr><th className="px-4 py-3">İsim</th><th className="px-4 py-3">Prefix</th><th className="px-4 py-3">Son kullanım</th><th className="px-4 py-3">Bitiş</th><th className="px-4 py-3 text-right">İşlem</th></tr>
           </thead>

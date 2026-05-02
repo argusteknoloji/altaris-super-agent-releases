@@ -181,15 +181,15 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
   }
 
   if (!catalog || !data) {
-    return <div className="px-8 py-8 text-sm text-neutral-500">{err || "Yükleniyor…"}</div>;
+    return <div className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8 text-sm text-neutral-500">{err || "Yükleniyor…"}</div>;
   }
 
   const eff = effectiveSet();
 
   return (
-    <div className="px-8 py-8">
+    <div className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
       <Link href="/admin/users" className="text-xs text-neutral-400 hover:text-orange-400">← Kullanıcılar</Link>
-      <div className="mt-3 flex items-baseline justify-between">
+      <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-baseline sm:justify-between">
         <div>
           <h2 className="text-2xl font-semibold">Yetkiler</h2>
           <p className="mt-1 text-sm text-neutral-400">
@@ -215,7 +215,7 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
         Effective = Default ∪ Allow ∖ Deny.
       </p>
 
-      <section className="mt-6 grid gap-3 rounded-lg border border-neutral-800 bg-neutral-900/30 p-4 md:grid-cols-2">
+      <section className="mt-6 grid grid-cols-1 gap-3 rounded-lg border border-neutral-800 bg-neutral-900/30 p-4 md:grid-cols-2">
         <div>
           <h3 className="text-sm font-semibold text-neutral-200">İki faktörlü doğrulama (TOTP)</h3>
           <p className="mt-1 text-xs text-neutral-500">Kurumsal güvenlik politikası gereği zorunlu kılabilirsin.</p>
@@ -244,7 +244,8 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
         {sessions.length === 0 ? (
           <p className="mt-3 text-xs text-neutral-500">Aktif oturum yok.</p>
         ) : (
-          <table className="mt-3 w-full text-sm">
+          <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[640px] text-sm">
             <thead className="text-left text-xs uppercase tracking-wide text-neutral-500">
               <tr><th className="pb-2">IP</th><th className="pb-2">Başlangıç</th><th className="pb-2">Son erişim</th><th className="pb-2">Client</th><th className="pb-2 text-right">İşlem</th></tr>
             </thead>
@@ -262,6 +263,7 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </section>
 
@@ -269,7 +271,8 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
         {groups.map(g => (
           <section key={g.name} className="rounded-lg border border-neutral-800 bg-neutral-900/30 p-4">
             <h3 className="text-sm font-semibold text-neutral-200">{g.name}</h3>
-            <table className="mt-3 w-full text-sm">
+            <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[640px] text-sm">
               <thead className="text-left text-xs uppercase tracking-wide text-neutral-500">
                 <tr>
                   <th className="pb-2">Capability</th>
@@ -325,6 +328,7 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
                 })}
               </tbody>
             </table>
+            </div>
           </section>
         ))}
       </div>

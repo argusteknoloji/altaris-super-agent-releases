@@ -32,19 +32,19 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
     })();
   }, [id]);
 
-  if (!detail) return <div className="px-8 py-8 text-sm text-neutral-500">Yükleniyor…</div>;
+  if (!detail) return <div className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8 text-sm text-neutral-500">Yükleniyor…</div>;
 
   return (
-    <div className="px-8 py-8">
+    <div className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
       <Link href="/admin/sessions" className="text-xs text-neutral-400 hover:text-orange-400">← Tüm oturumlar</Link>
-      <div className="mt-3 flex items-start justify-between">
+      <div className="mt-3 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="text-2xl font-semibold">{detail.title ?? "Oturum detayı"}</h2>
-          <p className="mt-1 text-sm text-neutral-400">
+          <h2 className="text-2xl font-semibold break-words">{detail.title ?? "Oturum detayı"}</h2>
+          <p className="mt-1 text-sm text-neutral-400 break-all">
             <span className="font-mono">{detail.user.email}</span> · {detail.source} · {detail.provider}/{detail.model}
           </p>
         </div>
-        <div className="text-right">
+        <div className="sm:text-right">
           {live
             ? <span className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/10 px-3 py-1 text-xs text-emerald-400 ring-1 ring-emerald-500/30"><span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>connected</span>
             : <span className="inline-flex items-center gap-1.5 rounded-md bg-neutral-800 px-3 py-1 text-xs text-neutral-500"><span className="h-2 w-2 rounded-full bg-neutral-600"></span>not connected</span>}

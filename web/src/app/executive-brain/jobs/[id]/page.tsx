@@ -60,8 +60,8 @@ export default function JobDetailPage({ params }: { params: Promise<{ id: string
   // eslint-disable-next-line
   }, [job?.status]);
 
-  if (err) return <p className="px-8 py-8 text-sm text-red-400">{err}</p>;
-  if (!job) return <p className="px-8 py-8 text-sm text-neutral-500">Yükleniyor…</p>;
+  if (err) return <p className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8 text-sm text-red-400">{err}</p>;
+  if (!job) return <p className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8 text-sm text-neutral-500">Yükleniyor…</p>;
 
   const citations: Citation[] = job.citations ? JSON.parse(job.citations) : [];
   const trace: TraceStep[] = job.trace ? JSON.parse(job.trace) : [];
@@ -86,12 +86,12 @@ export default function JobDetailPage({ params }: { params: Promise<{ id: string
   }
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-10">
+    <main className="mx-auto max-w-5xl px-4 sm:px-6 py-6 sm:py-10">
       <Link href="/executive-brain/jobs" className="text-xs text-neutral-400 hover:text-orange-400">← Tüm job'lar</Link>
 
-      <header className="mt-3 flex items-baseline justify-between gap-4">
-        <h1 className="text-xl font-semibold text-neutral-100">{job.question}</h1>
-        <span className={`shrink-0 rounded px-3 py-1 text-xs ${STATUS_COLOR[job.status]}`}>{job.status}</span>
+      <header className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-baseline sm:justify-between">
+        <h1 className="text-lg sm:text-xl font-semibold text-neutral-100 break-words">{job.question}</h1>
+        <span className={`shrink-0 self-start rounded px-3 py-1 text-xs ${STATUS_COLOR[job.status]}`}>{job.status}</span>
       </header>
       <p className="mt-2 text-xs text-neutral-500 font-mono">
         Job {job.id.slice(0, 8)} · Thread {job.threadId?.slice(0, 8) ?? "—"} · {fmtDateTimeTR(job.createdAt)}
@@ -159,7 +159,7 @@ export default function JobDetailPage({ params }: { params: Promise<{ id: string
           <summary className="cursor-pointer text-xs text-neutral-400">
             ⚙ Trace ({trace.length} adım, toplam {totalMs}ms)
           </summary>
-          <table className="mt-3 w-full text-xs">
+          <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[520px] text-xs">
             <thead className="text-left text-neutral-500">
               <tr><th className="pb-1">Step</th><th className="pb-1 w-20 text-right">ms</th><th className="pb-1">Detay</th></tr>
             </thead>
@@ -175,7 +175,7 @@ export default function JobDetailPage({ params }: { params: Promise<{ id: string
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         </details>
       )}
     </main>

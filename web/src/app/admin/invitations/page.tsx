@@ -35,11 +35,11 @@ export default function InvitationsPage() {
   }
 
   return (
-    <div className="px-8 py-8">
+    <div className="px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
       <h2 className="text-2xl font-semibold">Davetler</h2>
       <p className="mt-1 text-sm text-neutral-400">Kullanıcı oluşturmadan e-posta ile davet linki gönder. Davetli linke tıklayıp kayıt olur.</p>
 
-      <form onSubmit={create} className="mt-6 grid gap-3 rounded-lg border border-neutral-800 bg-neutral-900/40 p-4 md:grid-cols-5">
+      <form onSubmit={create} className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-lg border border-neutral-800 bg-neutral-900/40 p-4 md:grid-cols-5">
         <input required type="email" placeholder="E-posta" value={form.email} onChange={e => setForm({...form, email: e.target.value})}
           className="md:col-span-2 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm" />
         <select value={form.role} onChange={e => setForm({...form, role: e.target.value})}
@@ -61,8 +61,8 @@ export default function InvitationsPage() {
       )}
       {err && <p className="mt-4 text-xs text-red-400">Hata: {err}</p>}
 
-      <div className="mt-6 overflow-hidden rounded-lg border border-neutral-800">
-        <table className="w-full text-sm">
+      <div className="mt-6 overflow-x-auto rounded-lg border border-neutral-800">
+        <table className="w-full min-w-[700px] text-sm">
           <thead className="bg-neutral-900 text-left text-xs uppercase tracking-wide text-neutral-400">
             <tr><th className="px-4 py-3">E-posta</th><th className="px-4 py-3">Rol</th><th className="px-4 py-3">Oluşturma</th><th className="px-4 py-3">Bitiş</th><th className="px-4 py-3 text-right">İşlem</th></tr>
           </thead>

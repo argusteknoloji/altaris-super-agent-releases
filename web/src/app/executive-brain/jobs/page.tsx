@@ -72,8 +72,8 @@ export default function JobsPage() {
   const agentName = (id: string | null) => id ? (agents.find(a => a.id === id)?.name ?? id.slice(0, 8)) : "—";
 
   return (
-    <main className="mx-auto max-w-6xl px-6 py-10">
-      <div className="mb-6 flex items-baseline justify-between">
+    <main className="mx-auto max-w-6xl px-4 sm:px-6 py-6 sm:py-10">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-baseline sm:justify-between">
         <div>
           <Link href="/executive-brain" className="text-xs text-neutral-400 hover:text-orange-400">← Beyin'e dön</Link>
           <h1 className="mt-2 text-3xl font-semibold">📋 Job geçmişi</h1>
@@ -87,7 +87,7 @@ export default function JobsPage() {
       </div>
 
       {/* Filter */}
-      <div className="mb-4 grid gap-2 rounded-lg border border-neutral-800 bg-neutral-900/40 p-3 md:grid-cols-5">
+      <div className="mb-4 grid grid-cols-1 sm:grid-cols-2 gap-2 rounded-lg border border-neutral-800 bg-neutral-900/40 p-3 md:grid-cols-5">
         <select value={filter.status} onChange={e => { setFilter({...filter, status: e.target.value}); setPage(0); }}
           className="rounded-md border border-neutral-800 bg-neutral-950 px-3 py-1.5 text-xs">
           <option value="">— Durum —</option>
