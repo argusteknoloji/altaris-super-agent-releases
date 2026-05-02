@@ -54,27 +54,28 @@ function scheduleSoundtrack(
   master.connect(ctx.destination);
   if (recordDest) master.connect(recordDest);
   master.gain.setValueAtTime(0, t0);
-  master.gain.linearRampToValueAtTime(0.5, t0 + 0.6);
+  master.gain.linearRampToValueAtTime(0.55, t0 + 0.8);
 
-  const padFilter = ctx.createBiquadFilter();
-  padFilter.type = "lowpass";
-  padFilter.frequency.setValueAtTime(420, t0);
-  padFilter.frequency.linearRampToValueAtTime(900, t0 + 9);
-  padFilter.frequency.linearRampToValueAtTime(1600, t0 + 15);
-  padFilter.frequency.linearRampToValueAtTime(2400, t0 + 18);
-  padFilter.Q.value = 1.4;
-  padFilter.connect(master);
-
-  [D_FREQ, A_FREQ, D_FREQ * 2, F_FREQ * 2].forEach((f, i) => {
-    const o = osc(ctx, f, i % 2 === 0 ? "sawtooth" : "triangle");
+  // ── Temiz pad — saf sinüsler · perfect intervaller · oktav yukarı ──
+  // Önceki sawtooth/triangle + 73Hz fundamental "parazit/buzz" yapıyordu;
+  // sinüs dalga + D3 (147Hz) tabanı ile berrak ambient pad.
+  const padBus = gain(ctx, 1);
+  padBus.connect(master);
+  [
+    { freq: D_FREQ * 2,  peak: 0.045 }, // D3 (kök)
+    { freq: A_FREQ * 2,  peak: 0.028 }, // A3 (5'li)
+    { freq: D_FREQ * 4,  peak: 0.020 }, // D4 (oktav)
+    { freq: A_FREQ * 4,  peak: 0.012 }, // A4 (üst hava)
+  ].forEach(({ freq, peak }) => {
+    const o = osc(ctx, freq, "sine");
     const g = gain(ctx, 0);
-    o.connect(g).connect(padFilter);
+    o.connect(g).connect(padBus);
     g.gain.setValueAtTime(0, t0);
-    g.gain.linearRampToValueAtTime(0.06, t0 + 1);
-    g.gain.linearRampToValueAtTime(0.04, t0 + 9);
-    g.gain.linearRampToValueAtTime(0.025, t0 + 15);
-    g.gain.linearRampToValueAtTime(0.05, t0 + 18);
-    g.gain.linearRampToValueAtTime(0, t0 + 21.6);
+    g.gain.linearRampToValueAtTime(peak,        t0 + 1.4);
+    g.gain.linearRampToValueAtTime(peak * 0.75, t0 + 9);
+    g.gain.linearRampToValueAtTime(peak * 0.55, t0 + 15);
+    g.gain.linearRampToValueAtTime(peak,        t0 + 18);
+    g.gain.linearRampToValueAtTime(0,           t0 + 21.6);
     o.start(t0);
     o.stop(t0 + 22);
   });
@@ -201,8 +202,9 @@ export function Soundtrack() {
   const [progress, setProgress] = useState(0);
   const ctxRef = useRef<AudioContext | null>(null);
 
-  // Sahnelerin animation'ı body[data-play="1"] selector'una bağlı.
-  // Phase değiştikçe DOM'u senkronize et.
+  // Sahnelerin animation'ı html[data-play="1"] selector'una bağlı.
+  // Phase değiştikçe DOM'u senkronize et — ama play/record başlangıcında
+  // ekstra olarak setPhase ÖNCE direct DOM yazımı yapıyoruz (bkz. start*).
   useEffect(() => {
     const root = document.documentElement;
     if (phase === "playing" || phase === "recording") {
@@ -241,6 +243,8 @@ export function Soundtrack() {
     const ctx = newAudioContext();
     await ctx.resume();
     ctxRef.current = ctx;
+    // Animation ve sesi aynı tick'te başlat — DOM attr'i React'ten önce set
+    document.documentElement.setAttribute("data-play", "1");
     scheduleSoundtrack(ctx, null);
     setPhase("playing");
     setTimeout(() => setPhase("done"), TOTAL_S * 1000 + 500);
@@ -270,7 +274,7 @@ export function Soundtrack() {
     await ctx.resume();
     ctxRef.current = ctx;
     const recDest = ctx.createMediaStreamDestination();
-    scheduleSoundtrack(ctx, recDest);
+    // (scheduleSoundtrack daha sonra, recorder.start ile aynı tick'te çağrılır)
 
     // 3. Video + audio stream'leri birleştir
     const audioTrack = recDest.stream.getAudioTracks()[0];
@@ -297,7 +301,12 @@ export function Soundtrack() {
       display.getTracks().forEach((t) => t.stop());
       setPhase("done");
     };
-    recorder.start(250); // 250ms timeslice — ondataavailable sürekli tetiklenir
+    // 5. Animasyon · recorder · ses planı — hepsi aynı tick içinde başlar.
+    //    Sıra: önce animation tetikle, sonra recorder, sonra ses schedule.
+    //    Böylece kayıt frame 0'dan, ses 0. saniyeden senkron başlar.
+    document.documentElement.setAttribute("data-play", "1");
+    recorder.start(250);
+    scheduleSoundtrack(ctx, recDest);
 
     setPhase("recording");
 

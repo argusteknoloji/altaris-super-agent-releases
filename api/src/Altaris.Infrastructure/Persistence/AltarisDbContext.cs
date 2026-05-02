@@ -21,6 +21,7 @@ public class AltarisDbContext : DbContext
     public DbSet<UserCapability> UserCapabilities => Set<UserCapability>();
     public DbSet<ExecutiveAgent> ExecutiveAgents => Set<ExecutiveAgent>();
     public DbSet<ExecutiveJob> ExecutiveJobs => Set<ExecutiveJob>();
+    public DbSet<DataSource> DataSources => Set<DataSource>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -238,6 +239,26 @@ public class AltarisDbContext : DbContext
             e.Property(x => x.ClaimedBy).HasColumnName("claimed_by");
             e.Property(x => x.ClaimedAt).HasColumnName("claimed_at");
             e.HasIndex(x => new { x.TenantId, x.CreatedAt });
+        });
+
+        modelBuilder.Entity<DataSource>(e =>
+        {
+            e.ToTable("data_sources");
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.TenantId).HasColumnName("tenant_id");
+            e.Property(x => x.Kind).HasColumnName("kind");
+            e.Property(x => x.Name).HasColumnName("name");
+            e.Property(x => x.Config).HasColumnName("config").HasColumnType("jsonb");
+            e.Property(x => x.SecretEnc).HasColumnName("secret_enc");
+            e.Property(x => x.TargetVaultId).HasColumnName("target_vault_id");
+            e.Property(x => x.Enabled).HasColumnName("enabled");
+            e.Property(x => x.LastSyncAt).HasColumnName("last_sync_at");
+            e.Property(x => x.LastSyncStatus).HasColumnName("last_sync_status");
+            e.Property(x => x.LastSyncError).HasColumnName("last_sync_error");
+            e.Property(x => x.SyncIntervalMin).HasColumnName("sync_interval_min");
+            e.Property(x => x.CreatedAt).HasColumnName("created_at");
+            e.Property(x => x.UpdatedAt).HasColumnName("updated_at");
+            e.HasIndex(x => x.TenantId);
         });
 
         modelBuilder.Entity<AuditEvent>(e =>

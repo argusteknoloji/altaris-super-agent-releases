@@ -100,9 +100,8 @@ export default function SenaryoPage() {
         [data-play="1"] .s4 { animation: scene-life 6s   9s   ease-out forwards; }
         [data-play="1"] .s5 { animation: scene-life 3s   15s  ease-out forwards; }
         [data-play="1"] .s6 { animation: scene-life 4s   18s  ease-out forwards; }
-
-        /* idle iken son sahne (CTA) hafifçe görünsün — boş ekran olmasın */
-        :not([data-play]) .s6, [data-play=""] .s6 { opacity: 0.55; }
+        /* play yokken tüm sahneler gizli — boş siyah arkaplan */
+        :not([data-play="1"]) .scene { opacity: 0 !important; }
 
         /* ── Sahne 1: chaos kartları ──────────────────────────────────── */
         [data-play="1"] .s1-card { animation: drift 3.6s ease-in-out infinite; }

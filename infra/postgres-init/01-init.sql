@@ -191,6 +191,36 @@ CREATE POLICY tenant_isolation_vault_embeds ON vault_embeddings
     USING (tenant_id::text = current_setting('app.tenant_id', true));
 
 -- ============================================================
+-- Connector framework — Excel/CSV + IMAP/Exchange + Logo/Salesforce
+--
+-- Her tenant tanımladığı external data source = data_sources satırı.
+-- Worker periyodik veya manuel sync edip vault'a (target_vault_id)
+-- markdown/CSV olarak yazar; embedding pipeline otomatik index eder.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS data_sources (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    -- 'excel' | 'csv' | 'imap' | 'exchange' | 'logo_tiger' | 'netsis' |
+    -- 'salesforce' | 'hubspot' | 'pdf_bulk'
+    kind            TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    config          JSONB NOT NULL DEFAULT '{}'::jsonb,
+    secret_enc      TEXT,
+    target_vault_id UUID REFERENCES vaults(id) ON DELETE SET NULL,
+    enabled         BOOLEAN NOT NULL DEFAULT true,
+    last_sync_at    TIMESTAMPTZ,
+    last_sync_status TEXT,
+    last_sync_error TEXT,
+    sync_interval_min INTEGER,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS data_sources_tenant_idx ON data_sources(tenant_id);
+ALTER TABLE data_sources ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_data_sources ON data_sources
+    USING (tenant_id::text = current_setting('app.tenant_id', true));
+
+-- ============================================================
 -- Executive Brain — production-grade agent system
 --
 -- Her tenant kendi yöneticisine özgü ajanlar tanımlar (CFO Ajanı, CRO,

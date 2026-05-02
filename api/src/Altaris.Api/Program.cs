@@ -99,6 +99,9 @@ try
     builder.Services.AddHostedService<Altaris.Api.Services.ExecutiveJobWorker>();
     // Executive Brain cron scheduler (schedule_cron'lu agent'ları periyodik tetikle)
     builder.Services.AddHostedService<Altaris.Api.Services.ExecutiveScheduler>();
+    // Connector framework (Sprint EB-2) — external data sources → vault
+    builder.Services.AddScoped<Altaris.Api.Services.ConnectorSyncService>();
+    builder.Services.AddHostedService<Altaris.Api.Services.ConnectorPeriodicWorker>();
 
     // ── Health checks (liveness vs readiness) ──────────────────────────────
     builder.Services.AddHealthChecks()
@@ -219,6 +222,28 @@ try
                 ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS last_refreshed_at        TIMESTAMPTZ;
 
                 CREATE EXTENSION IF NOT EXISTS ""vector"";
+
+                CREATE TABLE IF NOT EXISTS data_sources (
+                    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                    tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                    kind            TEXT NOT NULL,
+                    name            TEXT NOT NULL,
+                    config          JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    secret_enc      TEXT,
+                    target_vault_id UUID REFERENCES vaults(id) ON DELETE SET NULL,
+                    enabled         BOOLEAN NOT NULL DEFAULT true,
+                    last_sync_at    TIMESTAMPTZ,
+                    last_sync_status TEXT,
+                    last_sync_error TEXT,
+                    sync_interval_min INTEGER,
+                    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+                CREATE INDEX IF NOT EXISTS data_sources_tenant_idx ON data_sources(tenant_id);
+                ALTER TABLE data_sources ENABLE ROW LEVEL SECURITY;
+                DROP POLICY IF EXISTS tenant_isolation_data_sources ON data_sources;
+                CREATE POLICY tenant_isolation_data_sources ON data_sources
+                    USING (tenant_id::text = current_setting('app.tenant_id', true));
 
                 CREATE TABLE IF NOT EXISTS executive_agents (
                     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -405,6 +430,7 @@ try
     app.MapMeEndpoints();
     app.MapCodexProviderEndpoints();
     app.MapExecutiveBrainEndpoints();
+    app.MapDataSourceEndpoints();
 
     Log.Information("Altaris API starting in {Env}", app.Environment.EnvironmentName);
     app.Run();
