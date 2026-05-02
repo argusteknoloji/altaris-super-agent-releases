@@ -16,7 +16,12 @@ name: Release CLI Binaries
 
 on:
   push:
-    tags: ["v*"]
+    # Yalnız CLI tag'leri tetikler — Desktop için ayrı `-desktop` suffix'li
+    # tag'ler desktop-release.yml'i tetikler. Aynı pattern iki workflow'u
+    # birden tetiklemesin diye exclude ekledik.
+    tags:
+      - 'v*'
+      - '!v*-desktop'
   workflow_dispatch:
     inputs:
       version:
