@@ -4502,7 +4502,12 @@ Examples:
       await startRemoteControl();
     }
   } catch (e) {
-    // non-fatal: argus extensions optional in dev
+    // Silent failure burada Argus subcommand'lerinin (provider connect codex
+    // vb.) gözden kaybolmasına yol açıyordu. Stderr'e loglayalım — geliştirici
+    // hatayı görsün, kullanıcı production'da fark etmesin.
+    if (process.env.ALTARIS_DEBUG === '1' || process.env.NODE_ENV !== 'production') {
+      process.stderr.write(`[argus] register failed: ${(e as Error).message}\n`);
+    }
   }
   profileCheckpoint('run_before_parse');
   await program.parseAsync(process.argv);

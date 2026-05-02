@@ -41,16 +41,11 @@ export function registerArgusCommands(program: Command): void {
       process.exit(code);
     });
 
-  program
-    .command("update")
-    .description("En son sürümü GitHub release repo'sundan indir + atomik replace")
-    .option("--force", "Aynı sürüm bile olsa yeniden indir")
-    .option("--skip-checksum", "SHA256 doğrulamasını atla (önerilmez)")
-    .action(async (opts: { force?: boolean; skipChecksum?: boolean }) => {
-      const { altarisUpdate } = await import("./update.js");
-      const code = await altarisUpdate(opts);
-      process.exit(code);
-    });
+  // NOT: `update` komutu opencode core tarafından zaten register edilmiş
+  // (`update|upgrade` alias). Commander duplicate registration'da exception
+  // fırlatır ve sonraki tüm Argus register çağrıları (session, provider, vb.)
+  // sessizce başarısız olur. Bizim GitHub Releases tabanlı self-updater'ımız
+  // `cli/src/cli/update.ts` ve `utils/githubReleaseUpdater.ts` üzerinden çalışıyor.
 
   const session = program.command("session").description("Sunucu tarafı oturumlar (Altaris API)");
 
