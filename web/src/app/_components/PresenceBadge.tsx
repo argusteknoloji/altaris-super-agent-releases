@@ -15,7 +15,7 @@ export default function PresenceBadge() {
       try {
         const r = await fetch("/api/proxy/me", { cache: "no-store" });
         if (!alive) return;
-        setStatus(r.ok ? "ok" : "down");
+        setStatus(r.ok || r.status === 401 ? "ok" : "down");
       } catch {
         if (alive) setStatus("down");
       }

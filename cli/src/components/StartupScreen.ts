@@ -73,7 +73,7 @@ const LOGO_ALTARIS = [
 
 // ─── Provider detection ───────────────────────────────────────────────────────
 
-export function detectProvider(modelOverride?: string): { name: string; model: string; baseUrl: string; isLocal: boolean } {
+function detectProviderInner(modelOverride?: string): { name: string; model: string; baseUrl: string; isLocal: boolean } {
   const useGemini = process.env.ALTARIS_USE_GEMINI === '1' || process.env.ALTARIS_USE_GEMINI === 'true'
   const useGithub = process.env.ALTARIS_USE_GITHUB === '1' || process.env.ALTARIS_USE_GITHUB === 'true'
   const useOpenAI = process.env.ALTARIS_USE_OPENAI === '1' || process.env.ALTARIS_USE_OPENAI === 'true'
@@ -157,13 +157,33 @@ export function detectProvider(modelOverride?: string): { name: string; model: s
 
   // Default: Anthropic - check settings.model first, then env vars
   const settings = getSettings_DEPRECATED() || {}
-  const modelSetting = modelOverride || settings.model || process.env.ANTHROPIC_MODEL || process.env.CLAUDE_MODEL || 'sonnet'
-  const resolvedModel = parseUserSpecifiedModel(modelSetting)
+  // Prefer the platform-supplied active model over the literal 'sonnet'
+  // fallback so the banner reflects what the operator actually picked.
+  const platformModel = process.env.ALTARIS_ACTIVE_PROVIDER_MODEL
+  const modelSetting =
+    modelOverride ||
+    settings.model ||
+    process.env.ANTHROPIC_MODEL ||
+    process.env.CLAUDE_MODEL ||
+    platformModel ||
+    '(no model selected)'
+  const resolvedModel = modelSetting === '(no model selected)'
+    ? modelSetting
+    : parseUserSpecifiedModel(modelSetting)
   const baseUrl = process.env.ANTHROPIC_BASE_URL ?? 'https://api.anthropic.com'
   const isLocal = isLocalProviderUrl(baseUrl)
   // Keep real baseUrl so the runtime can parse it (isFirstPartyAnthropicBaseUrl
   // and friends require a valid URL); the UI substitutes a brand label below.
-  return { name: 'Altaris Cloud', model: resolvedModel, baseUrl, isLocal }
+  const displayName = process.env.ALTARIS_ACTIVE_PROVIDER_NAME || 'Altaris Cloud'
+  return { name: displayName, model: resolvedModel, baseUrl, isLocal }
+}
+
+export function detectProvider(modelOverride?: string): { name: string; model: string; baseUrl: string; isLocal: boolean } {
+  const inner = detectProviderInner(modelOverride)
+  // When bootstrap (or /provider) selected a tenant provider, prefer the
+  // operator-chosen name over the auto-detected vendor label.
+  const platformName = process.env.ALTARIS_ACTIVE_PROVIDER_NAME
+  return platformName ? { ...inner, name: platformName } : inner
 }
 
 // ─── Box drawing ──────────────────────────────────────────────────────────────

@@ -30,10 +30,11 @@ public static class SessionEndpoints
         // ?provider=lmstudio narrows by type; otherwise the tenant's default
         // (or first enabled) is returned. Writes a terminal.bootstrap audit row.
         app.MapGet("/api/v1/providers/active", async (
-            AltarisDbContext db, ITenantContext tc, HttpContext ctx, string? provider) =>
+            AltarisDbContext db, ITenantContext tc, HttpContext ctx, string? provider, Guid? id) =>
         {
             if (tc.TenantId is null) return Results.Forbid();
             var q = db.ProviderConfigs.Where(p => p.TenantId == tc.TenantId && p.Enabled);
+            if (id.HasValue) q = q.Where(p => p.Id == id.Value);
             if (!string.IsNullOrEmpty(provider)) q = q.Where(p => p.Provider == provider);
             var row = await q
                 .OrderByDescending(p => p.IsDefault)

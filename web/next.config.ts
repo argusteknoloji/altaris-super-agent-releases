@@ -7,9 +7,6 @@ const config: NextConfig = {
   experimental: {
     serverActions: { bodySizeLimit: "2mb" }
   },
-  env: {
-    ALTARIS_API_BASE: process.env.ALTARIS_API_BASE ?? "http://localhost:5000"
-  },
   async headers() {
     return [
       {
