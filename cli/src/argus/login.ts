@@ -162,9 +162,39 @@ export async function altarisLogin(opts: { issuer?: string; clientId?: string; a
 }
 
 export async function altarisLogout(): Promise<number> {
+  // Keycloak end_session endpoint'ine refresh_token ile çağrı yap — bu sadece
+  // CLI session'ını değil, kullanıcının TÜM cihaz session'larını kapatır
+  // (refresh token revoke edilince diğer access token'ler de bir sonraki
+  // refresh denemesinde 401 alır). Sadece lokal token silmek "true logout"
+  // sayılmaz; başka tarayıcıdaki tab hala login.
+  let kcRevoked = false;
+  try {
+    const raw = await readFile(tokenStorePath(), "utf8");
+    const cred = JSON.parse(raw) as {
+      refresh_token?: string;
+      issuer?: string;
+    };
+    if (cred.refresh_token && cred.issuer) {
+      // Keycloak v25+ logout endpoint POST: client_id + refresh_token
+      const r = await fetch(`${cred.issuer}/protocol/openid-connect/logout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: "altaris-cli",
+          refresh_token: cred.refresh_token,
+        }).toString(),
+      });
+      kcRevoked = r.status === 204 || r.ok;
+    }
+  } catch { /* ignore: dosya yoksa zaten logout, network yoksa lokal silmeye devam */ }
+
   try {
     await rm(tokenStorePath(), { force: true });
-    process.stdout.write(`✓ Çıkış yapıldı. Token silindi.\n`);
+    process.stdout.write(
+      kcRevoked
+        ? `✓ Çıkış yapıldı. Lokal token silindi + Keycloak SSO session sonlandırıldı (tüm cihazlar).\n`
+        : `✓ Çıkış yapıldı. Lokal token silindi (Keycloak end_session erişilemedi — diğer cihazların session'ı devam edebilir).\n`,
+    );
     return 0;
   } catch (e) {
     process.stderr.write(`Hata: ${(e as Error).message}\n`);
