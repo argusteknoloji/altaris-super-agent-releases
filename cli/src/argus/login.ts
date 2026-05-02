@@ -185,12 +185,65 @@ export async function altarisWhoami(): Promise<number> {
     // Decode JWT payload (no signature verification — informational only)
     const payload = JSON.parse(Buffer.from(cred.access_token.split(".")[1], "base64url").toString("utf8")) as Record<string, unknown>;
 
-    process.stdout.write(`E-posta:   ${payload.email ?? "—"}\n`);
-    process.stdout.write(`Tenant:    ${payload.tid ?? "—"}\n`);
-    process.stdout.write(`Subject:   ${payload.sub ?? "—"}\n`);
-    process.stdout.write(`API:       ${cred.api_base ?? "(stored issuer only — re-login to set)"}\n`);
-    process.stdout.write(`Authority: ${cred.issuer}\n`);
-    process.stdout.write(`Expires:   ${new Date(cred.expires_at).toISOString()}\n`);
+    const dim   = (s: string) => `\x1b[2m${s}\x1b[0m`;
+    const orange = (s: string) => `\x1b[38;5;208m${s}\x1b[0m`;
+    const cyan  = (s: string) => `\x1b[36m${s}\x1b[0m`;
+    const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
+    const red   = (s: string) => `\x1b[31m${s}\x1b[0m`;
+
+    // Header — kim, hangi tenant
+    process.stdout.write(`${orange("◉ Altaris")}  ${cyan(String(payload.email ?? "—"))}  @  ${cyan(String(payload.tid ?? "—"))}\n`);
+    process.stdout.write(`${dim(`API:        ${cred.api_base ?? "(re-login to set)"}`)}\n`);
+    process.stdout.write(`${dim(`Authority:  ${cred.issuer}`)}\n`);
+    process.stdout.write(`${dim(`Expires:    ${new Date(cred.expires_at).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" })}`)}\n`);
+
+    // Realm roles (JWT claim'inden)
+    const realmAccess = payload.realm_access as { roles?: string[] } | undefined;
+    const roles = realmAccess?.roles ?? [];
+    if (roles.length > 0) {
+      process.stdout.write(`\n${dim("Roller")}\n`);
+      for (const r of roles) {
+        const tag =
+          r === "platform_admin" ? red("● ") :
+          r === "tenant_admin"   ? orange("● ") :
+                                   green("● ");
+        process.stdout.write(`  ${tag}${r}\n`);
+      }
+    }
+
+    // Effective capabilities (backend'den /me/capabilities)
+    try {
+      // cred.api_base eski token'larda yoktu — env / default'a düş.
+      const apiBase = cred.api_base
+        || process.env.ALTARIS_API_BASE
+        || "http://localhost:5050";
+      if (apiBase) {
+        const r = await fetch(`${apiBase}/api/v1/me/capabilities`, {
+          headers: { Authorization: `Bearer ${cred.access_token}` },
+        });
+        if (r.ok) {
+          const data = await r.json() as { capabilities: string[] };
+          if (data.capabilities?.length > 0) {
+            // Group by prefix (chat / vault / remote_control / admin / api_key / session)
+            const groups = new Map<string, string[]>();
+            for (const cap of data.capabilities) {
+              const g = cap.split(".")[0];
+              if (!groups.has(g)) groups.set(g, []);
+              groups.get(g)!.push(cap);
+            }
+            process.stdout.write(`\n${dim(`Yetkiler (${data.capabilities.length})`)}\n`);
+            for (const [g, caps] of Array.from(groups.entries()).sort()) {
+              process.stdout.write(`  ${dim(g.padEnd(14))} ${caps.map(c => c.split(".").slice(1).join(".")).join(", ")}\n`);
+            }
+          }
+        } else if (r.status !== 404) {
+          process.stdout.write(`\n${dim(`(Yetkiler alınamadı — HTTP ${r.status})`)}\n`);
+        }
+      }
+    } catch {
+      // Network down veya eski API — sessizce atla, JWT bilgisi yeterli.
+    }
+
     return 0;
   } catch {
     process.stdout.write(`Giriş yapılmamış. \`altaris login\` ile başla.\n`);

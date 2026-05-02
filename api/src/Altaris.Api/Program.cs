@@ -86,6 +86,7 @@ try
     builder.Services.AddDbContext<AltarisDbContext>(opts => opts.UseNpgsql(pgConn));
 
     builder.Services.AddScoped<ITenantContext, TenantContext>();
+    builder.Services.AddHttpContextAccessor();
     builder.Services.AddScoped<Altaris.Infrastructure.Permissions.CapabilityResolver>();
     builder.Services.AddHostedService<Altaris.Api.Services.CodexTokenRefreshWorker>();
 

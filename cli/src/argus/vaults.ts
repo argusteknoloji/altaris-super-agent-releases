@@ -44,8 +44,17 @@ async function api<T = unknown>(token: string, method: string, path: string, bod
     body: body !== undefined ? JSON.stringify(body) : undefined
   });
   if (res.status === 204) return undefined as T;
+
+  if (!res.ok) {
+    // Backend'in friendly hata yapısını kullan (403 → missing_capability vb.).
+    // Throw eden generic "HTTP 403" yerine actionable mesaj.
+    const { describeApiError } = await import("./apiErrors.js");
+    const friendly = await describeApiError(res);
+    const detail   = friendly ? friendly.message : `HTTP ${res.status}`;
+    throw new Error(`${method} ${path} → ${detail}`);
+  }
+
   const text = await res.text();
-  if (!res.ok) throw new Error(`${method} ${path} → HTTP ${res.status}${text ? `: ${text}` : ""}`);
   return text ? JSON.parse(text) as T : (undefined as T);
 }
 
