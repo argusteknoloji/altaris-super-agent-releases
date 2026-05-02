@@ -462,41 +462,19 @@ ${exports}
     },
   ],
   external: [
-    // OpenTelemetry — too many named exports to stub, kept external
-    '@opentelemetry/api',
-    '@opentelemetry/api-logs',
-    '@opentelemetry/core',
-    '@opentelemetry/exporter-trace-otlp-grpc',
-    '@opentelemetry/exporter-trace-otlp-http',
-    '@opentelemetry/exporter-trace-otlp-proto',
-    '@opentelemetry/exporter-logs-otlp-http',
-    '@opentelemetry/exporter-logs-otlp-proto',
-    '@opentelemetry/exporter-logs-otlp-grpc',
-    '@opentelemetry/exporter-metrics-otlp-proto',
-    '@opentelemetry/exporter-metrics-otlp-grpc',
-    '@opentelemetry/exporter-metrics-otlp-http',
-    '@opentelemetry/exporter-prometheus',
-    '@opentelemetry/resources',
-    '@opentelemetry/sdk-trace-base',
-    '@opentelemetry/sdk-trace-node',
-    '@opentelemetry/sdk-logs',
-    '@opentelemetry/sdk-metrics',
-    '@opentelemetry/semantic-conventions',
-    // Native image processing
-    'sharp',
-    // Cloud provider SDKs
-    // NOTE: @aws-sdk/* packages are now bundled (added to dependencies and
-    // removed from external) because Bun --compile single-file binaries have
-    // no node_modules at runtime, so externals fail to resolve. The Anthropic
-    // Bedrock SDK eagerly imports these; without bundling, exe crashes on
-    // startup with "Cannot find module '@aws-sdk/client-bedrock-runtime'".
-    '@azure/identity',
-    'google-auth-library',
-    // @vscode/ripgrep ships a platform-specific binary alongside its
-    // index.js and resolves the path via __dirname at runtime. Bundling
-    // would freeze the build host's absolute path into dist/cli.mjs, so we
-    // keep it external and rely on the npm package being installed.
-    '@vscode/ripgrep',
+    // Bun --compile produces a single-file exe with NO node_modules at
+    // runtime — anything kept external here will fail with "Cannot find
+    // module" on startup. Only externalize packages that:
+    //   (a) ship native binaries that can't be bundled into a JS file, OR
+    //   (b) are intentionally lazy-loaded behind a runtime escape hatch
+    //       (new Function('return import(...)')) so static analysis
+    //       doesn't pull them in.
+    //
+    // Everything else — OpenTelemetry SDK + exporters, AWS SDKs,
+    // google-auth-library — is bundled into the binary.
+    'sharp', // native .node binary
+    '@vscode/ripgrep', // native rg binary, resolved via __dirname at runtime
+    '@azure/identity', // lazy via new Function escape hatch in services/api/client.ts
   ],
 })
 

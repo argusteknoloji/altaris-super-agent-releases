@@ -79,29 +79,9 @@ jobs:
         run: |
           mkdir -p release
           bun build --compile --minify --target=${{ matrix.target }} \
-            --external @opentelemetry/api \
-            --external @opentelemetry/api-logs \
-            --external @opentelemetry/core \
-            --external @opentelemetry/exporter-trace-otlp-grpc \
-            --external @opentelemetry/exporter-trace-otlp-http \
-            --external @opentelemetry/exporter-trace-otlp-proto \
-            --external @opentelemetry/exporter-logs-otlp-http \
-            --external @opentelemetry/exporter-logs-otlp-proto \
-            --external @opentelemetry/exporter-logs-otlp-grpc \
-            --external @opentelemetry/exporter-metrics-otlp-proto \
-            --external @opentelemetry/exporter-metrics-otlp-grpc \
-            --external @opentelemetry/exporter-metrics-otlp-http \
-            --external @opentelemetry/exporter-prometheus \
-            --external @opentelemetry/resources \
-            --external @opentelemetry/sdk-trace-base \
-            --external @opentelemetry/sdk-trace-node \
-            --external @opentelemetry/sdk-logs \
-            --external @opentelemetry/sdk-metrics \
-            --external @opentelemetry/semantic-conventions \
             --external sharp \
-            --external @azure/identity \
-            --external google-auth-library \
             --external @vscode/ripgrep \
+            --external @azure/identity \
             ./dist/cli.mjs --outfile release/${{ matrix.artifact }}
 
       - uses: actions/upload-artifact@v4
