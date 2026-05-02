@@ -1,7 +1,24 @@
+# Altaris local stack
+#
+# İki mod:
+#   1) Sadece infra (dev iterasyonu, hot-reload):
+#        docker compose up -d
+#      → Postgres + Keycloak + Redis ayağa kalkar.
+#      API ve web'i host'ta `dotnet run` / `pnpm dev` ile sen başlatırsın.
+#
+#   2) Tam local-prod (her şey container'da, MacBook açılınca otomatik):
+#        docker compose --profile local up -d --build
+#      → Yukarıdakilere ek olarak API + web container'da; Docker Desktop
+#        login'de açılırsa stack restart sonrası kendiliğinden gelir.
+#        Hot reload yoktur — kod değişimi için yeniden `--build`.
+#
+# Volume'ler her iki modda paylaşılır; mod değiştirmek veriyi kaybettirmez.
+
 services:
   postgres:
     image: postgres:16-alpine
     container_name: altaris-postgres
+    restart: unless-stopped
     environment:
       POSTGRES_USER: altaris
       POSTGRES_PASSWORD: altaris_dev
@@ -16,10 +33,12 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    networks: [altaris-net]
 
   keycloak-db:
     image: postgres:16-alpine
     container_name: altaris-keycloak-db
+    restart: unless-stopped
     environment:
       POSTGRES_USER: keycloak
       POSTGRES_PASSWORD: keycloak_dev
@@ -31,10 +50,12 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    networks: [altaris-net]
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
     container_name: altaris-keycloak
+    restart: unless-stopped
     command:
       - start-dev
       - --import-realm
@@ -44,8 +65,11 @@ services:
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: keycloak_dev
       KC_HOSTNAME: localhost
+      KC_HOSTNAME_PORT: "8081"
+      KC_HOSTNAME_STRICT: "false"
       KC_HTTP_ENABLED: "true"
       KC_HEALTH_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
       KEYCLOAK_ADMIN: admin
       KEYCLOAK_ADMIN_PASSWORD: admin_dev
     ports:
@@ -55,12 +79,113 @@ services:
     depends_on:
       keycloak-db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && echo -e 'GET /realms/altaris/.well-known/openid-configuration HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && head -1 <&3 | grep -q '200'"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+    networks: [altaris-net]
 
   redis:
     image: redis:7-alpine
     container_name: altaris-redis
+    restart: unless-stopped
     ports:
       - "6380:6379"
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - ./redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [altaris-net]
+
+  # ─── local-prod katmanı: docker compose --profile local up -d ──────────────
+
+  api:
+    profiles: ["local"]
+    build:
+      context: ../api
+      dockerfile: Dockerfile
+    container_name: altaris-api
+    restart: unless-stopped
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development          # local'de prod-config zorlamayalım
+      ASPNETCORE_URLS: http://+:5000
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=altaris;Username=altaris;Password=altaris_dev;Pooling=true;Maximum Pool Size=64"
+      ConnectionStrings__Redis: "redis:6379"
+      # Keycloak: tarayıcı + token issuer'ı her zaman localhost:8081 görür;
+      # API container içinden discovery için MetadataAddress'i container DNS'i
+      # üzerinden tanımlıyoruz, böylece host-gateway hilesine gerek kalmıyor.
+      Keycloak__Authority: "http://localhost:8081/realms/altaris"
+      Keycloak__MetadataAddress: "http://keycloak:8080/realms/altaris/.well-known/openid-configuration"
+      Keycloak__AdminBase: "http://keycloak:8080/admin"
+      Keycloak__Realm: "altaris"
+      Keycloak__AdminClientId: "altaris-admin-svc"
+      Keycloak__AdminClientSecret: "dev-only-altaris-admin-svc-secret-replace-in-prod"
+      # CORS — web container'a izin ver
+      Cors__AllowedOrigins__0: "http://localhost:3000"
+      # Vault filesystem root — named volume içinde tutalım, host'a sızmasın
+      ALTARIS_VAULTS_ROOT: "/data/vaults"
+    ports:
+      # macOS'ta 5000 AirPlay Receiver tarafından tutulduğu için 5050'ye
+      # eşliyoruz. Container içi 5000 kalır; container DNS (web → api:5000)
+      # bundan etkilenmez. CLI/tarayıcı host'tan 5050'yi kullanır.
+      - "5050:5000"
+    extra_hosts:
+      # Keycloak discovery yanıtındaki jwks_uri = http://localhost:8081/...
+      # (browser'dan ulaşmak için public hostname). API container içinden
+      # bu URL'e ulaşabilmek için localhost'u host-gateway'e mapliyoruz.
+      - "localhost:host-gateway"
+    volumes:
+      - vault-data:/data/vaults
+    depends_on:
+      postgres:    { condition: service_healthy }
+      redis:       { condition: service_healthy }
+      keycloak:    { condition: service_started }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:5000/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 25s
+    networks: [altaris-net]
+
+  web:
+    profiles: ["local"]
+    build:
+      context: ../web
+      dockerfile: Dockerfile
+    container_name: altaris-web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      AUTH_SECRET: "local-dev-only-secret-please-rotate-32bytes-min-padding"
+      AUTH_KEYCLOAK_ID: "altaris-web"
+      AUTH_KEYCLOAK_SECRET: ""
+      AUTH_KEYCLOAK_ISSUER: "http://localhost:8081/realms/altaris"
+      AUTH_KEYCLOAK_SERVER_ISSUER: "http://keycloak:8080/realms/altaris"
+      AUTH_DEBUG: "1"
+      AUTH_TRUST_HOST: "true"
+      NEXTAUTH_URL: "http://localhost:3000"
+      ALTARIS_API_BASE: "http://api:5000"            # server-side REST (container DNS)
+      ALTARIS_PUBLIC_API_BASE: "http://localhost:5050" # browser-side (token + WS)
+    ports:
+      - "3000:3000"
+    extra_hosts:
+      # NextAuth web container'ından Keycloak discovery için localhost:8081
+      # erişimi gerek; macOS Docker Desktop "host-gateway" alias'ını destekler.
+      - "localhost:host-gateway"
+    depends_on:
+      api: { condition: service_healthy }
+    networks: [altaris-net]
+
+volumes:
+  vault-data:
+
+networks:
+  altaris-net:
+    driver: bridge

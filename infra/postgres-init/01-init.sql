@@ -3,6 +3,8 @@
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+-- pg_trgm for trigram fuzzy matching (vault search snippets / typos).
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 
 -- Tenant registry (no RLS — system table)
 CREATE TABLE IF NOT EXISTS tenants (
@@ -94,6 +96,31 @@ CREATE POLICY tenant_isolation_audit ON audit_events
 
 ALTER TABLE vaults ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation_vaults ON vaults
+    USING (tenant_id::text = current_setting('app.tenant_id', true));
+
+-- Vault file content shadow table — keeps the canonical bytes on disk and
+-- a denormalized copy here for full-text search. Updated on PUT/DELETE
+-- via VaultStorage.IndexFile / RemoveFile (see VaultEndpoints).
+CREATE TABLE IF NOT EXISTS vault_files (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    vault_id        UUID NOT NULL REFERENCES vaults(id) ON DELETE CASCADE,
+    tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    path            TEXT NOT NULL,
+    content         TEXT NOT NULL,
+    sha256          TEXT NOT NULL,
+    bytes           INTEGER NOT NULL,
+    indexed_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- 'simple' tokenizer: language-agnostic; works for TR + EN side-by-side.
+    -- For language-specific stemming switch to ('turkish' / 'english') when
+    -- a vault has a single-language convention.
+    ts              tsvector GENERATED ALWAYS AS (to_tsvector('simple', content)) STORED,
+    UNIQUE (vault_id, path)
+);
+CREATE INDEX IF NOT EXISTS vault_files_ts_idx       ON vault_files USING GIN (ts);
+CREATE INDEX IF NOT EXISTS vault_files_trgm_idx     ON vault_files USING GIN (content gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS vault_files_tenant_idx   ON vault_files (tenant_id);
+ALTER TABLE vault_files ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_vault_files ON vault_files
     USING (tenant_id::text = current_setting('app.tenant_id', true));
 
 -- Invitations (tenant onboarding)

@@ -6,9 +6,11 @@
   "resetPasswordAllowed": true,
   "loginWithEmailAllowed": true,
   "duplicateEmailsAllowed": false,
-  "accessTokenLifespan": 3600,
-  "ssoSessionIdleTimeout": 28800,
-  "ssoSessionMaxLifespan": 86400,
+  "accessTokenLifespan": 604800,
+  "ssoSessionIdleTimeout": 604800,
+  "ssoSessionMaxLifespan": 604800,
+  "offlineSessionIdleTimeout": 2592000,
+  "offlineSessionMaxLifespan": 5184000,
   "oauth2DeviceCodeLifespan": 600,
   "oauth2DevicePollingInterval": 5,
   "attributes": {
@@ -16,9 +18,18 @@
   },
   "roles": {
     "realm": [
-      { "name": "tenant_admin", "description": "Tenant administrator" },
-      { "name": "tenant_member", "description": "Tenant member (default)" },
-      { "name": "platform_admin", "description": "Cross-tenant Argus operator" }
+      {
+        "name": "tenant_admin",
+        "description": "Tenant administrator"
+      },
+      {
+        "name": "tenant_member",
+        "description": "Tenant member (default)"
+      },
+      {
+        "name": "platform_admin",
+        "description": "Cross-tenant Argus operator"
+      }
     ]
   },
   "clients": [
@@ -33,9 +44,18 @@
         "oauth2.device.authorization.grant.enabled": "true",
         "pkce.code.challenge.method": "S256"
       },
-      "defaultClientScopes": ["basic", "tenant", "roles"],
-      "optionalClientScopes": ["email", "profile"],
-      "redirectUris": ["http://localhost:*"]
+      "defaultClientScopes": [
+        "basic",
+        "tenant",
+        "roles"
+      ],
+      "optionalClientScopes": [
+        "email",
+        "profile"
+      ],
+      "redirectUris": [
+        "http://localhost:*"
+      ]
     },
     {
       "clientId": "altaris-web",
@@ -44,13 +64,43 @@
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": false,
       "rootUrl": "http://localhost:3000",
-      "redirectUris": ["http://localhost:3000/api/auth/callback/keycloak"],
-      "webOrigins": ["http://localhost:3000"],
+      "redirectUris": [
+        "http://localhost:3000/api/auth/callback/keycloak"
+      ],
+      "webOrigins": [
+        "http://localhost:3000"
+      ],
       "attributes": {
-        "pkce.code.challenge.method": "S256"
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:3000##http://localhost:3000/##http://localhost:3000/api/auth/callback/keycloak"
       },
-      "defaultClientScopes": ["basic", "tenant", "roles"],
-      "optionalClientScopes": ["email", "profile"]
+      "defaultClientScopes": [
+        "basic",
+        "tenant",
+        "roles"
+      ],
+      "optionalClientScopes": [
+        "email",
+        "profile"
+      ],
+      "protocolMappers": [
+        {
+          "name": "tid",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "tenant_id",
+            "claim.name": "tid",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true",
+            "multivalued": "false",
+            "aggregate.attrs": "false"
+          }
+        }
+      ]
     },
     {
       "clientId": "altaris-api",
@@ -74,7 +124,10 @@
       "name": "tenant",
       "description": "Inject tenant_id into tokens",
       "protocol": "openid-connect",
-      "attributes": { "include.in.token.scope": "true", "display.on.consent.screen": "false" },
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
       "protocolMappers": [
         {
           "name": "tenant_id",
@@ -148,12 +201,21 @@
       "lastName": "Demirsoy",
       "emailVerified": true,
       "attributes": {
-        "tenant_id": ["argus"]
+        "tenant_id": [
+          "argus"
+        ]
       },
       "credentials": [
-        { "type": "password", "value": "altaris_dev", "temporary": false }
+        {
+          "type": "password",
+          "value": "altaris_dev",
+          "temporary": false
+        }
       ],
-      "realmRoles": ["tenant_admin", "platform_admin"]
+      "realmRoles": [
+        "tenant_admin",
+        "platform_admin"
+      ]
     }
   ]
 }
