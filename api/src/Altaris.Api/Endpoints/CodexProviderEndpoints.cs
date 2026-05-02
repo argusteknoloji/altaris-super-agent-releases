@@ -24,13 +24,92 @@ public static class CodexProviderEndpoints
     {
         // CLI hands a full OAuth token set up to the platform. Upserts a
         // Codex provider row keyed by (tenant, provider=codex, name).
-        app.MapPost("/api/v1/providers/connect/codex", ConnectCodex).RequireAuthorization();
+        app.MapPost("/api/v1/providers/connect/codex",  ConnectCodex).RequireAuthorization();
+        // Same pattern, for Claude/Anthropic (claude.ai or Console OAuth).
+        app.MapPost("/api/v1/providers/connect/claude", ConnectClaude).RequireAuthorization();
 
         // Server-side refresh nudge — admin can force a token refresh from
         // the web admin if the background job is stuck.
         app.MapPost("/api/v1/providers/{id:guid}/refresh", RefreshNow).RequireAuthorization();
 
         return app;
+    }
+
+    public record ConnectClaudeRequest(
+        string  AccessToken,
+        string? RefreshToken,
+        string  AccountUuid,            // Anthropic account UUID (token exchange'den)
+        string? OrganizationUuid,
+        string? Email,
+        long?   ExpiresAt,              // Unix epoch seconds (opencode'un sakladığı format)
+        string? Name,
+        string? Model,                  // claude-sonnet-4-7, claude-opus-4-7 vb.
+        bool    MakeDefault
+    );
+
+    private static async Task<IResult> ConnectClaude(
+        ConnectClaudeRequest req, AltarisDbContext db, ITenantContext tc)
+    {
+        if (tc.TenantId is null) return Results.Forbid();
+        if (string.IsNullOrEmpty(req.AccessToken) || string.IsNullOrEmpty(req.AccountUuid))
+            return Results.BadRequest(new { error = "access_token and account_uuid required" });
+
+        var name = string.IsNullOrEmpty(req.Name)
+            ? $"Claude · {req.Email ?? req.AccountUuid[..Math.Min(8, req.AccountUuid.Length)]}"
+            : req.Name;
+        var expiresAt = req.ExpiresAt.HasValue
+            ? DateTimeOffset.FromUnixTimeSeconds(req.ExpiresAt.Value)
+            : DateTimeOffset.UtcNow.AddHours(1);   // Anthropic default ~1 saat
+
+        var existing = await db.ProviderConfigs.FirstOrDefaultAsync(p =>
+            p.TenantId == tc.TenantId && p.Provider == "anthropic" && p.AccountId == req.AccountUuid);
+
+        if (existing is null)
+        {
+            existing = new ProviderConfig
+            {
+                Id = Guid.NewGuid(),
+                TenantId = tc.TenantId.Value,
+                Provider = "anthropic",
+                Name = name,
+                BaseUrl = "https://api.anthropic.com",
+                AuthKind = "oauth",
+                Enabled = true,
+                CreatedAt = DateTimeOffset.UtcNow,
+            };
+            db.ProviderConfigs.Add(existing);
+        }
+        else
+        {
+            existing.Name = name;
+        }
+
+        existing.ApiKeyEnc            = req.AccessToken;
+        existing.RefreshTokenEnc      = req.RefreshToken;
+        existing.AccountId            = req.AccountUuid;
+        existing.AccessTokenExpiresAt = expiresAt;
+        existing.LastRefreshedAt      = DateTimeOffset.UtcNow;
+        existing.DefaultModel         = req.Model ?? existing.DefaultModel ?? "claude-sonnet-4-7";
+        existing.UpdatedAt            = DateTimeOffset.UtcNow;
+
+        if (req.MakeDefault)
+        {
+            var others = await db.ProviderConfigs
+                .Where(p => p.TenantId == tc.TenantId && p.Provider == "anthropic" && p.Id != existing.Id && p.IsDefault)
+                .ToListAsync();
+            foreach (var o in others) o.IsDefault = false;
+            existing.IsDefault = true;
+        }
+
+        await db.SaveChangesAsync();
+        return Results.Ok(new
+        {
+            id        = existing.Id,
+            name      = existing.Name,
+            model     = existing.DefaultModel,
+            expiresAt = existing.AccessTokenExpiresAt,
+            isDefault = existing.IsDefault,
+        });
     }
 
     public record ConnectCodexRequest(

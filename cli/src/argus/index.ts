@@ -73,24 +73,28 @@ export function registerArgusCommands(program: Command): void {
       process.exit(0);
     });
 
-  // Provider grubu — şu an sadece OAuth-tabanlı Codex bağlantısı; statik
-  // sağlayıcılar (OpenAI, Anthropic, vb.) hâlâ web admin'den ekleniyor.
+  // Provider grubu — OAuth-tabanlı sağlayıcı bağlantısı. Statik sağlayıcılar
+  // (OpenAI API key, LM Studio, Ollama, vb.) web admin'den ekleniyor.
   const provider = program.command("provider").description("Tenant provider yönetimi");
   provider
     .command("connect")
-    .description("OAuth-tabanlı sağlayıcı bağla")
-    .argument("<kind>", "Bağlanacak sağlayıcı türü (codex)")
+    .description("OAuth-tabanlı sağlayıcı bağla (codex, claude)")
+    .argument("<kind>", "Bağlanacak sağlayıcı türü: codex | claude")
     .option("--name <ad>", "Tenant'ta görünecek ad (örn: 'Codex · ekip')")
-    .option("--model <model>", "Varsayılan model (codexplan | codexspark)", "codexplan")
+    .option("--model <model>", "Varsayılan model (codex: codexplan|codexspark · claude: claude-sonnet-4-7|claude-opus-4-7)")
     .option("--default", "Bu profili tenant'ta default yap")
     .action(async (kind: string, opts: { name?: string; model?: string; default?: boolean }) => {
-      if (kind.toLowerCase() !== "codex") {
-        process.stderr.write(`Desteklenmeyen sağlayıcı: ${kind}. Şu an sadece 'codex'.\n`);
-        process.exit(2);
+      const k = kind.toLowerCase();
+      if (k === "codex") {
+        const { altarisProviderConnectCodex } = await import("./codexConnect.js");
+        process.exit(await altarisProviderConnectCodex(opts));
       }
-      const { altarisProviderConnectCodex } = await import("./codexConnect.js");
-      const code = await altarisProviderConnectCodex(opts);
-      process.exit(code);
+      if (k === "claude" || k === "anthropic") {
+        const { altarisProviderConnectClaude } = await import("./claudeConnect.js");
+        process.exit(await altarisProviderConnectClaude(opts));
+      }
+      process.stderr.write(`Desteklenmeyen sağlayıcı: ${kind}. Şu an: codex, claude.\n`);
+      process.exit(2);
     });
 
   registerVaultCommands(program);
