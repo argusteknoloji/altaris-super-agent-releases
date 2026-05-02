@@ -6,9 +6,34 @@ export type AltarisSession = {
   accessToken?: string;
   idToken?: string;
   tenantSlug?: string;
+  /** Keycloak realm rolleri — örn ["tenant_member"] veya ["platform_admin","tenant_admin"]. */
+  roles?: string[];
   user?: { name?: string | null; email?: string | null; image?: string | null };
   expires: string;
 };
+
+/** Access token'dan realm_access.roles çıkar — ham JWT olarak verilen string'i parse eder. */
+function extractRolesFromAccessToken(accessToken: string | undefined): string[] {
+  if (!accessToken) return [];
+  try {
+    const payload = accessToken.split(".")[1];
+    const decoded = JSON.parse(
+      Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf-8")
+    ) as { realm_access?: { roles?: string[] } };
+    return decoded.realm_access?.roles ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** Tenant admin / platform admin kısa-yol kontrolü. */
+export function isAdmin(s: AltarisSession | null | undefined): boolean {
+  const r = s?.roles ?? [];
+  return r.includes("tenant_admin") || r.includes("platform_admin");
+}
+export function isPlatformAdmin(s: AltarisSession | null | undefined): boolean {
+  return (s?.roles ?? []).includes("platform_admin");
+}
 
 // Browser redirect için public issuer (localhost), server-side için container DNS
 const publicIssuer  = process.env.AUTH_KEYCLOAK_ISSUER!;         // http://localhost:8081/realms/altaris
@@ -42,7 +67,10 @@ export const { handlers, signIn, signOut, auth: nextAuth } = NextAuth({
   ],
   callbacks: {
     async jwt({ token, account, profile }) {
-      if (account?.access_token) (token as Record<string, unknown>).accessToken = account.access_token;
+      if (account?.access_token) {
+        (token as Record<string, unknown>).accessToken = account.access_token;
+        (token as Record<string, unknown>).roles = extractRolesFromAccessToken(account.access_token);
+      }
       if (account?.id_token)     (token as Record<string, unknown>).idToken     = account.id_token;
       const tid = (profile as { tid?: string } | undefined)?.tid;
       if (tid) (token as Record<string, unknown>).tenantSlug = tid;
@@ -54,6 +82,7 @@ export const { handlers, signIn, signOut, auth: nextAuth } = NextAuth({
       s.accessToken = t.accessToken;
       s.idToken     = t.idToken;
       s.tenantSlug  = t.tenantSlug;
+      s.roles       = t.roles ?? [];
       return session;
     }
   },
@@ -77,6 +106,7 @@ export async function auth(): Promise<AltarisSession | null> {
       accessToken:  t.accessToken  as string | undefined,
       idToken:      t.idToken      as string | undefined,
       tenantSlug:   t.tenantSlug   as string | undefined,
+      roles:        (t.roles as string[] | undefined) ?? extractRolesFromAccessToken(t.accessToken as string | undefined),
       user: {
         name:  (t.name  as string | null) ?? null,
         email: (t.email as string | null) ?? null,

@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Altaris.Api.Permissions;
 using Altaris.Domain.Entities;
 using Altaris.Infrastructure.Keycloak;
 using Altaris.Infrastructure.MultiTenancy;
@@ -18,22 +19,7 @@ public static class AdminEndpoints
 {
     public static IEndpointRouteBuilder MapAdminEndpoints(this IEndpointRouteBuilder app)
     {
-        var grp = app.MapGroup("/api/v1/admin")
-            .RequireAuthorization()
-            .AddEndpointFilter(async (ctx, next) =>
-            {
-                var http = ctx.HttpContext;
-                if (!http.User.Claims.Any(c => c.Type == "realm_access" || c.Type.EndsWith("/realm_access")))
-                {
-                    // Keycloak ships realm_access as nested JSON under "realm_access" claim
-                }
-                var roles = ExtractRealmRoles(http);
-                if (!roles.Contains("tenant_admin") && !roles.Contains("platform_admin"))
-                {
-                    return Results.Forbid();
-                }
-                return await next(ctx);
-            });
+        var grp = app.MapGroup("/api/v1/admin").RequireAdminRole();
 
         // ===== USERS (Keycloak + local mirror) =====
         grp.MapGet("/users", ListUsers);
@@ -84,22 +70,6 @@ public static class AdminEndpoints
         return app;
     }
 
-    private static IReadOnlySet<string> ExtractRealmRoles(HttpContext http)
-    {
-        var raClaim = http.User.FindFirst("realm_access")?.Value;
-        if (string.IsNullOrEmpty(raClaim)) return new HashSet<string>();
-        try
-        {
-            using var doc = System.Text.Json.JsonDocument.Parse(raClaim);
-            if (doc.RootElement.TryGetProperty("roles", out var arr) && arr.ValueKind == System.Text.Json.JsonValueKind.Array)
-            {
-                return arr.EnumerateArray().Select(x => x.GetString() ?? "").Where(s => s.Length > 0).ToHashSet();
-            }
-        }
-        catch { }
-        return new HashSet<string>();
-    }
-
     // ---- USERS ----
     private static async Task<IResult> ListUsers(AltarisDbContext db, ITenantContext tc) =>
         Results.Ok(await db.Users
@@ -127,7 +97,7 @@ public static class AdminEndpoints
         var (effectiveTenantId, effectiveTenantSlug) = (tc.TenantId.Value, tc.TenantSlug);
         if (req.TargetTenantId is { } targetId && targetId != tc.TenantId.Value)
         {
-            if (!ExtractRealmRoles(http).Contains("platform_admin"))
+            if (!AdminAuth.ExtractRealmRoles(http).Contains("platform_admin"))
                 return Results.Forbid();
             var target = await db.Tenants.AsNoTracking().FirstOrDefaultAsync(t => t.Id == targetId);
             if (target is null) return Results.BadRequest(new { error = "target tenant not found" });
@@ -485,7 +455,7 @@ public static class AdminEndpoints
     // ---- TENANTS (platform_admin only) ----
     private static async Task<IResult> ListTenants(HttpContext http, AltarisDbContext db)
     {
-        if (!ExtractRealmRoles(http).Contains("platform_admin")) return Results.Forbid();
+        if (!AdminAuth.ExtractRealmRoles(http).Contains("platform_admin")) return Results.Forbid();
         var rows = await db.Tenants.OrderBy(t => t.Slug)
             .Select(t => new { t.Id, t.Slug, t.Name, t.Status, t.CreatedAt })
             .ToListAsync();
@@ -496,7 +466,7 @@ public static class AdminEndpoints
 
     private static async Task<IResult> CreateTenant(HttpContext http, CreateTenantRequest req, AltarisDbContext db)
     {
-        if (!ExtractRealmRoles(http).Contains("platform_admin")) return Results.Forbid();
+        if (!AdminAuth.ExtractRealmRoles(http).Contains("platform_admin")) return Results.Forbid();
         var t = new Tenant
         {
             Id = Guid.NewGuid(), Slug = req.Slug, Name = req.Name,
@@ -512,7 +482,7 @@ public static class AdminEndpoints
 
     private static async Task<IResult> UpdateTenant(HttpContext http, Guid id, UpdateTenantRequest req, AltarisDbContext db)
     {
-        if (!ExtractRealmRoles(http).Contains("platform_admin")) return Results.Forbid();
+        if (!AdminAuth.ExtractRealmRoles(http).Contains("platform_admin")) return Results.Forbid();
         var t = await db.Tenants.FirstOrDefaultAsync(x => x.Id == id);
         if (t is null) return Results.NotFound();
 
@@ -536,7 +506,7 @@ public static class AdminEndpoints
     /// </summary>
     private static async Task<IResult> DeleteTenant(HttpContext http, Guid id, AltarisDbContext db)
     {
-        if (!ExtractRealmRoles(http).Contains("platform_admin")) return Results.Forbid();
+        if (!AdminAuth.ExtractRealmRoles(http).Contains("platform_admin")) return Results.Forbid();
         var t = await db.Tenants.FirstOrDefaultAsync(x => x.Id == id);
         if (t is null) return Results.NotFound();
         db.Tenants.Remove(t);

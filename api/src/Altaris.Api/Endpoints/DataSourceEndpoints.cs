@@ -1,3 +1,4 @@
+using Altaris.Api.Permissions;
 using Altaris.Api.Services;
 using Altaris.Domain.Entities;
 using Altaris.Infrastructure.MultiTenancy;
@@ -8,13 +9,14 @@ namespace Altaris.Api.Endpoints;
 
 /// <summary>
 ///   /api/v1/admin/data-sources — Connector framework admin CRUD.
-///   tenant_admin yetkisi altında çalışır (AdminGuard zaten /admin grubunda).
+///   AdminAuth.RequireAdminRole() ile tenant_admin/platform_admin guard'ı uygulanır
+///   (önceden RequireAuthorization tek başınaydı → her authenticated user erişebiliyordu).
 /// </summary>
 public static class DataSourceEndpoints
 {
     public static IEndpointRouteBuilder MapDataSourceEndpoints(this IEndpointRouteBuilder app)
     {
-        var grp = app.MapGroup("/api/v1/admin/data-sources").RequireAuthorization();
+        var grp = app.MapGroup("/api/v1/admin/data-sources").RequireAdminRole();
         grp.MapGet   ("",                List);
         grp.MapPost  ("",                Create);
         grp.MapPatch ("{id:guid}",       Update);
@@ -29,7 +31,7 @@ public static class DataSourceEndpoints
     ///   Hazır connector preset'leri — admin UI bir kart listeden seçip
     ///   kendi credentials'ını girip tek tıkla data_source yaratabilir.
     /// </summary>
-    private static IResult Templates() => Results.Ok(new[]
+    private static IResult Templates() => Results.Ok(new object[]
     {
         new {
             kind = "logo_tiger",
