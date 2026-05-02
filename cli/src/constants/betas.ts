@@ -1,6 +1,10 @@
 import { feature } from 'bun:bundle'
 
-export const ALTARIS_20250219_BETA_HEADER = 'altaris-20250219'
+// Anthropic resmi Claude Code beta header — opencode upstream'i 'altaris-...'
+// olarak rebrand etmişti, Anthropic API kabul etmiyordu (400 invalid_request_error).
+// Const adı geriye dönük uyumluluk için ALTARIS_ prefix'iyle bırakıldı (çok yerden
+// import ediliyor); değer Anthropic'in resmi string'i.
+export const ALTARIS_20250219_BETA_HEADER = 'claude-code-20250219'
 export const INTERLEAVED_THINKING_BETA_HEADER =
   'interleaved-thinking-2025-05-14'
 export const CONTEXT_1M_BETA_HEADER = 'context-1m-2025-08-07'
