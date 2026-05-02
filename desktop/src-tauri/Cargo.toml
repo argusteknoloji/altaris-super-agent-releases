@@ -17,6 +17,7 @@ tauri-build = { version = "2.0", features = [] }
 tauri = { version = "2.1", features = [] }
 tauri-plugin-shell = "2.0"
 tauri-plugin-store = "2.1"
+tauri-plugin-updater = "2.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
@@ -28,6 +29,9 @@ futures-util = "0.3"
 portable-pty = "0.8"
 bytes = "1"
 base64 = "0.22"
+# PKCE (RFC 7636) — Keycloak Device Authorization Grant client'ında zorunlu.
+sha2 = "0.10"
+rand = "0.8"
 
 [features]
 default = ["custom-protocol"]

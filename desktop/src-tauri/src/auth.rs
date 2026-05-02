@@ -69,13 +69,47 @@ pub async fn whoami(state: State<'_, Arc<AppState>>) -> Result<Option<Identity>,
     }))
 }
 
+// PKCE (RFC 7636) — Keycloak altaris-cli realm client S256 zorunlu kılıyor.
+// CLI tarafı (cli/src/argus/login.ts) ile aynı pattern.
+fn make_pkce() -> (String, String) {
+    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    use rand::RngCore;
+    use sha2::{Digest, Sha256};
+
+    let mut rng = rand::thread_rng();
+    let mut bytes = [0u8; 32];
+    rng.fill_bytes(&mut bytes);
+    let verifier = URL_SAFE_NO_PAD.encode(bytes);
+    let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
+    (verifier, challenge)
+}
+
 #[tauri::command]
 pub async fn login_start(state: State<'_, Arc<AppState>>) -> Result<DeviceFlow, String> {
     let url = format!("{}/protocol/openid-connect/auth/device", state.keycloak_issuer);
     let client = reqwest::Client::new();
+
+    // PKCE oluştur ve verifier'ı state'e koy (login_finish kullanacak).
+    let (verifier, challenge) = make_pkce();
+    *state.pkce_verifier.lock().await = Some(verifier);
+
     let resp = client.post(&url)
-        .form(&[("client_id", state.cli_client_id.as_str()), ("scope", "openid email profile tenant")])
+        .form(&[
+            ("client_id", state.cli_client_id.as_str()),
+            // Geniş scope ('email profile tenant') Keycloak realm scope policy'siyle
+            // çakışıyordu; CLI'da olduğu gibi sadece 'openid' yeterli — ek claim'ler
+            // realm-default mapper'lardan geliyor.
+            ("scope", "openid"),
+            ("code_challenge", challenge.as_str()),
+            ("code_challenge_method", "S256"),
+        ])
         .send().await.map_err(|e| e.to_string())?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("device endpoint {} → {}", status, body));
+    }
     let dc: DeviceCodeResp = resp.json().await.map_err(|e| e.to_string())?;
     *state.device_code.lock().await = Some(dc.device_code.clone());
 
@@ -92,6 +126,8 @@ pub async fn login_start(state: State<'_, Arc<AppState>>) -> Result<DeviceFlow, 
 pub async fn login_finish(state: State<'_, Arc<AppState>>) -> Result<(), String> {
     let device_code = state.device_code.lock().await.clone()
         .ok_or_else(|| "login_start önce çağrılmalı".to_string())?;
+    let verifier = state.pkce_verifier.lock().await.clone()
+        .ok_or_else(|| "PKCE verifier yok — login_start'tan sonra çağır".to_string())?;
 
     let url = format!("{}/protocol/openid-connect/token", state.keycloak_issuer);
     let client = reqwest::Client::new();
@@ -103,6 +139,7 @@ pub async fn login_finish(state: State<'_, Arc<AppState>>) -> Result<(), String>
                 ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
                 ("device_code", &device_code),
                 ("client_id", &state.cli_client_id),
+                ("code_verifier", &verifier),
             ])
             .send().await.map_err(|e| e.to_string())?;
 

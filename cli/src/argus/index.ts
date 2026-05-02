@@ -41,6 +41,17 @@ export function registerArgusCommands(program: Command): void {
       process.exit(code);
     });
 
+  program
+    .command("update")
+    .description("En son sürümü GitHub release repo'sundan indir + atomik replace")
+    .option("--force", "Aynı sürüm bile olsa yeniden indir")
+    .option("--skip-checksum", "SHA256 doğrulamasını atla (önerilmez)")
+    .action(async (opts: { force?: boolean; skipChecksum?: boolean }) => {
+      const { altarisUpdate } = await import("./update.js");
+      const code = await altarisUpdate(opts);
+      process.exit(code);
+    });
+
   const session = program.command("session").description("Sunucu tarafı oturumlar (Altaris API)");
 
   session

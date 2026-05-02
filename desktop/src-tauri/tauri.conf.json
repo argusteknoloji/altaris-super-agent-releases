@@ -55,6 +55,14 @@
   },
   "plugins": {
     "shell": { "open": true },
-    "store": {}
+    "store": {},
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/argusteknoloji/altaris-super-agent-releases/releases/latest/download/latest.json"
+      ],
+      "dialog": true,
+      "pubkey": ""
+    }
   }
 }

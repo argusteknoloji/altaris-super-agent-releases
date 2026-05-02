@@ -1,3 +1,4 @@
+mod api;
 mod auth;
 mod chat;
 mod terminal;
@@ -11,6 +12,7 @@ pub struct AppState {
     pub cli_client_id: String,
     pub token: Mutex<Option<String>>,
     pub device_code: Mutex<Option<String>>,
+    pub pkce_verifier: Mutex<Option<String>>,
     pub terminal: terminal::TerminalState,
 }
 
@@ -26,12 +28,16 @@ pub fn run() {
         cli_client_id: client_id,
         token: Mutex::new(None),
         device_code: Mutex::new(None),
+        pkce_verifier: Mutex::new(None),
         terminal: terminal::TerminalState::default(),
     });
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_store::Builder::new().build())
+        // Auto-updater: tauri.conf.json'daki endpoint'ten latest.json çeker
+        // ve UI'a "Yeni sürüm var" dialog'u gösterir.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             auth::whoami,
@@ -39,6 +45,7 @@ pub fn run() {
             auth::login_finish,
             auth::logout,
             chat::chat_send,
+            api::api_get,
             terminal::terminal_open,
             terminal::terminal_write,
             terminal::terminal_close,

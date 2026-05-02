@@ -20,8 +20,9 @@ public static class SetupEndpoints
     public static IEndpointRouteBuilder MapSetupEndpoints(this IEndpointRouteBuilder app)
     {
         // Authorization not required — install instructions are public; the
-        // CLI itself still needs `altaris login` to do anything useful.
-        app.MapGet("/api/v1/setup/cli", GetCliInstallers);
+        // CLI/Desktop themselves still need `altaris login` to do anything useful.
+        app.MapGet("/api/v1/setup/cli",     GetCliInstallers);
+        app.MapGet("/api/v1/setup/desktop", GetDesktopInstallers);
         return app;
     }
 
@@ -112,6 +113,72 @@ public static class SetupEndpoints
             repo,
             apiBase,
             webBase = cfg["Setup:PublicWebBase"] ?? "http://localhost:3000",
+            assets
+        });
+    }
+
+    public record DesktopAsset(
+        string Os,
+        string Arch,
+        string Filename,
+        string DownloadUrl,
+        string InstallHint);
+
+    /// <summary>
+    ///   Desktop App (Tauri) installer matrix. macOS dmg, Windows msi/exe,
+    ///   Linux AppImage/deb. Auto-update Tauri updater latest.json manifest
+    ///   takip eder — kullanıcı manuel re-install yapmaz.
+    ///
+    ///   Versioning: ?version=latest|v0.1.0-beta.6-desktop. Default latest.
+    /// </summary>
+    private static IResult GetDesktopInstallers(HttpContext ctx, IConfiguration cfg)
+    {
+        var version = ctx.Request.Query["version"].ToString();
+        if (string.IsNullOrWhiteSpace(version)) version = "latest";
+        var repo = cfg["Setup:GithubRepo"] ?? DefaultRepo;
+
+        string Url(string asset) =>
+            version == "latest"
+                ? $"https://github.com/{repo}/releases/latest/download/{asset}"
+                : $"https://github.com/{repo}/releases/download/{version}/{asset}";
+
+        // İsimler desktop-release.yml'deki staging convention ile uyumlu:
+        // altaris-desktop-<label>-<bundler-output-name>
+        var assets = new[]
+        {
+            new DesktopAsset(
+                Os: "macos", Arch: "arm64",
+                Filename: "altaris-desktop-macos-arm64-Altaris.dmg",
+                DownloadUrl: Url("altaris-desktop-macos-arm64-Altaris.dmg"),
+                InstallHint: "Çift tıkla → Altaris.app'i Applications'a sürükle. " +
+                             "İlk açılışta Right-Click → Open (notarization yok)."),
+            new DesktopAsset(
+                Os: "macos", Arch: "x64",
+                Filename: "altaris-desktop-macos-x64-Altaris.dmg",
+                DownloadUrl: Url("altaris-desktop-macos-x64-Altaris.dmg"),
+                InstallHint: "Çift tıkla → Altaris.app'i Applications'a sürükle."),
+            new DesktopAsset(
+                Os: "linux", Arch: "x64",
+                Filename: "altaris-desktop-linux-x64-altaris-desktop_amd64.AppImage",
+                DownloadUrl: Url("altaris-desktop-linux-x64-altaris-desktop_amd64.AppImage"),
+                InstallHint: "chmod +x altaris-desktop*.AppImage && ./altaris-desktop*.AppImage"),
+            new DesktopAsset(
+                Os: "linux", Arch: "x64-deb",
+                Filename: "altaris-desktop-linux-x64-altaris-desktop_amd64.deb",
+                DownloadUrl: Url("altaris-desktop-linux-x64-altaris-desktop_amd64.deb"),
+                InstallHint: "sudo dpkg -i altaris-desktop_amd64.deb"),
+            new DesktopAsset(
+                Os: "windows", Arch: "x64",
+                Filename: "altaris-desktop-windows-x64-Altaris_x64-setup.exe",
+                DownloadUrl: Url("altaris-desktop-windows-x64-Altaris_x64-setup.exe"),
+                InstallHint: "Çift tıkla → kurulum sihirbazı. SmartScreen 'More info → Run anyway'."),
+        };
+
+        return Results.Ok(new
+        {
+            version,
+            repo,
+            updaterManifestUrl = $"https://github.com/{repo}/releases/latest/download/latest.json",
             assets
         });
     }

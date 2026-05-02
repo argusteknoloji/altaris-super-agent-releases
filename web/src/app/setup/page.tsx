@@ -29,6 +29,21 @@ interface SetupResponse {
   assets: CliAsset[];
 }
 
+interface DesktopAsset {
+  os: string; arch: string;
+  filename: string;
+  downloadUrl: string;
+  installHint: string;
+}
+interface DesktopResponse {
+  version: string;
+  repo: string;
+  updaterManifestUrl: string;
+  assets: DesktopAsset[];
+}
+
+type Kind = "cli" | "desktop";
+
 function detectOs(): Os {
   if (typeof navigator === "undefined") return "macos";
   const ua = navigator.userAgent.toLowerCase();
@@ -54,7 +69,9 @@ const OS_LABEL: Record<Os, string> = {
 };
 
 export default function SetupPage() {
+  const [kind, setKind]   = useState<Kind>("cli");
   const [data, setData]   = useState<SetupResponse | null>(null);
+  const [desktop, setDesktop] = useState<DesktopResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [os, setOs]       = useState<Os>("macos");
   const [arch, setArch]   = useState<Arch>("arm64");
@@ -66,11 +83,22 @@ export default function SetupPage() {
   }, []);
 
   useEffect(() => {
-    fetch("/api/proxy/setup", { cache: "no-store" })
+    fetch("/api/proxy/setup?kind=cli", { cache: "no-store" })
       .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
       .then(setData)
       .catch(e => setError((e as Error).message));
+    fetch("/api/proxy/setup?kind=desktop", { cache: "no-store" })
+      .then(r => r.ok ? r.json() : null)
+      .then(setDesktop)
+      .catch(() => { /* desktop optional — fail silently */ });
   }, []);
+
+  const desktopAsset = useMemo(() => {
+    if (!desktop) return null;
+    return desktop.assets.find(a => a.os === os && (a.arch === arch || a.arch.startsWith(arch)))
+        ?? desktop.assets.find(a => a.os === os)
+        ?? null;
+  }, [desktop, os, arch]);
 
   const asset = useMemo(() => {
     if (!data) return null;
@@ -92,21 +120,49 @@ export default function SetupPage() {
 
   return (
     <main className="mx-auto max-w-4xl px-6 py-10">
-      <div className="mb-8">
-        <h1 className="text-3xl font-semibold">Altaris CLI kurulumu</h1>
+      <div className="mb-6">
+        <h1 className="text-3xl font-semibold">Altaris kurulumu</h1>
         <p className="mt-2 text-sm text-neutral-400">
-          Lokal makinende <code className="font-mono text-orange-400">altaris</code> komutunu çalıştırmak için
-          işletim sistemine uygun tek-satır kurulum komutunu kopyalayıp terminale yapıştır.
-          Kurulum sonrası <code className="font-mono text-orange-400">altaris login</code> ile portal hesabınla bağlan.
+          İki seçenek: terminalde çalışan <strong>CLI</strong> veya GUI'li <strong>Desktop App</strong>.
+          İkisi de aynı portal hesabını kullanır; lokal makinende çalışır, veriniz dışarı çıkmaz.
         </p>
-        {data && (
-          <p className="mt-2 text-xs text-neutral-500">
-            Sürüm: <span className="font-mono text-neutral-300">{data.version}</span> ·
-            Repo: <span className="font-mono text-neutral-300">{data.repo}</span> ·
-            API: <span className="font-mono text-neutral-300">{data.apiBase}</span>
-          </p>
-        )}
       </div>
+
+      {/* CLI / Desktop product seçici */}
+      <div className="mb-6 inline-flex rounded-lg border border-neutral-800 bg-neutral-900 p-1">
+        {([
+          { v: "cli" as Kind,     label: "🖥  CLI (terminal)" },
+          { v: "desktop" as Kind, label: "🪟  Desktop App (GUI)" },
+        ]).map(k => (
+          <button
+            key={k.v}
+            onClick={() => setKind(k.v)}
+            className={
+              "rounded-md px-4 py-1.5 text-sm font-medium transition-colors " +
+              (kind === k.v
+                ? "bg-orange-500 text-white"
+                : "text-neutral-400 hover:text-neutral-100")
+            }
+          >
+            {k.label}
+          </button>
+        ))}
+      </div>
+
+      {kind === "cli" && data && (
+        <p className="mb-4 text-xs text-neutral-500">
+          CLI sürüm: <span className="font-mono text-neutral-300">{data.version}</span> ·
+          Repo: <span className="font-mono text-neutral-300">{data.repo}</span> ·
+          API: <span className="font-mono text-neutral-300">{data.apiBase}</span>
+        </p>
+      )}
+      {kind === "desktop" && desktop && (
+        <p className="mb-4 text-xs text-neutral-500">
+          Desktop sürüm: <span className="font-mono text-neutral-300">{desktop.version}</span> ·
+          Repo: <span className="font-mono text-neutral-300">{desktop.repo}</span> ·
+          Otomatik güncellenir (Tauri updater)
+        </p>
+      )}
 
       {error && <p className="mb-4 rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-400">Setup verisi yüklenemedi: {error}</p>}
 
@@ -152,8 +208,8 @@ export default function SetupPage() {
         </div>
       )}
 
-      {/* Install komutu */}
-      {asset && (
+      {/* Install komutu — CLI */}
+      {kind === "cli" && asset && (
         <section className="mt-6 space-y-6">
           <div>
             <div className="flex items-center justify-between">
@@ -212,10 +268,82 @@ altaris vault list                      # senin kasalarının listesi
 altaris vault create proje-alpha \\
   --name "Proje Alpha"                  # yeni vault + lokal mirror
 altaris vault use proje-alpha           # vault dizininde interactive aç
-altaris --remote-control                # web'den izlenebilir mod (broadcast)`}
+altaris --remote-control                # web'den izlenebilir mod (broadcast)
+altaris update                          # son sürümü GitHub'dan çek + atomik replace`}
             </pre>
           </div>
         </section>
+      )}
+
+      {/* Desktop App */}
+      {kind === "desktop" && desktop && (
+        <section className="mt-6 space-y-6">
+          {desktopAsset ? (
+            <>
+              <div>
+                <h2 className="text-sm font-semibold text-neutral-300">1. İndir</h2>
+                <a
+                  href={desktopAsset.downloadUrl}
+                  className="mt-2 inline-flex items-center gap-3 rounded-md border border-orange-500/30 bg-orange-500/5 px-6 py-3 text-sm font-medium text-orange-400 hover:bg-orange-500/10"
+                >
+                  <span className="text-2xl">⬇</span>
+                  <span>
+                    <span className="block">{desktopAsset.filename}</span>
+                    <span className="text-[11px] text-neutral-500">{OS_LABEL[os as Os] ?? os} · {desktopAsset.arch}</span>
+                  </span>
+                </a>
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-neutral-300">2. Kur</h2>
+                <pre className="mt-2 overflow-x-auto rounded-lg border border-neutral-800 bg-[#0a0a0a] p-4 font-mono text-xs leading-6 text-neutral-100">{desktopAsset.installHint}</pre>
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-neutral-300">3. Bağlan</h2>
+                <p className="mt-2 text-xs text-neutral-400">
+                  Altaris'i aç → "Giriş yap" butonu → tarayıcı Keycloak'a düşer →
+                  6-haneli kodu onayla → uygulamaya geri dönersin. 2FA kuruluysa
+                  giriş sırasında 6-digit TOTP istenir.
+                </p>
+              </div>
+              <div>
+                <h2 className="text-sm font-semibold text-neutral-300">Otomatik güncelleme</h2>
+                <p className="mt-2 text-xs text-neutral-400">
+                  Yeni sürüm yayımlandığında uygulama bunu kendisi tespit eder
+                  ({" "}<code className="font-mono text-neutral-300">latest.json</code>{" "}
+                  manifest takip eder) ve "Yeni sürüm var, indirilsin mi?" sorar.
+                  Manuel kurulum gerekmez.
+                </p>
+              </div>
+            </>
+          ) : (
+            <p className="text-sm text-neutral-500">Bu OS için desktop release henüz yok.</p>
+          )}
+
+          <div>
+            <h2 className="text-sm font-semibold text-neutral-300">Tüm platformlar</h2>
+            <div className="mt-2 grid gap-2 md:grid-cols-2">
+              {desktop.assets.map(a => (
+                <a
+                  key={a.filename}
+                  href={a.downloadUrl}
+                  className="flex items-center gap-3 rounded-md border border-neutral-800 bg-neutral-900/40 p-3 text-xs text-neutral-300 hover:bg-neutral-800"
+                >
+                  <span className="rounded bg-neutral-800 px-2 py-1 font-mono uppercase">{a.os}/{a.arch}</span>
+                  <span className="truncate">{a.filename}</span>
+                </a>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {kind === "desktop" && !desktop && (
+        <p className="mt-6 text-sm text-neutral-500">
+          Desktop App release'i henüz yapılmadı.
+          <br />
+          <code className="font-mono text-xs text-neutral-400">git tag v0.1.0-beta.6-desktop && git push --tags</code>
+          {" "}komutuyla pipeline'ı tetikle.
+        </p>
       )}
     </main>
   );

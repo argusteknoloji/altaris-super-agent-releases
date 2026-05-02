@@ -192,20 +192,25 @@ export default async function HomePage() {
           </div>
         </section>
 
-        {/* ── ÜÇ YÜZEY ──────────────────────────────────────────────── */}
+        {/* ── DÖRT YÜZEY ────────────────────────────────────────────── */}
         <section className="mx-auto max-w-6xl px-6 pb-28">
-          <SectionHead idx="01" tag="üç yüzey" hint="terminal · web · remote" />
-          <div className="grid gap-px overflow-hidden rounded-md border border-[rgba(120,80,50,0.22)] bg-[rgba(120,80,50,0.22)] md:grid-cols-3">
+          <SectionHead idx="01" tag="dört yüzey" hint="terminal · masaüstü · web · remote" />
+          <div className="grid gap-px overflow-hidden rounded-md border border-[rgba(120,80,50,0.22)] bg-[rgba(120,80,50,0.22)] md:grid-cols-2 lg:grid-cols-4">
             <FeatureCard num="01" title="Terminal">
               <code className="text-[#f08c50]">altaris</code> komutu ile lokal LLM destekli agentik shell.
               macOS, Linux, Windows tek binary. Bulut ve kurum içi model sağlayıcıları —
               hepsi tek <em className="text-[#ddd8d0] not-italic">kurum ayarı</em>'nın arkasında.
             </FeatureCard>
-            <FeatureCard num="02" title="Web Chat">
+            <FeatureCard num="02" title="Masaüstü Uygulaması">
+              Terminale alışkın olmayan kullanıcılar için <em className="text-[#ddd8d0] not-italic">native</em> macOS
+              ve Windows uygulaması. Tauri tabanlı, ~10 MB binary. Auto-update, code-signed,
+              air-gapped USB dağıtıma uygun.
+            </FeatureCard>
+            <FeatureCard num="03" title="Web Chat">
               Tarayıcıdan oturum aç, ekibinizle paylaşılan kurumsal hafızada sohbet et. Vault tabanlı bağlam,
               tam transcript, oturum geçmişi — admin panelinde herkesin tüm konuşmaları izlenebilir.
             </FeatureCard>
-            <FeatureCard num="03" title="Remote Control">
+            <FeatureCard num="04" title="Remote Control">
               Lokalde çalışan <code className="text-[#f08c50]">altaris</code> oturumlarını web'den izle ve devral.
               Multi-viewer denetim, takeover ile yetkili devralma, her tuş vuruşu için audit kaydı.
             </FeatureCard>
