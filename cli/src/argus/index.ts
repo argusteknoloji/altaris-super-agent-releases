@@ -11,17 +11,17 @@
 import type { Command } from "commander";
 import { altarisLogin, altarisLogout, altarisWhoami, getAccessToken } from "./login.js";
 import { registerVaultCommands } from "./vaults.js";
-
-const API_BASE = process.env.ALTARIS_API_BASE ?? "http://localhost:5050";
+import { getApiBase } from "./apiConfig.js";
 
 export function registerArgusCommands(program: Command): void {
   program
     .command("login")
     .description("Argus Identity Provider'a giriş (OAuth Device Flow)")
-    .option("--issuer <url>", "Keycloak issuer URL (override)")
+    .option("--api <url>", "Altaris API base URL (örn: https://altaris.acme.com)")
+    .option("--issuer <url>", "Keycloak issuer URL (override — varsayılanı API'den çekilir)")
     .option("--client-id <id>", "OAuth client id (override)")
-    .action(async (opts: { issuer?: string; clientId?: string }) => {
-      const code = await altarisLogin({ issuer: opts.issuer, clientId: opts.clientId });
+    .action(async (opts: { api?: string; issuer?: string; clientId?: string }) => {
+      const code = await altarisLogin({ api: opts.api, issuer: opts.issuer, clientId: opts.clientId });
       process.exit(code);
     });
 
@@ -52,7 +52,7 @@ export function registerArgusCommands(program: Command): void {
         process.stderr.write("Giriş yapılmamış. `altaris login` ile başla.\n");
         process.exit(1);
       }
-      const r = await fetch(`${API_BASE}/api/v1/sessions`, {
+      const r = await fetch(`${getApiBase()}/api/v1/sessions`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (!r.ok) {
@@ -65,6 +65,26 @@ export function registerArgusCommands(program: Command): void {
         process.stdout.write(`${s.startedAt}  ${s.provider}/${s.model}  ${s.title ?? "(başlıksız)"}  ${s.id}\n`);
       }
       process.exit(0);
+    });
+
+  // Provider grubu — şu an sadece OAuth-tabanlı Codex bağlantısı; statik
+  // sağlayıcılar (OpenAI, Anthropic, vb.) hâlâ web admin'den ekleniyor.
+  const provider = program.command("provider").description("Tenant provider yönetimi");
+  provider
+    .command("connect")
+    .description("OAuth-tabanlı sağlayıcı bağla")
+    .argument("<kind>", "Bağlanacak sağlayıcı türü (codex)")
+    .option("--name <ad>", "Tenant'ta görünecek ad (örn: 'Codex · ekip')")
+    .option("--model <model>", "Varsayılan model (codexplan | codexspark)", "codexplan")
+    .option("--default", "Bu profili tenant'ta default yap")
+    .action(async (kind: string, opts: { name?: string; model?: string; default?: boolean }) => {
+      if (kind.toLowerCase() !== "codex") {
+        process.stderr.write(`Desteklenmeyen sağlayıcı: ${kind}. Şu an sadece 'codex'.\n`);
+        process.exit(2);
+      }
+      const { altarisProviderConnectCodex } = await import("./codexConnect.js");
+      const code = await altarisProviderConnectCodex(opts);
+      process.exit(code);
     });
 
   registerVaultCommands(program);

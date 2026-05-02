@@ -41,4 +41,14 @@ public class ProviderConfig
     public string Metadata { get; set; } = "{}";
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset UpdatedAt { get; set; }
+
+    // OAuth-backed providers (Codex/ChatGPT). When AuthKind = "oauth" the row
+    // stores a refreshable token set instead of a static API key. A background
+    // refresh service rotates these before expiry.
+    public string AuthKind { get; set; } = "static";   // "static" | "oauth"
+    public string? RefreshTokenEnc { get; set; }
+    public string? IdTokenEnc { get; set; }
+    public string? AccountId { get; set; }
+    public DateTimeOffset? AccessTokenExpiresAt { get; set; }
+    public DateTimeOffset? LastRefreshedAt { get; set; }
 }

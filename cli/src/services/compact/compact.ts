@@ -1690,7 +1690,7 @@ function shouldExcludeFromPostCompactRestore(
 
   // Exclude all types of altaris.md files
   // TODO: Refactor to use isMemoryFilePath() from altarismd.ts for consistency
-  // and to also match child directory memory files (.claude/rules/*.md, etc.)
+  // and to also match child directory memory files (.altaris/rules/*.md, etc.)
   try {
     const normalizedMemoryPaths = new Set(
       MEMORY_TYPE_VALUES.filter(type => type !== 'Project').map(type =>

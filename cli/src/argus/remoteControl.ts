@@ -17,8 +17,9 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { getApiBase } from "./apiConfig.js";
+
 const CREDS_PATH = join(homedir(), ".altaris", "credentials.json");
-const API_BASE = process.env.ALTARIS_API_BASE ?? "http://localhost:5050";
 
 let _sessionId: string | null = null;
 let _ws: WebSocket | null = null;
@@ -90,7 +91,7 @@ export async function startRemoteControl(): Promise<void> {
   // 1. register session
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/api/v1/agent/sessions`, {
+    res = await fetch(`${getApiBase()}/api/v1/agent/sessions`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -112,14 +113,14 @@ export async function startRemoteControl(): Promise<void> {
   _sessionId = reg.id;
 
   // 2. flip flag on
-  await fetch(`${API_BASE}/api/v1/agent/sessions/${reg.id}/remote-control`, {
+  await fetch(`${getApiBase()}/api/v1/agent/sessions/${reg.id}/remote-control`, {
     method: "PATCH",
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify({ enabled: true })
   }).catch(() => { /* best effort */ });
 
   // 3. open WS publisher
-  const wsBase = API_BASE.replace(/^http/, "ws");
+  const wsBase = getApiBase().replace(/^http/, "ws");
   const url = `${wsBase}/ws/remote-control/publish?session=${reg.id}&access_token=${encodeURIComponent(token)}`;
   try {
     _ws = new WebSocket(url);
@@ -209,12 +210,12 @@ export async function stopRemoteControl(): Promise<void> {
   if (_sessionId) {
     const token = await getToken();
     if (token) {
-      await fetch(`${API_BASE}/api/v1/agent/sessions/${_sessionId}/remote-control`, {
+      await fetch(`${getApiBase()}/api/v1/agent/sessions/${_sessionId}/remote-control`, {
         method: "PATCH",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ enabled: false })
       }).catch(() => { });
-      await fetch(`${API_BASE}/api/v1/agent/sessions/${_sessionId}/close`, {
+      await fetch(`${getApiBase()}/api/v1/agent/sessions/${_sessionId}/close`, {
         method: "POST", headers: { Authorization: `Bearer ${token}` }
       }).catch(() => { });
     }

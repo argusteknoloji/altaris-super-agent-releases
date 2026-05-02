@@ -39,16 +39,37 @@ interface TokenResponse {
 
 const DEFAULT_KEYCLOAK = process.env.ALTARIS_KEYCLOAK_ISSUER ?? "http://localhost:8081/realms/altaris";
 const CLIENT_ID = process.env.ALTARIS_CLI_CLIENT_ID ?? "altaris-cli";
+const DEFAULT_API_BASE = process.env.ALTARIS_API_BASE ?? "http://localhost:5050";
 
 const tokenStorePath = () => join(homedir(), ".altaris", "credentials.json");
 
-async function persistToken(token: TokenResponse, issuer: string) {
+function normalizeBaseUrl(url: string): string {
+  return url.replace(/\/+$/, "");
+}
+
+async function discoverConfig(apiBase: string): Promise<{ issuer: string; clientId: string } | null> {
+  try {
+    const r = await fetch(`${apiBase}/api/v1/config/cli`, {
+      headers: { Accept: "application/json" },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!r.ok) return null;
+    const cfg = (await r.json()) as { issuer?: string; clientId?: string };
+    if (!cfg.issuer || !cfg.clientId) return null;
+    return { issuer: cfg.issuer, clientId: cfg.clientId };
+  } catch {
+    return null;
+  }
+}
+
+async function persistToken(token: TokenResponse, issuer: string, apiBase: string) {
   const dir = join(homedir(), ".altaris");
   await mkdir(dir, { recursive: true, mode: 0o700 });
   await writeFile(
     tokenStorePath(),
     JSON.stringify({
       issuer,
+      api_base: apiBase,
       access_token: token.access_token,
       refresh_token: token.refresh_token,
       expires_at: Date.now() + token.expires_in * 1000,
@@ -59,12 +80,26 @@ async function persistToken(token: TokenResponse, issuer: string) {
   );
 }
 
-export async function altarisLogin(opts: { issuer?: string; clientId?: string } = {}): Promise<number> {
-  const issuer = opts.issuer ?? DEFAULT_KEYCLOAK;
-  const clientId = opts.clientId ?? CLIENT_ID;
+export async function altarisLogin(opts: { issuer?: string; clientId?: string; api?: string } = {}): Promise<number> {
+  const apiBase = normalizeBaseUrl(opts.api ?? DEFAULT_API_BASE);
+  let issuer = opts.issuer;
+  let clientId = opts.clientId;
+
+  // If --api given without --issuer, ask the server which Keycloak realm /
+  // client to talk to. Lets one binary target multiple deployments without
+  // hard-coding their auth endpoints.
+  if (!issuer || !clientId) {
+    const discovered = await discoverConfig(apiBase);
+    if (discovered) {
+      issuer = issuer ?? discovered.issuer;
+      clientId = clientId ?? discovered.clientId;
+    }
+  }
+  issuer = issuer ?? DEFAULT_KEYCLOAK;
+  clientId = clientId ?? CLIENT_ID;
 
   process.stdout.write(`\nAltaris — Argus Identity Provider'a giriş\n`);
-  process.stdout.write(`  Authority: ${issuer}\n  Client:    ${clientId}\n\n`);
+  process.stdout.write(`  API:       ${apiBase}\n  Authority: ${issuer}\n  Client:    ${clientId}\n\n`);
 
   // 1. Initiate device flow with PKCE
   const pkce = makePkce();
@@ -107,7 +142,7 @@ export async function altarisLogin(opts: { issuer?: string; clientId?: string } 
 
     if (tokRes.ok) {
       const token = await tokRes.json() as TokenResponse;
-      await persistToken(token, issuer);
+      await persistToken(token, issuer, apiBase);
       process.stdout.write(`\n✓ Giriş başarılı. Token ${tokenStorePath()} altında.\n`);
       return 0;
     }
@@ -140,7 +175,7 @@ export async function altarisLogout(): Promise<number> {
 export async function altarisWhoami(): Promise<number> {
   try {
     const raw = await readFile(tokenStorePath(), "utf8");
-    const cred = JSON.parse(raw) as { access_token: string; expires_at: number; issuer: string };
+    const cred = JSON.parse(raw) as { access_token: string; expires_at: number; issuer: string; api_base?: string };
 
     if (Date.now() > cred.expires_at) {
       process.stdout.write(`Token süresi dolmuş. \`altaris login\` ile yenile.\n`);
@@ -150,11 +185,12 @@ export async function altarisWhoami(): Promise<number> {
     // Decode JWT payload (no signature verification — informational only)
     const payload = JSON.parse(Buffer.from(cred.access_token.split(".")[1], "base64url").toString("utf8")) as Record<string, unknown>;
 
-    process.stdout.write(`E-posta:  ${payload.email ?? "—"}\n`);
-    process.stdout.write(`Tenant:   ${payload.tid ?? "—"}\n`);
-    process.stdout.write(`Subject:  ${payload.sub ?? "—"}\n`);
-    process.stdout.write(`Authority:${cred.issuer}\n`);
-    process.stdout.write(`Expires:  ${new Date(cred.expires_at).toISOString()}\n`);
+    process.stdout.write(`E-posta:   ${payload.email ?? "—"}\n`);
+    process.stdout.write(`Tenant:    ${payload.tid ?? "—"}\n`);
+    process.stdout.write(`Subject:   ${payload.sub ?? "—"}\n`);
+    process.stdout.write(`API:       ${cred.api_base ?? "(stored issuer only — re-login to set)"}\n`);
+    process.stdout.write(`Authority: ${cred.issuer}\n`);
+    process.stdout.write(`Expires:   ${new Date(cred.expires_at).toISOString()}\n`);
     return 0;
   } catch {
     process.stdout.write(`Giriş yapılmamış. \`altaris login\` ile başla.\n`);

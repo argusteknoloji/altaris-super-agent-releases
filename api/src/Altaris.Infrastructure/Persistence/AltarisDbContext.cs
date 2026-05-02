@@ -123,6 +123,12 @@ public class AltarisDbContext : DbContext
             e.Property(x => x.Metadata).HasColumnName("metadata").HasColumnType("jsonb");
             e.Property(x => x.CreatedAt).HasColumnName("created_at");
             e.Property(x => x.UpdatedAt).HasColumnName("updated_at");
+            e.Property(x => x.AuthKind).HasColumnName("auth_kind").HasDefaultValue("static");
+            e.Property(x => x.RefreshTokenEnc).HasColumnName("refresh_token_enc");
+            e.Property(x => x.IdTokenEnc).HasColumnName("id_token_enc");
+            e.Property(x => x.AccountId).HasColumnName("account_id");
+            e.Property(x => x.AccessTokenExpiresAt).HasColumnName("access_token_expires_at");
+            e.Property(x => x.LastRefreshedAt).HasColumnName("last_refreshed_at");
         });
 
         modelBuilder.Entity<Vault>(e =>

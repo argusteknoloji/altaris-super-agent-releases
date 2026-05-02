@@ -9,6 +9,7 @@ import {
 import { Dialog } from '../../components/design-system/Dialog.js'
 import { LoadingState } from '../../components/design-system/LoadingState.js'
 import { Box, Text } from '../../ink.js'
+import { useSetAppState } from '../../state/AppState.js'
 import {
   applyProvider,
   fetchActiveProvider,
@@ -16,6 +17,7 @@ import {
   readToken,
   type ProviderListItem,
 } from '../../argus/bootstrap.js'
+import { setLastProviderId } from '../../argus/apiConfig.js'
 
 type LoadState =
   | { kind: 'loading' }
@@ -43,6 +45,7 @@ function TenantProviderPicker({
   onDone: LocalJSXCommandOnDone
 }): React.ReactNode {
   const [state, setState] = React.useState<LoadState>({ kind: 'loading' })
+  const setAppState = useSetAppState()
 
   React.useEffect(() => {
     let cancelled = false
@@ -94,6 +97,28 @@ function TenantProviderPicker({
       }
 
       const applied = applyProvider(active, { force: true })
+
+      // Persist the pick so next `altaris` startup auto-loads it without the
+      // user having to /provider every session. Stored in credentials.json.
+      setLastProviderId(active.id)
+
+      // Push the new model into the runtime AppState so subsequent queries
+      // route to the right backend. Without this, mainLoopModel stays sticky
+      // (e.g. an old qwen alias) even though env vars updated, and the next
+      // request 400s with "model X not supported by Codex".
+      const runtimeModel =
+        active.model ??
+        process.env.OPENAI_MODEL ??
+        process.env.ANTHROPIC_MODEL ??
+        null
+      if (runtimeModel) {
+        setAppState(prev => ({
+          ...prev,
+          mainLoopModel: runtimeModel,
+          mainLoopModelForSession: null,
+        }))
+      }
+
       const modelLabel = active.model ?? '(no default model)'
       const message = [
         `Switched provider: ${active.name}`,

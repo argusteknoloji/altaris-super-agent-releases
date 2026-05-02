@@ -13,6 +13,25 @@ import { join } from 'path'
 import { noTelemetryPlugin } from './no-telemetry-plugin'
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'))
+
+// Auto-bump prerelease counter on every build so each `bun run build` produces
+// a uniquely identifiable version. Format: <major>.<minor>.<patch>-<channel>.<n>
+// becomes <…>.<n+1>. If no prerelease tag is set we leave the version alone
+// (treat that as "release" mode driven by manual edits).
+// Skip when ALTARIS_NO_VERSION_BUMP=1 so CI / release builds can pin a version.
+function bumpPrerelease(current: string): string {
+  if (process.env.ALTARIS_NO_VERSION_BUMP === '1') return current
+  const m = current.match(/^(\d+)\.(\d+)\.(\d+)-([a-zA-Z]+)\.(\d+)$/)
+  if (!m) return current
+  const [, major, minor, patch, channel, n] = m
+  return `${major}.${minor}.${patch}-${channel}.${Number(n) + 1}`
+}
+
+const bumped = bumpPrerelease(pkg.version)
+if (bumped !== pkg.version) {
+  pkg.version = bumped
+  writeFileSync('./package.json', JSON.stringify(pkg, null, 2) + '\n', 'utf8')
+}
 const version = pkg.version
 
 // Feature flags for the open build.

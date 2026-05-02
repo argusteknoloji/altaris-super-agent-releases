@@ -605,6 +605,22 @@ export function REPL({
 }: Props): React.ReactNode {
   const isRemoteSession = !!remoteSessionConfig;
 
+  // Register a platform session row so this REPL run shows up in the admin
+  // "all sessions" view alongside web/PTY runs. Best-effort, runs once. Skip
+  // for nested remote sessions — the host has already registered its own.
+  useEffect(() => {
+    if (isRemoteSession) return;
+    void import('../argus/sessionTracker.js').then(m => m.initSessionTracker());
+  }, [isRemoteSession]);
+
+  // Belt-and-braces transcript sync: in addition to the explicit call after
+  // onTurnComplete, mirror messages whenever the buffer changes. UUID dedup
+  // makes this idempotent so error/abort paths still flush partial turns.
+  // Debounced so we don't fire on every streaming token.
+  const lastSyncedLenRef = useRef(0);
+  // The actual messages state is declared below; this effect references it
+  // via a closure-captured ref that we wire up after `messages` is defined.
+
   // Env-var gates hoisted to mount-time — isEnvTruthy does toLowerCase+trim+
   // includes, and these were on the render path (hot during PageUp spam).
   const titleDisabled = useMemo(() => isEnvTruthy(process.env.ALTARIS_DISABLE_TERMINAL_TITLE), []);
@@ -1189,6 +1205,22 @@ export function REPL({
     return initialReplacementState ? applyToolResultReplacementsToMessages(initialMessages, initialReplacementState.replacements) : initialMessages;
   });
   const messagesRef = useRef(messages);
+
+  // Debounced session-transcript mirror. Fires 500ms after the last message
+  // mutation so streaming tokens don't spam the API but completed turns and
+  // aborted partials both end up persisted. Idempotent via UUID dedup.
+  useEffect(() => {
+    if (isRemoteSession) return;
+    if (messages.length === lastSyncedLenRef.current) return;
+    lastSyncedLenRef.current = messages.length;
+    const t = setTimeout(() => {
+      void import('../argus/sessionTracker.js').then(m =>
+        m.syncSessionMessages(messages as unknown as Parameters<typeof m.syncSessionMessages>[0])
+      );
+    }, 500);
+    return () => clearTimeout(t);
+  }, [messages, isRemoteSession]);
+
   // Stores the willowMode variant that was shown (or false if no hint shown).
   // Captured at hint_shown time so hint_converted telemetry reports the same
   // variant — the GrowthBook value shouldn't change mid-session, but reading
@@ -2886,6 +2918,11 @@ export function REPL({
 
     // Signal that a query turn has completed successfully
     await onTurnComplete?.(messagesRef.current);
+
+    // Mirror the freshly-completed turn into the platform session transcript.
+    // Idempotent — UUID dedup handles repeated calls so partial / interrupted
+    // turns persist what they have without duplicating earlier rows.
+    void import('../argus/sessionTracker.js').then(m => m.syncSessionMessages(messagesRef.current as unknown as Parameters<typeof m.syncSessionMessages>[0]));
   }, [initialMcpClients, resetLoadingState, getToolUseContext, toolPermissionContext, setAppState, customSystemPrompt, onTurnComplete, appendSystemPrompt, canUseTool, mainThreadAgentDefinition, onQueryEvent, sessionTitle, titleDisabled]);
   const onQuery = useCallback(async (newMessages: MessageType[], abortController: AbortController, shouldQuery: boolean, additionalAllowedTools: string[], mainLoopModelParam: string, onBeforeQueryCallback?: (input: string, newMessages: MessageType[]) => Promise<boolean>, input?: string, effort?: EffortValue): Promise<void> => {
     // If this is a teammate, mark them as active when starting a turn

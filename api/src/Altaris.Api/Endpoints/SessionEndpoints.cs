@@ -39,7 +39,10 @@ public static class SessionEndpoints
             var row = await q
                 .OrderByDescending(p => p.IsDefault)
                 .ThenBy(p => p.Provider).ThenBy(p => p.Name)
-                .Select(p => new { p.Id, p.Provider, p.Name, p.BaseUrl, p.ApiKeyEnc, p.DefaultModel, p.IsDefault })
+                .Select(p => new {
+                    p.Id, p.Provider, p.Name, p.BaseUrl, p.ApiKeyEnc, p.DefaultModel, p.IsDefault,
+                    p.AuthKind, p.AccountId, p.AccessTokenExpiresAt
+                })
                 .FirstOrDefaultAsync();
             if (row is null) return Results.NotFound(new { error = "no enabled provider configured" });
 
@@ -59,7 +62,9 @@ public static class SessionEndpoints
             {
                 id = row.Id, provider = row.Provider, name = row.Name,
                 baseUrl = row.BaseUrl, apiKey = row.ApiKeyEnc,
-                model = row.DefaultModel, isDefault = row.IsDefault
+                model = row.DefaultModel, isDefault = row.IsDefault,
+                authKind = row.AuthKind, accountId = row.AccountId,
+                expiresAt = row.AccessTokenExpiresAt
             });
         }).RequireAuthorization();
 

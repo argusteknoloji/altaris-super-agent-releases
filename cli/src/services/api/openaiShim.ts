@@ -1595,7 +1595,7 @@ class OpenAIShimMessages {
     // DeepSeek, and Z.AI have not published support for the parameter either;
     // strip it preemptively to avoid the same class of error on strict-parse
     // providers. Detect Gemini from request.baseUrl as well — providerOverride
-    // routes (e.g. ~/.claude.json primaryProvider: google) reach the Gemini
+    // routes (e.g. ~/.altaris.json primaryProvider: google) reach the Gemini
     // host without setting OPENAI_BASE_URL / ALTARIS_USE_GEMINI.
     if (
       isMistral ||

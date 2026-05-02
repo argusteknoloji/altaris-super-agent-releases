@@ -167,9 +167,27 @@ CREATE TABLE IF NOT EXISTS provider_configs (
     metadata        JSONB NOT NULL DEFAULT '{}'::jsonb,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- OAuth-backed providers (Codex/ChatGPT). When auth_kind = 'oauth' the row
+    -- holds a refreshable token set instead of a static API key.
+    auth_kind                  TEXT NOT NULL DEFAULT 'static',
+    refresh_token_enc          TEXT,
+    id_token_enc               TEXT,
+    account_id                 TEXT,
+    access_token_expires_at    TIMESTAMPTZ,
+    last_refreshed_at          TIMESTAMPTZ,
     UNIQUE (tenant_id, provider, name)
 );
 CREATE INDEX IF NOT EXISTS provider_configs_tenant_idx ON provider_configs(tenant_id);
+CREATE INDEX IF NOT EXISTS provider_configs_oauth_idx
+    ON provider_configs(access_token_expires_at) WHERE auth_kind = 'oauth';
+
+-- Idempotent ALTER for databases initialized before the OAuth columns landed.
+ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS auth_kind                TEXT NOT NULL DEFAULT 'static';
+ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS refresh_token_enc        TEXT;
+ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS id_token_enc             TEXT;
+ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS account_id               TEXT;
+ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS access_token_expires_at  TIMESTAMPTZ;
+ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS last_refreshed_at        TIMESTAMPTZ;
 
 ALTER TABLE invitations      ENABLE ROW LEVEL SECURITY;
 ALTER TABLE api_keys         ENABLE ROW LEVEL SECURITY;

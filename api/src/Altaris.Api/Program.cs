@@ -86,6 +86,7 @@ try
     builder.Services.AddDbContext<AltarisDbContext>(opts => opts.UseNpgsql(pgConn));
 
     builder.Services.AddScoped<ITenantContext, TenantContext>();
+    builder.Services.AddHostedService<Altaris.Api.Services.CodexTokenRefreshWorker>();
 
     // ── Health checks (liveness vs readiness) ──────────────────────────────
     builder.Services.AddHealthChecks()
@@ -189,6 +190,29 @@ try
 
     var app = builder.Build();
 
+    // Idempotent schema patches for columns added after the initial init.sql.
+    // Postgres skips init.sql on subsequent container starts, so existing
+    // databases need ALTER TABLE applied at API startup.
+    using (var scope = app.Services.CreateScope())
+    {
+        var db = scope.ServiceProvider.GetRequiredService<AltarisDbContext>();
+        try
+        {
+            await db.Database.ExecuteSqlRawAsync(@"
+                ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS auth_kind                TEXT NOT NULL DEFAULT 'static';
+                ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS refresh_token_enc        TEXT;
+                ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS id_token_enc             TEXT;
+                ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS account_id               TEXT;
+                ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS access_token_expires_at  TIMESTAMPTZ;
+                ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS last_refreshed_at        TIMESTAMPTZ;
+            ");
+        }
+        catch (Exception ex)
+        {
+            Log.Warning(ex, "Schema patch failed (continuing — likely first-run before tables exist)");
+        }
+    }
+
     app.UseForwardedHeaders();
     app.UseSerilogRequestLogging();
     if (app.Environment.IsDevelopment()) app.MapOpenApi();
@@ -204,6 +228,17 @@ try
     app.MapHealthChecks("/health/live",  new() { Predicate = r => r.Tags.Contains("live") });
     app.MapHealthChecks("/health/ready", new() { Predicate = r => r.Tags.Contains("ready") });
     app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "altaris-api" }));
+
+    // Public CLI bootstrap config — `altaris login --api <url>` hits this
+    // anonymously to discover the deployment-specific Keycloak issuer + client.
+    // Lets one CLI binary work against multiple installs (cloud, on-prem, local).
+    app.MapGet("/api/v1/config/cli", (IConfiguration cfg) =>
+    {
+        var issuer   = cfg["Auth:Issuer"]      ?? Environment.GetEnvironmentVariable("ALTARIS_KEYCLOAK_ISSUER")   ?? "http://localhost:8081/realms/altaris";
+        var clientId = cfg["Auth:CliClientId"] ?? Environment.GetEnvironmentVariable("ALTARIS_CLI_CLIENT_ID")     ?? "altaris-cli";
+        var webBase  = cfg["Web:BaseUrl"]      ?? Environment.GetEnvironmentVariable("ALTARIS_WEB_BASE")          ?? "";
+        return Results.Ok(new { issuer, clientId, webBase });
+    }).AllowAnonymous();
 
     app.MapGet("/api/v1/me", (ITenantContext tc) => Results.Ok(new
     {
@@ -234,6 +269,7 @@ try
     app.MapRemoteControlEndpoints();
     app.MapVaultEndpoints();
     app.MapSetupEndpoints();
+    app.MapCodexProviderEndpoints();
 
     Log.Information("Altaris API starting in {Env}", app.Environment.EnvironmentName);
     app.Run();

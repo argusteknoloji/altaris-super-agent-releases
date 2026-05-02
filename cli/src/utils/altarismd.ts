@@ -40,6 +40,7 @@ import {
   relative,
   sep,
 } from 'path'
+import { homedir as getHomedir } from 'os'
 import picomatch from 'picomatch'
 import { logEvent } from 'src/services/analytics/index.js'
 import {
@@ -847,11 +848,35 @@ export const getMemoryFiles = memoize(
           true, // User memory can always include external files
         )),
       )
+      // Cross-tool fallback: ~/.claude/CLAUDE.md for users coming from
+      // upstream Claude Code who haven't migrated to ~/.altaris/ALTARIS.md yet.
+      // Loaded only if it exists; processedPaths guards against double-load
+      // when both files contain the same import.
+      const legacyUserClaudeMd = join(getHomedir(), '.claude', 'CLAUDE.md')
+      result.push(
+        ...(await processMemoryFile(
+          legacyUserClaudeMd,
+          'User',
+          processedPaths,
+          true,
+        )),
+      )
       // Process User ~/.altaris/rules/*.md files
       const userClaudeRulesDir = getUserClaudeRulesDir()
       result.push(
         ...(await processMdRules({
           rulesDir: userClaudeRulesDir,
+          type: 'User',
+          processedPaths,
+          includeExternal: true,
+          conditionalRule: false,
+        })),
+      )
+      // Cross-tool: ~/.claude/rules/*.md too.
+      const legacyUserRulesDir = join(getHomedir(), '.claude', 'rules')
+      result.push(
+        ...(await processMdRules({
+          rulesDir: legacyUserRulesDir,
           type: 'User',
           processedPaths,
           includeExternal: true,
@@ -923,11 +948,36 @@ export const getMemoryFiles = memoize(
           )),
         )
 
+        // Cross-tool fallback for existing Obsidian vaults / Claude Code
+        // projects with .claude/CLAUDE.md. Loaded only if the file exists —
+        // processMemoryFile silently skips non-existent paths.
+        const dotClaudeLegacyPath = join(dir, '.claude', 'CLAUDE.md')
+        result.push(
+          ...(await processMemoryFile(
+            dotClaudeLegacyPath,
+            'Project',
+            processedPaths,
+            includeExternal,
+          )),
+        )
+
         // Try reading .altaris/rules/*.md files (Project)
         const rulesDir = join(dir, '.altaris', 'rules')
         result.push(
           ...(await processMdRules({
             rulesDir,
+            type: 'Project',
+            processedPaths,
+            includeExternal,
+            conditionalRule: false,
+          })),
+        )
+
+        // Cross-tool: .claude/rules/*.md too.
+        const legacyRulesDir = join(dir, '.claude', 'rules')
+        result.push(
+          ...(await processMdRules({
+            rulesDir: legacyRulesDir,
             type: 'Project',
             processedPaths,
             includeExternal,
@@ -976,6 +1026,17 @@ export const getMemoryFiles = memoize(
         result.push(
           ...(await processMemoryFile(
             dotClaudePath,
+            'Project',
+            processedPaths,
+            includeExternal,
+          )),
+        )
+
+        // Cross-tool fallback: .claude/CLAUDE.md from --add-dir target too.
+        const dotClaudeLegacyPath = join(dir, '.claude', 'CLAUDE.md')
+        result.push(
+          ...(await processMemoryFile(
+            dotClaudeLegacyPath,
             'Project',
             processedPaths,
             includeExternal,

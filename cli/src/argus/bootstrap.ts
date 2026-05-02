@@ -19,7 +19,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 const CREDS_PATH = join(homedir(), ".altaris", "credentials.json");
-const API_BASE = process.env.ALTARIS_API_BASE ?? "http://localhost:5050";
+import { getApiBase, getLastProviderId } from "./apiConfig.js";
 // Cap the network call so a slow/down API never blocks startup for long.
 const FETCH_TIMEOUT_MS = 1500;
 
@@ -30,12 +30,15 @@ interface StoredCreds {
 
 export interface ActiveProvider {
   id: string;
-  provider: string;            // anthropic | openai | lmstudio | ollama
+  provider: string;            // anthropic | openai | lmstudio | ollama | codex
   name: string;
   baseUrl: string | null;
   apiKey: string | null;
   model: string | null;
   isDefault: boolean;
+  authKind?: string;           // "static" | "oauth"
+  accountId?: string | null;   // ChatGPT account id (Codex OAuth flow)
+  expiresAt?: string | null;
 }
 
 export interface ProviderListItem {
@@ -62,7 +65,7 @@ async function fetchJson<T>(path: string, token: string): Promise<T | null> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
   try {
-    const r = await fetch(`${API_BASE}${path}`, {
+    const r = await fetch(`${getApiBase()}${path}`, {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
       signal: ctrl.signal
     });
@@ -106,6 +109,22 @@ function setForce(key: string, value: string | null | undefined): boolean {
  * /provider), all keys are overwritten and conflicting providers' flags are
  * cleared first so the runtime picks the right transport.
  */
+// Sensible per-provider model defaults used when the platform row leaves
+// DefaultModel blank. Keeps the startup banner from flashing
+// "(no model selected)" — admins can still override per-provider in the web
+// panel and the CLI will pick that up via the regular bootstrap path.
+const DEFAULT_MODEL_BY_PROVIDER: Record<string, string> = {
+  anthropic: "claude-sonnet-4-5",
+  openai:    "gpt-4o",
+  lmstudio:  "local-model",
+  ollama:    "llama3.1:8b",
+  codex:     "codexplan",
+};
+
+function defaultModelFor(provider: string): string {
+  return DEFAULT_MODEL_BY_PROVIDER[provider.toLowerCase()] ?? "default";
+}
+
 export function applyProvider(p: ActiveProvider, opts?: { force?: boolean }): string[] {
   const force = opts?.force === true;
   const set = force ? setForce : setIfMissing;
@@ -120,25 +139,40 @@ export function applyProvider(p: ActiveProvider, opts?: { force?: boolean }): st
     delete process.env.ALTARIS_USE_MISTRAL;
   }
 
+  const resolvedModel = p.model ?? defaultModelFor(p.provider);
+
   switch (p.provider.toLowerCase()) {
     case "lmstudio":
     case "openai": {
-      if (set("ALTARIS_USE_OPENAI", "1"))    applied.push("ALTARIS_USE_OPENAI");
-      if (set("OPENAI_BASE_URL", p.baseUrl)) applied.push("OPENAI_BASE_URL");
-      if (set("OPENAI_API_KEY",  p.apiKey))  applied.push("OPENAI_API_KEY");
-      if (set("OPENAI_MODEL",    p.model))   applied.push("OPENAI_MODEL");
+      if (set("ALTARIS_USE_OPENAI", "1"))     applied.push("ALTARIS_USE_OPENAI");
+      if (set("OPENAI_BASE_URL", p.baseUrl))  applied.push("OPENAI_BASE_URL");
+      if (set("OPENAI_API_KEY",  p.apiKey))   applied.push("OPENAI_API_KEY");
+      if (set("OPENAI_MODEL",    resolvedModel)) applied.push("OPENAI_MODEL");
       break;
     }
     case "anthropic": {
-      if (set("ANTHROPIC_API_KEY",  p.apiKey))  applied.push("ANTHROPIC_API_KEY");
-      if (set("ANTHROPIC_BASE_URL", p.baseUrl)) applied.push("ANTHROPIC_BASE_URL");
-      if (set("ANTHROPIC_MODEL",    p.model))   applied.push("ANTHROPIC_MODEL");
+      if (set("ANTHROPIC_API_KEY",  p.apiKey))     applied.push("ANTHROPIC_API_KEY");
+      if (set("ANTHROPIC_BASE_URL", p.baseUrl))    applied.push("ANTHROPIC_BASE_URL");
+      if (set("ANTHROPIC_MODEL",    resolvedModel)) applied.push("ANTHROPIC_MODEL");
       break;
     }
     case "ollama": {
       if (set("ALTARIS_USE_OLLAMA", "1"))    applied.push("ALTARIS_USE_OLLAMA");
       if (set("OLLAMA_BASE_URL", p.baseUrl)) applied.push("OLLAMA_BASE_URL");
-      if (set("OLLAMA_MODEL",    p.model))   applied.push("OLLAMA_MODEL");
+      if (set("OLLAMA_MODEL",    resolvedModel)) applied.push("OLLAMA_MODEL");
+      break;
+    }
+    case "codex": {
+      // OAuth-backed Codex profile shipped from /providers/active. The
+      // access_token in `apiKey` is whatever the platform refreshed last —
+      // the CLI never has to know about refresh tokens.
+      if (set("ALTARIS_USE_OPENAI", "1"))                                applied.push("ALTARIS_USE_OPENAI");
+      if (set("OPENAI_BASE_URL", p.baseUrl ?? "https://chatgpt.com/backend-api/codex")) applied.push("OPENAI_BASE_URL");
+      if (set("OPENAI_API_KEY",  p.apiKey))                              applied.push("OPENAI_API_KEY");
+      if (set("CODEX_API_KEY",   p.apiKey))                              applied.push("CODEX_API_KEY");
+      if (set("OPENAI_MODEL",    p.model ?? "codexplan"))                applied.push("OPENAI_MODEL");
+      if (p.accountId && set("CHATGPT_ACCOUNT_ID", p.accountId))         applied.push("CHATGPT_ACCOUNT_ID");
+      if (p.accountId && set("CODEX_ACCOUNT_ID",   p.accountId))         applied.push("CODEX_ACCOUNT_ID");
       break;
     }
     default:
@@ -170,7 +204,16 @@ export async function argusBootstrap(): Promise<void> {
   try {
     const token = await readToken();
     if (!token) { if (debug) process.stderr.write("[altaris-bootstrap] no token\n"); return; }
-    const active = await fetchActiveProvider(token);
+
+    // Honour the user's last /provider pick first. If that id isn't valid
+    // anymore (provider deleted, disabled, moved tenants), fall back to the
+    // tenant default so the CLI never gets stuck on a stale pin.
+    const pinned = getLastProviderId();
+    let active = pinned ? await fetchActiveProvider(token, { id: pinned }) : null;
+    if (!active) {
+      if (pinned && debug) process.stderr.write(`[altaris-bootstrap] pinned id ${pinned} not found, using tenant default\n`);
+      active = await fetchActiveProvider(token);
+    }
     if (!active) { if (debug) process.stderr.write("[altaris-bootstrap] no active provider returned\n"); return; }
     const applied = applyProvider(active);
     if (debug) {
