@@ -80,24 +80,30 @@ type OauthConfig = {
   MCP_PROXY_PATH: string
 }
 
-// Production OAuth configuration - Used in normal operation
+// Production OAuth configuration - Used in normal operation.
+//
+// NOT: opencode upstream'i kendi rebrand domain'lerine yönlendiriyor
+// (platform.altaris.com / altaris.com / altaris.ai). Bizim ürün adımız
+// "Altaris" — kullanıcı brand karışıklığı yaşıyor, ayrıca o proxy bizim
+// kontrolümüzde değil. Anthropic'in resmi endpoint'lerine geçtik:
+//   claude.ai          (kullanıcı OAuth ekranı)
+//   console.anthropic.com (Console + token endpoint)
+//   api.anthropic.com  (API çağrıları — zaten doğruydu)
 const PROD_OAUTH_CONFIG = {
   BASE_API_URL: 'https://api.anthropic.com',
-  CONSOLE_AUTHORIZE_URL: 'https://platform.altaris.com/oauth/authorize',
-  // Bounces through altaris.com/cai/* so CLI sign-ins connect to altaris.com
-  // visits for attribution. 307s to altaris.ai/oauth/authorize in two hops.
-  CLAUDE_AI_AUTHORIZE_URL: 'https://altaris.com/cai/oauth/authorize',
-  CLAUDE_AI_ORIGIN: 'https://altaris.ai',
-  TOKEN_URL: 'https://platform.altaris.com/v1/oauth/token',
+  CONSOLE_AUTHORIZE_URL: 'https://console.anthropic.com/oauth/authorize',
+  // Doğrudan claude.ai/oauth/authorize'a yönlendir — ara proxy yok.
+  CLAUDE_AI_AUTHORIZE_URL: 'https://claude.ai/oauth/authorize',
+  CLAUDE_AI_ORIGIN: 'https://claude.ai',
+  TOKEN_URL: 'https://console.anthropic.com/v1/oauth/token',
   API_KEY_URL: 'https://api.anthropic.com/api/oauth/claude_cli/create_api_key',
   ROLES_URL: 'https://api.anthropic.com/api/oauth/claude_cli/roles',
   CONSOLE_SUCCESS_URL:
-    'https://platform.altaris.com/buy_credits?returnUrl=/oauth/code/success%3Fapp%3Daltaris',
+    'https://console.anthropic.com/buy_credits?returnUrl=/oauth/code/success%3Fapp%3Daltaris',
   CLAUDEAI_SUCCESS_URL:
-    'https://platform.altaris.com/oauth/code/success?app=altaris',
-  MANUAL_REDIRECT_URL: 'https://platform.altaris.com/oauth/code/callback',
+    'https://console.anthropic.com/oauth/code/success?app=altaris',
+  MANUAL_REDIRECT_URL: 'https://console.anthropic.com/oauth/code/callback',
   CLIENT_ID: '9d1c250a-e61b-44d9-88ed-5944d1962f5e',
-  // No suffix for production config
   OAUTH_FILE_SUFFIX: '',
   MCP_PROXY_URL: 'https://mcp-proxy.anthropic.com',
   MCP_PROXY_PATH: '/v1/mcp/{server_id}',
@@ -111,7 +117,7 @@ const PROD_OAUTH_CONFIG = {
  * See: https://datatracker.ietf.org/doc/html/draft-ietf-oauth-client-id-metadata-document-00
  */
 export const MCP_CLIENT_METADATA_URL =
-  'https://altaris.ai/oauth/altaris-client-metadata'
+  'https://claude.ai/oauth/altaris-client-metadata'
 
 // Staging OAuth configuration - only included in ant builds with staging flag
 // Uses literal check for dead code elimination
