@@ -210,23 +210,67 @@ public static class RemoteControlEndpoints
             await PersistSysMessage(db, tc, sessionId, $"remote_control.watch by {tc.UserEmail}");
         }
 
-        var buf = new byte[8192];
+        const int MaxFrameBytes = 8 * 1024 * 1024;   // 8 MB cap (task #37)
+        var buf = new byte[64 * 1024];
         try
         {
             while (ws.State == WebSocketState.Open)
             {
                 var result = await ws.ReceiveAsync(buf, ctx.RequestAborted);
                 if (result.MessageType == WebSocketMessageType.Close) break;
+
+                // Guard against runaway payloads (binary push, infinite paste).
+                if (result.Count >= buf.Length && !result.EndOfMessage)
+                {
+                    long total = result.Count;
+                    while (!result.EndOfMessage && total < MaxFrameBytes)
+                    {
+                        result = await ws.ReceiveAsync(buf, ctx.RequestAborted);
+                        total += result.Count;
+                    }
+                    if (total >= MaxFrameBytes)
+                    {
+                        await ws.CloseAsync((WebSocketCloseStatus)1009,
+                            "frame exceeds 8MB cap", ctx.RequestAborted);
+                        break;
+                    }
+                    continue;   // oversized but truncated — drop frame, keep socket
+                }
+
                 var msg = Encoding.UTF8.GetString(buf, 0, result.Count);
                 try
                 {
                     using var doc = JsonDocument.Parse(msg);
                     var root = doc.RootElement;
                     var type = root.TryGetProperty("type", out var t) ? t.GetString() : null;
-                    if (type == "in" && root.TryGetProperty("data", out var d)
-                        && brokered.InputOwnerUserId == tc.UserId.Value)
+                    if (type == "in" && root.TryGetProperty("data", out var d))
                     {
-                        await brokered.ForwardInputAsync(d.GetString() ?? "", ctx.RequestAborted);
+                        var keystroke = d.GetString() ?? "";
+                        if (brokered.InputOwnerUserId == tc.UserId.Value)
+                        {
+                            await brokered.ForwardInputAsync(keystroke, ctx.RequestAborted);
+                            // Audit: persist viewer-injected keystrokes (task #36).
+                            // Truncate to 4 KB to keep DB sane on paste storms.
+                            await PersistViewerKeystroke(db, tc, sessionId, keystroke);
+                        }
+                        else
+                        {
+                            // Watch-mode keylock UX (task #38) — tell viewer their
+                            // keystroke was dropped because they don't own input.
+                            await brokered.SendToViewerAsync(viewer.Key, new {
+                                type = "info", kind = "watch_locked",
+                                text = "watch-only — Takeover gerek"
+                            }, ctx.RequestAborted);
+                        }
+                    }
+                    else if (type == "resize"
+                          && root.TryGetProperty("cols", out var c)
+                          && root.TryGetProperty("rows", out var r))
+                    {
+                        // PTY resize forwarding (task #39) — only the input owner
+                        // can resize so passive watchers don't fight the publisher.
+                        if (brokered.InputOwnerUserId == tc.UserId.Value)
+                            await brokered.ForwardResizeAsync(c.GetInt32(), r.GetInt32(), ctx.RequestAborted);
                     }
                     else if (type == "takeover" && (isAdmin || isOwner))
                     {
@@ -264,6 +308,38 @@ public static class RemoteControlEndpoints
                 SessionId = sessionId,
                 Role = "system",
                 Content = JsonSerializer.Serialize(new { kind = "remote_control", text }),
+                CreatedAt = DateTimeOffset.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+        catch { }
+    }
+
+    /// <summary>
+    ///   Persist a viewer-injected keystroke to <c>session_messages</c>.
+    ///   role = "user", metadata.injected_by = viewer email — so an auditor
+    ///   can later distinguish what came from the publisher vs. takeover ops.
+    /// </summary>
+    private static async Task PersistViewerKeystroke(AltarisDbContext db, ITenantContext tc, Guid sessionId, string keystroke)
+    {
+        if (tc.TenantId is null || string.IsNullOrEmpty(keystroke)) return;
+        // Bound the audit row size — long pastes get clipped (full content stays
+        // in the live stream, the audit table just records who/when/sample).
+        var sample = keystroke.Length > 4096 ? keystroke[..4096] : keystroke;
+        try
+        {
+            db.SessionMessages.Add(new SessionMessage
+            {
+                TenantId = tc.TenantId.Value,
+                SessionId = sessionId,
+                Role = "user",
+                Content = JsonSerializer.Serialize(new {
+                    kind  = "remote_control_input",
+                    bytes = keystroke.Length,
+                    injected_by = tc.UserEmail ?? "unknown",
+                    injected_by_id = tc.UserId,
+                    sample
+                }),
                 CreatedAt = DateTimeOffset.UtcNow
             });
             await db.SaveChangesAsync();

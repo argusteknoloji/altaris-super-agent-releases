@@ -18,7 +18,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 const CREDS_PATH = join(homedir(), ".altaris", "credentials.json");
-const API_BASE = process.env.ALTARIS_API_BASE ?? "http://localhost:5000";
+const API_BASE = process.env.ALTARIS_API_BASE ?? "http://localhost:5050";
 
 let _sessionId: string | null = null;
 let _ws: WebSocket | null = null;
@@ -142,6 +142,20 @@ export async function startRemoteControl(): Promise<void> {
     try {
       const data = typeof ev.data === "string" ? ev.data : new TextDecoder().decode(ev.data as ArrayBuffer);
       const msg = JSON.parse(data);
+
+      // PTY resize forwarding (broker → publisher). Update process.stdout
+      // dimensions so Ink/curses TUIs re-layout, and emit "resize" so any
+      // listener (e.g. xterm.js mirror in another viewer) can recompute.
+      if (msg.type === "resize" && typeof msg.cols === "number" && typeof msg.rows === "number") {
+        try {
+          const so = process.stdout as NodeJS.WriteStream & { columns?: number; rows?: number };
+          so.columns = msg.cols;
+          so.rows    = msg.rows;
+          process.stdout.emit("resize");
+        } catch { /* not a TTY — ignore */ }
+        return;
+      }
+
       if (msg.type !== "in" || typeof msg.data !== "string") return;
       const text = msg.data;
       const buf = Buffer.from(text, "utf8");
@@ -176,10 +190,16 @@ export async function startRemoteControl(): Promise<void> {
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
 
+  const webBase = process.env.ALTARIS_WEB_BASE ?? "http://localhost:3000";
   process.stderr.write(
     `\x1b[2m[altaris] Remote Control yayında · session=${reg.id.slice(0, 8)} · ` +
-    `web → ${API_BASE.replace(/:5000$/, ":3000")}/remote-control\x1b[0m\n`
+    `web → ${webBase}/remote-control\x1b[0m\n`
   );
+}
+
+/** True iff a publisher WebSocket is currently open + handshaked. */
+export function isRemoteControlActive(): boolean {
+  return _ws !== null && _ws.readyState === 1 /* OPEN */;
 }
 
 export async function stopRemoteControl(): Promise<void> {

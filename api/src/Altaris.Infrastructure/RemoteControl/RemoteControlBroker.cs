@@ -114,6 +114,26 @@ public class BrokeredSession
         catch { }
     }
 
+    /// <summary>Forward a viewer-initiated PTY resize (cols/rows) to the publisher.</summary>
+    public async Task ForwardResizeAsync(int cols, int rows, CancellationToken ct)
+    {
+        if (Publisher.State != WebSocketState.Open) return;
+        if (cols <= 0 || rows <= 0 || cols > 1000 || rows > 1000) return;
+        var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new { type = "resize", cols, rows }));
+        try { await Publisher.SendAsync(bytes, WebSocketMessageType.Text, true, ct); }
+        catch { }
+    }
+
+    /// <summary>Send a single-viewer message (used for watch-lock feedback).</summary>
+    public async Task SendToViewerAsync(string viewerKey, object payload, CancellationToken ct)
+    {
+        if (!_viewers.TryGetValue(viewerKey, out var v)) return;
+        if (v.Ws.State != WebSocketState.Open) return;
+        var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload));
+        try { await v.Ws.SendAsync(bytes, WebSocketMessageType.Text, true, ct); }
+        catch { }
+    }
+
     /// <summary>Tell the publisher who owns input (so its UI can show a banner).</summary>
     public async Task PushOwnerAsync(Guid ownerUserId, string ownerEmail, CancellationToken ct)
     {

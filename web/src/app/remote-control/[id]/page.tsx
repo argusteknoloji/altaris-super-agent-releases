@@ -12,6 +12,7 @@ export default function RemoteControlViewerPage({ params }: { params: Promise<{ 
   const [status, setStatus] = useState<Status>("connecting");
   const [mode,   setMode]   = useState<"watch" | "takeover">("watch");
   const [debugCount, setDebugCount] = useState(0);
+  const [watchLock, setWatchLock] = useState<string | null>(null);
 
   useEffect(() => {
     // Strict-mode safe: cancel async setup mid-flight so the second invocation
@@ -64,7 +65,14 @@ export default function RemoteControlViewerPage({ params }: { params: Promise<{ 
         try {
           const msg = JSON.parse(ev.data);
           if (msg.type === "out" && typeof msg.data === "string") term.write(msg.data);
-          else if (msg.type === "info") term.writeln(`\r\n\x1b[2m[Altaris] ${msg.text}\x1b[0m`);
+          else if (msg.type === "info") {
+            if (msg.kind === "watch_locked") {
+              setWatchLock(msg.text ?? "watch-only — Takeover gerek");
+              setTimeout(() => setWatchLock(null), 3000);
+            } else {
+              term.writeln(`\r\n\x1b[2m[Altaris] ${msg.text}\x1b[0m`);
+            }
+          }
           else if (msg.type === "error") term.writeln(`\r\n\x1b[31m[Altaris] ${msg.message}\x1b[0m`);
         } catch {}
       };
@@ -84,8 +92,25 @@ export default function RemoteControlViewerPage({ params }: { params: Promise<{ 
         console.log("[remote-control] sent in", JSON.stringify(d));
       });
 
-      const onResize = () => fit.fit();
+      // Window resize → refit xterm cells. Send the new dimensions to the
+      // broker so the publisher CLI re-layouts (Ink reads process.stdout.columns).
+      const onResize = () => {
+        fit.fit();
+        if (mode === "takeover" && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+        }
+      };
       window.addEventListener("resize", onResize);
+      // Also push initial dimensions once the WS opens (publisher's TUI sized
+      // for its host stdout, which usually differs from the viewer's window).
+      if (mode === "takeover") {
+        const initialResize = () => {
+          if (ws.readyState !== WebSocket.OPEN) return;
+          ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
+        };
+        if (ws.readyState === WebSocket.OPEN) initialResize();
+        else ws.addEventListener("open", initialResize, { once: true });
+      }
 
       cleanup = () => {
         window.removeEventListener("resize", onResize);
@@ -146,6 +171,12 @@ export default function RemoteControlViewerPage({ params }: { params: Promise<{ 
           <button onClick={() => termRef.current?.focus()} className="rounded border border-orange-500/40 px-2 py-0.5 text-orange-200 hover:bg-orange-500/20">
             Odakla
           </button>
+        </div>
+      )}
+
+      {watchLock && (
+        <div className="border-b border-yellow-500/30 bg-yellow-500/10 px-6 py-1.5 text-xs text-yellow-300">
+          🔒 {watchLock} — şu an watch modundasın, yazmak için "Takeover"a bas.
         </div>
       )}
 
