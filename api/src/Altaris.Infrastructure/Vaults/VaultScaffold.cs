@@ -4,11 +4,12 @@ namespace Altaris.Infrastructure.Vaults;
 
 /// <summary>
 ///   Writes a minimal Obsidian-compatible starter set into a freshly
-///   created vault directory. The structure mirrors common knowledge-vault
-///   conventions (a top-level index, an append-only operations log, a hot
-///   cache of recent context, plus a <c>wiki/</c> tree for entities,
-///   concepts, decisions, meetings) so an Argus operator can drop straight
-///   into curating notes without first deciding on a folder layout.
+///   created vault directory. The structure pairs the standard knowledge
+///   layer (top-level index / log / hot cache + wiki tree of entities,
+///   concepts, decisions, meetings, comparisons) with an agentic layer
+///   (agents / skills / commands / hooks / _templates / bin) so an Argus
+///   operator can drop straight into curating notes AND wiring up vault-
+///   scoped automations without first deciding on a folder layout.
 /// </summary>
 public static class VaultScaffold
 {
@@ -18,15 +19,27 @@ public static class VaultScaffold
     {
         new SeedFile("README.md", $@"# {vaultName}
 
-Argus Altaris bilgi kasası — Obsidian uyumlu, sunucu tarafı yönetilen.
+Argus Altaris bilgi kasası — Obsidian uyumlu, sunucu tarafı yönetilen,
+agentic AI iş akışları için hazırlanmış.
 
+## Bilgi katmanı
 - `index.md` — kasanın canlı haritası
 - `log.md`   — kronolojik operasyon kaydı (en yeni başta)
 - `hot.md`   — son ~500 kelime hot context (her oturumda üstü yazılır)
-- `wiki/`    — kalıcı bilgi (entities, concepts, decisions, meetings)
-- `_attachments/` — gömülü medya (resim, pdf)
+- `wiki/`    — kalıcı bilgi (entities, concepts, decisions, meetings, comparisons)
 
-Web arayüzünden veya `altaris vault open {vaultName}` ile düzenle.
+## Agentic katman
+- `agents/`     — vault'a özel AI agent tanımları (persona + tool seti)
+- `skills/`     — yeniden kullanılabilir prompt + tool şablonları
+- `commands/`   — vault'a özel slash komutlar
+- `hooks/`      — lifecycle hook'ları (pre/post tool-use, on-edit, …)
+- `_templates/` — Templater eklentisi için not şablonları
+- `bin/`        — vault'a özel yardımcı script'ler
+
+## Medya
+- `_attachments/` — gömülü resim, PDF, vb.
+
+Web arayüzünden veya `altaris vault use {vaultName}` ile düzenle.
 "),
         new SeedFile("index.md", $@"---
 type: meta
@@ -64,6 +77,8 @@ tags: [meta, hot]
 
 (boş)
 "),
+
+        // ─── Bilgi katmanı ────────────────────────────────────────────────
         new SeedFile("wiki/_index.md", @"---
 type: meta
 title: Wiki Index
@@ -83,7 +98,128 @@ Kalıcı bilgi katmanı. Alt klasörler:
         new SeedFile("wiki/decisions/.gitkeep", ""),
         new SeedFile("wiki/meetings/.gitkeep", ""),
         new SeedFile("wiki/comparisons/.gitkeep", ""),
+
+        // ─── Agentic katman ───────────────────────────────────────────────
+        new SeedFile("agents/README.md", @"# agents/
+
+Bu klasördeki her `.md` dosyası bu kasaya özel bir AI agent tanımıdır.
+Agent runtime onu yüklerken frontmatter'ı parse eder, gövdeyi system
+prompt'a ekler.
+
+Frontmatter alanları (öneri):
+
+```yaml
+---
+name: brief-writer
+description: Toplantı notlarından 250-kelimelik özet üretir
+model: sonnet
+tools: [WebSearch, FileSystem]
+---
+```
+
+Boşken bile vault çalışır; bu dizin opt-in.
+"),
+        new SeedFile("agents/.gitkeep", ""),
+
+        new SeedFile("skills/README.md", @"# skills/
+
+Yeniden kullanılabilir prompt + tool kombinasyonları. Skill = ne zaman
+tetiklenir + hangi adımlarla çözer.
+
+Frontmatter (öneri):
+
+```yaml
+---
+name: extract-action-items
+description: Bir metinden açık aksiyonları çıkar
+when: ""kullanıcı 'aksiyonları çıkar' der""
+tools: [Read]
+---
+```
+
+CLI agent loop runtime'da bu dosyaları discover eder.
+"),
+        new SeedFile("skills/.gitkeep", ""),
+
+        new SeedFile("commands/README.md", @"# commands/
+
+Vault'a özel slash komutları. Her dosya `/<isim>` olarak interactive
+oturumda görünür.
+
+Örnek `commands/günlük.md`:
+
+```yaml
+---
+name: günlük
+description: Bugünün günlük notunu aç ya da yarat
+---
+Bugünün notu `wiki/journal/{date:YYYY-MM-DD}.md` dosyasında. Dosya yoksa
+şablonla yarat ve ilk başlığa bugünün tarihini koy.
+```
+"),
+        new SeedFile("commands/.gitkeep", ""),
+
+        new SeedFile("hooks/README.md", @"# hooks/
+
+Lifecycle hook'ları. Bir tool çağrılmadan önce/sonra, oturum başında,
+dosya kaydedildikten sonra çalışan ufak script'ler.
+
+Örnek `hooks/post-edit.json`:
+
+```json
+{
+  ""event"": ""post-edit"",
+  ""glob"": ""wiki/**/*.md"",
+  ""run"": ""bin/lint-frontmatter.sh""
+}
+```
+
+`bin/` altındaki script'ler aynı vault dizininden çağrılır.
+"),
+        new SeedFile("hooks/.gitkeep", ""),
+
+        new SeedFile("_templates/README.md", @"# _templates/
+
+Obsidian Templater eklentisi (veya CLI `/template` komutu) tarafından
+okunan not şablonları.
+
+Örnek `_templates/meeting.md`:
+
+```markdown
+---
+type: meeting
+date: {{date}}
+attendees: []
+---
+
+# {{title}}
+
+## Bağlam
+
+## Kararlar
+
+## Aksiyonlar
+```
+"),
+        new SeedFile("_templates/.gitkeep", ""),
+
+        new SeedFile("bin/README.md", @"# bin/
+
+Vault'a özel yardımcı script'ler (bash / python / node). Sistem PATH'ine
+girmez; hook'lar ve manuel çalıştırma için.
+
+Çalıştırmadan önce executable yap:
+
+```bash
+chmod +x bin/*.sh
+```
+"),
+        new SeedFile("bin/.gitkeep", ""),
+
+        // ─── Medya ────────────────────────────────────────────────────────
         new SeedFile("_attachments/.gitkeep", ""),
+
+        // ─── Obsidian config ──────────────────────────────────────────────
         new SeedFile(".obsidian/app.json", @"{
   ""promptDelete"": true,
   ""newLinkFormat"": ""shortest"",

@@ -16,6 +16,7 @@ public class AltarisDbContext : DbContext
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
     public DbSet<ProviderConfig> ProviderConfigs => Set<ProviderConfig>();
     public DbSet<Vault> Vaults => Set<Vault>();
+    public DbSet<VaultFile> VaultFiles => Set<VaultFile>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -139,6 +140,20 @@ public class AltarisDbContext : DbContext
             e.Property(x => x.CreatedAt).HasColumnName("created_at");
             e.Property(x => x.UpdatedAt).HasColumnName("updated_at");
             e.HasIndex(x => new { x.TenantId, x.Slug }).IsUnique();
+        });
+
+        modelBuilder.Entity<VaultFile>(e =>
+        {
+            e.ToTable("vault_files");
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.VaultId).HasColumnName("vault_id");
+            e.Property(x => x.TenantId).HasColumnName("tenant_id");
+            e.Property(x => x.Path).HasColumnName("path");
+            e.Property(x => x.Content).HasColumnName("content");
+            e.Property(x => x.Sha256).HasColumnName("sha256");
+            e.Property(x => x.Bytes).HasColumnName("bytes");
+            e.Property(x => x.IndexedAt).HasColumnName("indexed_at");
+            e.HasIndex(x => new { x.VaultId, x.Path }).IsUnique();
         });
 
         modelBuilder.Entity<AuditEvent>(e =>

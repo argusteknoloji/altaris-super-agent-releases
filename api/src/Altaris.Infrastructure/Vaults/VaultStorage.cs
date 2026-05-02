@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using Altaris.Domain.Entities;
@@ -69,6 +70,22 @@ public class VaultStorage
         var p = SafeFilePath(tenantSlug, vaultSlug, relative);
         Directory.CreateDirectory(Path.GetDirectoryName(p)!);
         await File.WriteAllTextAsync(p, content, Encoding.UTF8, ct);
+    }
+
+    /// <summary>SHA-256 of the file's UTF-8 bytes (lowercase hex). Empty file → all zeros hash.</summary>
+    public string ComputeChecksum(string tenantSlug, string vaultSlug, string relative)
+    {
+        var p = SafeFilePath(tenantSlug, vaultSlug, relative);
+        if (!File.Exists(p)) return string.Empty;
+        using var fs = File.OpenRead(p);
+        var hash = SHA256.HashData(fs);
+        return Convert.ToHexString(hash).ToLowerInvariant();
+    }
+
+    public static string ComputeChecksum(string content)
+    {
+        var bytes = Encoding.UTF8.GetBytes(content);
+        return Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
     }
 
     public void Delete(string tenantSlug, string vaultSlug, string relative)

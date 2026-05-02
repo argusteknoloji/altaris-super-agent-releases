@@ -3,16 +3,25 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
+type Visibility = "private" | "tenant" | "executive";
+
 type Vault = {
   id: string;
   slug: string;
   name: string;
   status: string;
+  visibility: Visibility;
   fileCount: number;
   byteSize: number;
   createdAt: string;
   updatedAt: string;
   owner: { id: string; email: string };
+};
+
+const VIS_LABELS: Record<Visibility, { label: string; color: string; help: string }> = {
+  private:   { label: "Private",   color: "bg-neutral-700 text-neutral-200", help: "Yalnızca sahibi okur/yazar" },
+  tenant:    { label: "Tenant",    color: "bg-sky-600/30 text-sky-300",     help: "Tenant'taki tüm üyeler okur" },
+  executive: { label: "Executive", color: "bg-purple-600/30 text-purple-300", help: "Executive Brain Agent çapraz okur" },
 };
 
 function fmtBytes(n: number) {
@@ -60,6 +69,20 @@ export default function VaultsPage() {
     if (!confirm(`'${slug}' kasası ve tüm içeriği silinsin mi?`)) return;
     const r = await fetch(`/api/proxy/vaults/${slug}`, { method: "DELETE" });
     if (r.ok) load(); else setError(await r.text());
+  }
+
+  async function changeVisibility(slug: string, visibility: Visibility) {
+    const r = await fetch(`/api/proxy/vaults/${slug}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ visibility })
+    });
+    if (r.ok) {
+      // Optimistic + reload
+      setRows(prev => prev.map(v => v.slug === slug ? { ...v, visibility } : v));
+    } else {
+      setError(await r.text());
+    }
   }
 
   return (
@@ -125,6 +148,22 @@ export default function VaultsPage() {
             <p className="mt-1 text-xs text-neutral-600">
               güncellendi {new Date(v.updatedAt).toLocaleString("tr-TR")}
             </p>
+            <div className="mt-3 flex items-center gap-2">
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${VIS_LABELS[v.visibility].color}`}
+                    title={VIS_LABELS[v.visibility].help}>
+                {VIS_LABELS[v.visibility].label}
+              </span>
+              <select
+                value={v.visibility}
+                onChange={e => changeVisibility(v.slug, e.target.value as Visibility)}
+                className="rounded-md border border-neutral-800 bg-neutral-950 px-2 py-1 text-[10px] text-neutral-300 hover:border-orange-500/40"
+                title="Visibility değiştir (sahibi)"
+              >
+                <option value="private">private</option>
+                <option value="tenant">tenant</option>
+                <option value="executive">executive</option>
+              </select>
+            </div>
             <div className="mt-3 flex gap-2 text-xs">
               <Link href={`/vaults/${v.slug}`} className="rounded-md bg-orange-500 px-3 py-1 font-medium text-white hover:bg-orange-600">Aç →</Link>
               <Link href={`/vaults/${v.slug}/graph`} className="rounded-md border border-neutral-700 px-3 py-1 text-neutral-200 hover:bg-neutral-800">Graph</Link>

@@ -13,14 +13,15 @@
  * to run `altaris login`.
  */
 
-import { mkdir, readFile, writeFile, stat } from "node:fs/promises";
+import { mkdir, readFile, writeFile, stat, readdir } from "node:fs/promises";
 import { homedir, platform } from "node:os";
-import { join, dirname } from "node:path";
+import { join, dirname, relative as relPath, sep as PSEP } from "node:path";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import type { Command } from "commander";
 
 const CREDS_PATH = join(homedir(), ".altaris", "credentials.json");
-const API_BASE   = process.env.ALTARIS_API_BASE ?? "http://localhost:5000";
+const API_BASE   = process.env.ALTARIS_API_BASE ?? "http://localhost:5050";
 const LOCAL_ROOT = join(homedir(), ".altaris", "vaults");
 
 interface Creds { access_token: string; expires_at: number; }
@@ -82,15 +83,23 @@ async function cmdList(): Promise<number> {
   return 0;
 }
 
-async function cmdCreate(slug: string, opts: { name?: string }): Promise<number> {
+async function cmdCreate(slug: string, opts: { name?: string; sync?: boolean }): Promise<number> {
   const t = await getToken();
   if (!t) { process.stderr.write("Önce: altaris login\n"); return 1; }
   const name = (opts.name ?? slug).trim();
   try {
     const created = await api<VaultRow>(t, "POST", "/api/v1/vaults", { slug, name });
     process.stdout.write(`✓ kasa oluşturuldu: ${created.slug} · ${created.fileCount} dosya · ${fmtBytes(created.byteSize)}\n`);
-    process.stdout.write(`  Web: ${API_BASE.replace(/:5000$/, ":3000")}/vaults/${created.slug}\n`);
-    process.stdout.write(`  Lokal mirror: altaris vault sync ${created.slug}\n`);
+    process.stdout.write(`  Web: ${process.env.ALTARIS_WEB_BASE ?? "http://localhost:3000"}/vaults/${created.slug}\n`);
+
+    // Default: lokal mirror'ı da hemen kur. --no-sync ile devre dışı.
+    if (opts.sync !== false) {
+      await syncOne(t, created.slug);
+      process.stdout.write(`  Lokal: ${join(LOCAL_ROOT, created.slug)}\n`);
+      process.stdout.write(`  Aç:    altaris vault use ${created.slug}\n`);
+    } else {
+      process.stdout.write(`  Lokal mirror için: altaris vault sync ${created.slug}\n`);
+    }
     return 0;
   } catch (e) {
     process.stderr.write(`hata: ${(e as Error).message}\n`);
@@ -111,13 +120,11 @@ async function cmdDelete(slug: string): Promise<number> {
   }
 }
 
-async function cmdSync(slug: string): Promise<number> {
-  const t = await getToken();
-  if (!t) { process.stderr.write("Önce: altaris login\n"); return 1; }
+/** Tek bir vault'u indir; cmdCreate de bunu çağırıyor. */
+async function syncOne(token: string, slug: string): Promise<{ pulled: number; skipped: number }> {
   const localDir = join(LOCAL_ROOT, slug);
   await mkdir(localDir, { recursive: true });
-
-  const tree = await api<TreeEntry[]>(t, "GET", `/api/v1/vaults/${encodeURIComponent(slug)}/tree`);
+  const tree = await api<TreeEntry[]>(token, "GET", `/api/v1/vaults/${encodeURIComponent(slug)}/tree`);
   let pulled = 0; let skipped = 0;
   for (const f of tree) {
     const localPath = join(localDir, f.path);
@@ -128,18 +135,191 @@ async function cmdSync(slug: string): Promise<number> {
         needs = false;
       }
     } catch { /* missing */ }
-
     if (!needs) { skipped++; continue; }
-
     const fileResp = await api<{ path: string; content: string }>(
-      t, "GET",
+      token, "GET",
       `/api/v1/vaults/${encodeURIComponent(slug)}/file?path=${encodeURIComponent(f.path)}`
     );
     await mkdir(dirname(localPath), { recursive: true });
     await writeFile(localPath, fileResp.content, "utf8");
     pulled++;
   }
-  process.stdout.write(`✓ sync tamam · ${pulled} indirildi · ${skipped} aynı · ${localDir}\n`);
+  return { pulled, skipped };
+}
+
+/**
+ * `altaris vault sync [slug]` —
+ *   slug verilirse sadece o kasa, verilmezse kullanıcının erişebildiği
+ *   tüm kasalar tek seferde indirilir.
+ */
+async function cmdSync(slug?: string): Promise<number> {
+  const t = await getToken();
+  if (!t) { process.stderr.write("Önce: altaris login\n"); return 1; }
+
+  if (slug) {
+    const r = await syncOne(t, slug);
+    process.stdout.write(`✓ ${slug} · ${r.pulled} indirildi · ${r.skipped} aynı · ${join(LOCAL_ROOT, slug)}\n`);
+    return 0;
+  }
+
+  // Slug yok: tüm kasaları çek
+  const rows = await api<VaultRow[]>(t, "GET", "/api/v1/vaults");
+  if (rows.length === 0) {
+    process.stdout.write("Çekilecek kasa yok.\n");
+    return 0;
+  }
+  let totalPulled = 0; let totalSkipped = 0;
+  for (const v of rows) {
+    process.stderr.write(`▸ ${v.slug}…\n`);
+    try {
+      const r = await syncOne(t, v.slug);
+      totalPulled += r.pulled; totalSkipped += r.skipped;
+      process.stdout.write(`  ✓ ${v.slug} · ${r.pulled} indirildi · ${r.skipped} aynı\n`);
+    } catch (e) {
+      process.stderr.write(`  ✗ ${v.slug} · ${(e as Error).message}\n`);
+    }
+  }
+  process.stdout.write(`\n✓ ${rows.length} kasa · ${totalPulled} dosya indirildi · ${totalSkipped} aynı · kök ${LOCAL_ROOT}\n`);
+  return 0;
+}
+
+// ─── PUSH (lokal → server) — checksum + conflict detection ──────────────────
+
+interface ManifestEntry { path: string; bytes: number; modifiedUtc: string; sha256: string; }
+
+function sha256(text: string): string {
+  return createHash("sha256").update(text, "utf8").digest("hex");
+}
+
+/** Lokal vault dizinini gez, posix yollu rölatif dosya listesini döndür. */
+async function walkLocal(root: string): Promise<string[]> {
+  const out: string[] = [];
+  async function rec(dir: string) {
+    let entries;
+    try { entries = await readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const p = join(dir, e.name);
+      // .obsidian/ ve .git/ scaffold dosyaları lokalde tutulur ama push edilmez
+      if (e.name.startsWith(".") && e.name !== ".gitkeep") continue;
+      // .conflict-* dosyaları lokal-only conflict snapshot'ları, push etme
+      if (e.name.endsWith(".conflict.md") || e.name.includes(".conflict-")) continue;
+      if (e.isDirectory()) await rec(p);
+      else if (e.isFile()) out.push(relPath(root, p).split(PSEP).join("/"));
+    }
+  }
+  await rec(root);
+  return out;
+}
+
+interface PushResult { uploaded: number; unchanged: number; conflicts: string[]; deleted: number; }
+
+async function pushOne(token: string, slug: string, opts: { dryRun?: boolean; deleteRemote?: boolean }): Promise<PushResult> {
+  const localDir = join(LOCAL_ROOT, slug);
+  try { await stat(localDir); }
+  catch { throw new Error(`lokal mirror yok: ${localDir} (önce: altaris vault sync ${slug})`); }
+
+  const manifest = await api<ManifestEntry[]>(token, "GET", `/api/v1/vaults/${encodeURIComponent(slug)}/manifest`);
+  const remoteByPath = new Map(manifest.map(m => [m.path, m]));
+  const localPaths   = await walkLocal(localDir);
+
+  const result: PushResult = { uploaded: 0, unchanged: 0, conflicts: [], deleted: 0 };
+
+  for (const rel of localPaths) {
+    const localFull = join(localDir, rel);
+    const text = await readFile(localFull, "utf8");
+    const localHash = sha256(text);
+    const remote = remoteByPath.get(rel);
+
+    if (remote && remote.sha256 === localHash) { result.unchanged++; continue; }
+
+    if (opts.dryRun) {
+      process.stdout.write(`  [dry] ${remote ? "↑" : "+"} ${rel}\n`);
+      result.uploaded++;
+      continue;
+    }
+
+    // PUT with parentChecksum so server can flag conflicts.
+    try {
+      await api(token, "PUT", `/api/v1/vaults/${encodeURIComponent(slug)}/file`, {
+        path: rel,
+        content: text,
+        parentChecksum: remote?.sha256 ?? ""
+      });
+      result.uploaded++;
+    } catch (e) {
+      const msg = (e as Error).message;
+      // 409 Conflict — server has a newer version. Save server snapshot as
+      // .conflict.md sidecar so the user can merge by hand without losing work.
+      if (msg.includes("HTTP 409")) {
+        try {
+          const serverFresh = await api<{ path: string; content: string }>(
+            token, "GET",
+            `/api/v1/vaults/${encodeURIComponent(slug)}/file?path=${encodeURIComponent(rel)}`
+          );
+          const sidecar = localFull.replace(/\.md$/, "") + `.conflict-${Date.now()}.md`;
+          await writeFile(sidecar, serverFresh.content, "utf8");
+          process.stderr.write(`  ⚠ conflict ${rel} — server kopyası: ${sidecar}\n`);
+          result.conflicts.push(rel);
+        } catch (inner) {
+          process.stderr.write(`  ⚠ conflict ${rel} — snapshot alınamadı: ${(inner as Error).message}\n`);
+          result.conflicts.push(rel);
+        }
+      } else {
+        process.stderr.write(`  ✗ ${rel}: ${msg}\n`);
+      }
+    }
+  }
+
+  // Optional: server'da olup lokalde olmayan dosyaları sil (push --delete)
+  if (opts.deleteRemote) {
+    const localSet = new Set(localPaths);
+    for (const r of manifest) {
+      if (localSet.has(r.path)) continue;
+      if (opts.dryRun) {
+        process.stdout.write(`  [dry] − ${r.path}\n`);
+        result.deleted++;
+        continue;
+      }
+      try {
+        await api(token, "DELETE", `/api/v1/vaults/${encodeURIComponent(slug)}/file?path=${encodeURIComponent(r.path)}`);
+        result.deleted++;
+      } catch (e) {
+        process.stderr.write(`  ✗ delete ${r.path}: ${(e as Error).message}\n`);
+      }
+    }
+  }
+
+  return result;
+}
+
+async function cmdPush(slug: string | undefined, opts: { dryRun?: boolean; delete?: boolean }): Promise<number> {
+  const t = await getToken();
+  if (!t) { process.stderr.write("Önce: altaris login\n"); return 1; }
+
+  const slugs = slug
+    ? [slug]
+    : (await api<VaultRow[]>(t, "GET", "/api/v1/vaults")).map(v => v.slug);
+
+  if (slugs.length === 0) { process.stdout.write("Push edilecek kasa yok.\n"); return 0; }
+
+  let totalUp = 0, totalSame = 0, totalConflict = 0, totalDel = 0;
+  for (const s of slugs) {
+    process.stderr.write(`▸ push ${s}…\n`);
+    try {
+      const r = await pushOne(t, s, { dryRun: opts.dryRun, deleteRemote: opts.delete });
+      totalUp += r.uploaded; totalSame += r.unchanged;
+      totalConflict += r.conflicts.length; totalDel += r.deleted;
+      const sumLine = `  ✓ ${s} · ${r.uploaded} ↑ · ${r.unchanged} = · ${r.deleted} − · ${r.conflicts.length} ⚠`;
+      process.stdout.write(`${sumLine}${opts.dryRun ? "  (dry-run)" : ""}\n`);
+    } catch (e) {
+      process.stderr.write(`  ✗ ${s}: ${(e as Error).message}\n`);
+    }
+  }
+  process.stdout.write(`\n${slugs.length} kasa · ${totalUp} push · ${totalSame} aynı · ${totalDel} sil · ${totalConflict} conflict\n`);
+  if (totalConflict > 0) {
+    process.stdout.write(`\n⚠ Conflict'ler için: ilgili klasörde *.conflict-*.md dosyalarını manuel merge edip tekrar push.\n`);
+    return 3;
+  }
   return 0;
 }
 
@@ -156,6 +336,59 @@ async function cmdOpen(slug: string): Promise<number> {
   return 0;
 }
 
+/**
+ * `altaris vault use <slug>` — vault'u "aç" akışı:
+ *   1. Server'dan lokale sync (yeni dosyalar inerse alır)
+ *   2. cwd'yi vault dizinine kaydır
+ *   3. Yeni bir `altaris` interactive child spawn et (stdio inherit)
+ *   4. Child exit edince parent kapanır
+ *
+ * --remote-control geçirilirse child'a forward edilir → otomatik yayına alır.
+ */
+async function cmdUse(slug: string, opts: { remoteControl?: boolean; sync?: boolean }): Promise<number> {
+  const wantSync = opts.sync !== false;   // default true
+  if (wantSync) {
+    process.stderr.write(`▸ sync ${slug}…\n`);
+    const code = await cmdSync(slug);
+    if (code !== 0) return code;
+  }
+
+  const localDir = join(LOCAL_ROOT, slug);
+  try { await stat(localDir); }
+  catch {
+    process.stderr.write(`Lokal mirror açılamadı: ${localDir}\n`);
+    return 1;
+  }
+
+  // process.argv[1] genelde altaris binary'sinin gerçek path'i
+  // (~/.local/bin/altaris symlink veya /path/to/cli/bin/altaris).
+  const altarisBin = process.argv[1];
+
+  const childArgs: string[] = [];
+  if (opts.remoteControl) childArgs.push("--remote-control");
+
+  process.stderr.write(`▸ vault: ${slug} · ${localDir}\n`);
+  process.stderr.write(`▸ exec: ${altarisBin} ${childArgs.join(" ")}\n`);
+
+  const child = spawn(altarisBin, childArgs, {
+    cwd: localDir,
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      ALTARIS_VAULT: slug,
+      ALTARIS_VAULT_DIR: localDir
+    }
+  });
+
+  return await new Promise<number>(resolve => {
+    child.on("exit", code => resolve(code ?? 0));
+    child.on("error", err => {
+      process.stderr.write(`spawn error: ${err.message}\n`);
+      resolve(1);
+    });
+  });
+}
+
 // ─── Commander wiring ────────────────────────────────────────────────────────
 
 export function registerVaultCommands(program: Command): void {
@@ -164,13 +397,31 @@ export function registerVaultCommands(program: Command): void {
   vault.command("list").description("Kasaları listele").action(async () => process.exit(await cmdList()));
 
   vault.command("create <slug>")
-    .description("Yeni kasa oluştur (sunucu tarafında scaffold + DB)")
+    .description("Yeni kasa oluştur (server scaffold + DB + lokal mirror)")
     .option("-n, --name <name>", "Görünür ad (varsayılan slug)")
-    .action(async (slug: string, opts: { name?: string }) => process.exit(await cmdCreate(slug, opts)));
+    .option("--no-sync", "Sadece sunucuda yarat, lokale mirror'lama")
+    .action(async (slug: string, opts: { name?: string; sync?: boolean }) =>
+      process.exit(await cmdCreate(slug, opts)));
 
   vault.command("delete <slug>").description("Kasayı sil (sahibi)").action(async (slug: string) => process.exit(await cmdDelete(slug)));
 
-  vault.command("sync <slug>").description("Sunucudan ~/.altaris/vaults/<slug>/'a indir").action(async (slug: string) => process.exit(await cmdSync(slug)));
+  vault.command("sync [slug]")
+    .description("Sunucudan lokale indir. Slug yoksa tüm kasalarımı çek.")
+    .action(async (slug?: string) => process.exit(await cmdSync(slug)));
+
+  vault.command("push [slug]")
+    .description("Lokal değişiklikleri server'a yolla. Slug yoksa tüm kasalarımı push et. Conflict'lerde server kopyası .conflict-*.md olarak yazılır.")
+    .option("--dry-run", "Sadece neyin push edileceğini göster, gerçek upload yapma")
+    .option("--delete", "Lokalde olmayan dosyaları server'dan da sil (tehlikeli)")
+    .action(async (slug: string | undefined, opts: { dryRun?: boolean; delete?: boolean }) =>
+      process.exit(await cmdPush(slug, opts)));
 
   vault.command("open <slug>").description("Lokal mirror'ı dosya gezgininde aç").action(async (slug: string) => process.exit(await cmdOpen(slug)));
+
+  vault.command("use <slug>")
+    .description("Vault'u sync et + o dizinde yeni bir altaris interactive aç (kasayla çalışmak için)")
+    .option("--remote-control", "Açılan oturumu Argus Remote Control ile yayına al")
+    .option("--no-sync", "Önce sync atlamak için (offline/hızlı)")
+    .action(async (slug: string, opts: { remoteControl?: boolean; sync?: boolean }) =>
+      process.exit(await cmdUse(slug, opts)));
 }
