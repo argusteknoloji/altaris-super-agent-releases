@@ -33,6 +33,8 @@ public class AltarisDbContext : DbContext
             e.Property(x => x.Name).HasColumnName("name");
             e.Property(x => x.Status).HasColumnName("status");
             e.Property(x => x.KeycloakRealm).HasColumnName("keycloak_realm");
+            e.Property(x => x.RequireTotp).HasColumnName("require_totp").HasDefaultValue(false);
+            e.Property(x => x.AuditRetentionDays).HasColumnName("audit_retention_days");
             e.Property(x => x.CreatedAt).HasColumnName("created_at");
             e.Property(x => x.UpdatedAt).HasColumnName("updated_at");
             e.HasIndex(x => x.Slug).IsUnique();

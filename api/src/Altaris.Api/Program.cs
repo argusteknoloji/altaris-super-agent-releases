@@ -102,6 +102,8 @@ try
     // Connector framework (Sprint EB-2) — external data sources → vault
     builder.Services.AddScoped<Altaris.Api.Services.ConnectorSyncService>();
     builder.Services.AddHostedService<Altaris.Api.Services.ConnectorPeriodicWorker>();
+    // Sprint #68 — tenant.audit_retention_days'e göre eski audit_events satırlarını siler (KVKK/GDPR)
+    builder.Services.AddHostedService<Altaris.Api.Services.AuditRetentionWorker>();
 
     // ── Health checks (liveness vs readiness) ──────────────────────────────
     builder.Services.AddHealthChecks()

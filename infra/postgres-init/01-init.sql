@@ -12,14 +12,21 @@ CREATE EXTENSION IF NOT EXISTS "vector";
 
 -- Tenant registry (no RLS — system table)
 CREATE TABLE IF NOT EXISTS tenants (
-    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    slug            TEXT NOT NULL UNIQUE,
-    name            TEXT NOT NULL,
-    status          TEXT NOT NULL DEFAULT 'active',
-    keycloak_realm  TEXT NOT NULL,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    id                     UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    slug                   TEXT NOT NULL UNIQUE,
+    name                   TEXT NOT NULL,
+    status                 TEXT NOT NULL DEFAULT 'active',
+    keycloak_realm         TEXT NOT NULL,
+    -- Sprint #68: tenant-wide TOTP enforcement (admin toggleable)
+    require_totp           BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Sprint #68: KVKK/GDPR audit log retention (gün); NULL = sonsuz
+    audit_retention_days   INT,
+    created_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at             TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Idempotent migration for already-initialized DBs:
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS require_totp         BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS audit_retention_days INT;
 
 -- Users mapped to Keycloak subjects
 CREATE TABLE IF NOT EXISTS users (

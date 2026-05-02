@@ -29,6 +29,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <Item href="/admin/providers"    label="Provider config" />
           <Item href="/admin/data-sources" label="🔌 Connector'lar" />
           <Item href="/admin/audit"        label="Denetim kaydı" />
+          <Item href="/admin/tenant-settings" label="🔐 Tenant ayarları" />
           {platformAdmin && <Item href="/admin/tenants" label="Tenant'lar (platform)" />}
         </nav>
         <div className="mt-8 border-t border-neutral-900 pt-4">

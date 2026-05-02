@@ -67,7 +67,60 @@ public static class AdminEndpoints
         grp.MapPost("/providers", UpsertProvider);
         grp.MapDelete("/providers/{id:guid}", DeleteProvider);
 
+        // ===== TENANT SETTINGS (require_totp, audit retention) =====
+        grp.MapGet ("/tenant-settings",                GetTenantSettings);
+        grp.MapPatch("/tenant-settings",               UpdateTenantSettings);
+        grp.MapPost("/tenant-settings/apply-totp-all", ApplyTotpToAllUsers);
+
         return app;
+    }
+
+    // ---- TENANT SETTINGS ----
+    public record TenantSettingsDto(bool RequireTotp, int? AuditRetentionDays);
+    public record TenantSettingsUpdate(bool? RequireTotp, int? AuditRetentionDays);
+
+    private static async Task<IResult> GetTenantSettings(AltarisDbContext db, ITenantContext tc)
+    {
+        if (tc.TenantId is null) return Results.Forbid();
+        var t = await db.Tenants.AsNoTracking()
+            .Where(x => x.Id == tc.TenantId)
+            .Select(x => new TenantSettingsDto(x.RequireTotp, x.AuditRetentionDays))
+            .FirstOrDefaultAsync();
+        return t is null ? Results.NotFound() : Results.Ok(t);
+    }
+
+    private static async Task<IResult> UpdateTenantSettings(TenantSettingsUpdate req, AltarisDbContext db, ITenantContext tc)
+    {
+        if (tc.TenantId is null) return Results.Forbid();
+        var t = await db.Tenants.FirstOrDefaultAsync(x => x.Id == tc.TenantId);
+        if (t is null) return Results.NotFound();
+        if (req.RequireTotp is not null)         t.RequireTotp = req.RequireTotp.Value;
+        // 0 = "sonsuz tut" (NULL'a normalize); negatif kabul edilmez.
+        if (req.AuditRetentionDays is not null)  t.AuditRetentionDays = req.AuditRetentionDays.Value <= 0 ? null : req.AuditRetentionDays.Value;
+        t.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync();
+        return Results.Ok(new TenantSettingsDto(t.RequireTotp, t.AuditRetentionDays));
+    }
+
+    /// <summary>
+    ///   require_totp aktif edildiğinde mevcut kullanıcılara da uygulamak için —
+    ///   her tenant user'ına CONFIGURE_TOTP required-action push'lar. Kullanıcılar
+    ///   bir sonraki login'de TOTP kurmaya yönlendirilir.
+    /// </summary>
+    private static async Task<IResult> ApplyTotpToAllUsers(AltarisDbContext db, ITenantContext tc, KeycloakAdminClient kc)
+    {
+        if (tc.TenantId is null) return Results.Forbid();
+        var subs = await db.Users.AsNoTracking()
+            .Where(u => u.TenantId == tc.TenantId)
+            .Select(u => u.KeycloakSub)
+            .ToListAsync();
+        int ok = 0, fail = 0;
+        foreach (var s in subs)
+        {
+            try { await kc.RequireTotpAsync(s); ok++; }
+            catch { fail++; }
+        }
+        return Results.Ok(new { applied = ok, failed = fail, total = subs.Count });
     }
 
     // ---- USERS ----
@@ -126,6 +179,18 @@ public static class AdminEndpoints
         };
         db.Users.Add(user);
         await db.SaveChangesAsync();
+
+        // Tenant'ta require_totp aktifse yeni kullanıcıya CONFIGURE_TOTP push'la —
+        // bir sonraki login'de TOTP setup wizard'ına yönlenecek.
+        var tenantRequiresTotp = await db.Tenants.AsNoTracking()
+            .Where(x => x.Id == effectiveTenantId)
+            .Select(x => x.RequireTotp)
+            .FirstOrDefaultAsync();
+        if (tenantRequiresTotp)
+        {
+            try { await kc.RequireTotpAsync(kcId); } catch { /* best-effort, audit görür */ }
+        }
+
         return Results.Created($"/api/v1/admin/users/{user.Id}", new { user.Id, user.Email, keycloakSub = kcId, tenantId = effectiveTenantId });
     }
 
