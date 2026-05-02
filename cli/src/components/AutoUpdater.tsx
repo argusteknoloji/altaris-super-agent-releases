@@ -188,10 +188,7 @@ export function AutoUpdater({
             ✓ Update installed · Restart to apply
           </Text>}
       {(autoUpdaterResult?.status === 'install_failed' || autoUpdaterResult?.status === 'no_permissions') && <Text color="error" wrap="truncate">
-          ✗ Auto-update failed &middot; Try <Text bold>altaris doctor</Text> or{' '}
-          <Text bold>
-            {hasLocalInstall ? `cd ~/.altaris/local && npm update ${MACRO.PACKAGE_URL}` : `npm i -g ${MACRO.PACKAGE_URL}`}
-          </Text>
+          ✗ Auto-update failed &middot; Run <Text bold>altaris update</Text> for GitHub Releases-based update
         </Text>}
     </Box>;
 }

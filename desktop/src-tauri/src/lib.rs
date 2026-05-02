@@ -38,6 +38,7 @@ pub fn run() {
         // Auto-updater: tauri.conf.json'daki endpoint'ten latest.json çeker
         // ve UI'a "Yeni sürüm var" dialog'u gösterir.
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             auth::whoami,

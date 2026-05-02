@@ -6,6 +6,7 @@ import {
   type InstallStatus,
   installGlobalPackage,
 } from 'src/utils/autoUpdater.js'
+import { performGithubUpdate } from 'src/utils/githubReleaseUpdater.js'
 import { regenerateCompletionCache } from 'src/utils/completionCache.js'
 import {
   getGlobalConfig,
@@ -29,23 +30,9 @@ import { gte } from 'src/utils/semver.js'
 import { getInitialSettings } from 'src/utils/settings/settings.js'
 
 export async function update() {
-  // Block updates for third-party providers. The update mechanism downloads
-  // from the first-party distribution bucket, which would silently replace the
-  // Altaris build (with the OpenAI shim) with the upstream Altaris
-  // binary (without it).
-  if (getAPIProvider() !== 'firstParty') {
-    writeToStdout(
-      chalk.yellow(
-        `Auto-update is not available for third-party provider builds.\n`,
-      ) +
-        `Current version: ${MACRO.DISPLAY_VERSION}\n\n` +
-        `To update, reinstall from npm:\n` +
-        chalk.bold(`  npm install -g ${MACRO.PACKAGE_URL}@latest`) + '\n\n' +
-        `Or, if you built from source, pull and rebuild:\n` +
-        chalk.bold('  git pull && bun install && bun run build') + '\n',
-    )
-    await gracefulShutdown(0)
-  }
+  // Altaris CLI GitHub Releases (argusteknoloji/altaris-super-agent-releases)
+  // üzerinden Bun-compiled standalone binary olarak dağıtılır. npm registry
+  // veya 3rd-party provider kontrolü yapmıyoruz — single distribution channel.
 
   logEvent('tengu_update_check', {})
   writeToStdout(`Current version: ${MACRO.DISPLAY_VERSION}\n`)
@@ -124,18 +111,64 @@ export async function update() {
     writeToStdout(`Installation method set to: ${detectedMethod}\n`)
   }
 
-  // Check if running from development build
+  // Development build (örneğin `bun run dev` ile çalışıyorsa) — bu durumda
+  // process.execPath bun interpreter'ını gösterir, kendisini değiştiremeyiz.
   if (diagnostic.installationType === 'development') {
     writeToStdout('\n')
     writeToStdout(
-      chalk.yellow('You are running a development build — auto-update is unavailable.') + '\n',
+      chalk.yellow('Development build — kaynaktan çalıştırılıyor.') + '\n',
     )
-    writeToStdout('To update, pull the latest source and rebuild:\n')
+    writeToStdout('Geliştirici güncellemesi için:\n')
     writeToStdout(chalk.bold('  git pull && bun install && bun run build') + '\n')
     writeToStdout('\n')
-    writeToStdout('Or reinstall from npm:\n')
-    writeToStdout(chalk.bold(`  npm install -g ${MACRO.PACKAGE_URL}@latest`) + '\n')
+    writeToStdout('Production binary kurmak için:\n')
+    writeToStdout(chalk.bold(
+      '  curl -L https://github.com/argusteknoloji/altaris-super-agent-releases/releases/latest/download/altaris-' +
+      (process.platform === 'darwin' ? 'darwin' : process.platform === 'win32' ? 'windows' : 'linux') +
+      '-' + (process.arch === 'arm64' ? 'arm64' : 'x64') +
+      (process.platform === 'win32' ? '.exe' : '') +
+      ' -o /usr/local/bin/altaris && chmod +x /usr/local/bin/altaris',
+    ) + '\n')
     await gracefulShutdown(0)
+  }
+
+  // Standalone Bun-compiled binary (production install) — GitHub Releases'tan
+  // self-update yap. installationType genelde 'unknown' veya 'native' olur
+  // çünkü diagnostic npm/homebrew/winget tabanlı düşünüyor.
+  if (diagnostic.installationType === 'unknown' ||
+      diagnostic.installationType === 'native' ||
+      diagnostic.installationType === 'npm-global' ||
+      diagnostic.installationType === 'npm-local') {
+    writeToStdout('\n')
+    writeToStdout('GitHub Releases üzerinden güncelleniyor…\n')
+    const result = await performGithubUpdate(MACRO.DISPLAY_VERSION)
+    switch (result.kind) {
+      case 'up_to_date':
+        writeToStdout(chalk.green(`Altaris zaten güncel (${result.version})`) + '\n')
+        await gracefulShutdown(0)
+        break
+      case 'updated':
+        writeToStdout(chalk.green(
+          `Altaris güncellendi: ${result.from} → ${result.to}`,
+        ) + '\n')
+        writeToStdout(chalk.dim(`Binary: ${result.binaryPath}`) + '\n')
+        writeToStdout(chalk.bold("Yeniden başlatmak için terminal'i kapatıp aç veya `altaris` komutunu yeniden çağır.") + '\n')
+        await regenerateCompletionCache().catch(() => {})
+        await gracefulShutdown(0)
+        break
+      case 'no_asset':
+        writeToStdout(chalk.yellow(
+          `Release ${result.tag} bulundu ama platforma uygun asset yok (${result.expected}).`,
+        ) + '\n')
+        writeToStdout('https://github.com/argusteknoloji/altaris-super-agent-releases/releases adresinden manuel indir.\n')
+        await gracefulShutdown(1)
+        break
+      case 'error':
+        writeToStdout(chalk.red(`Güncelleme hatası: ${result.message}`) + '\n')
+        writeToStdout('Manuel indirme: https://github.com/argusteknoloji/altaris-super-agent-releases/releases/latest\n')
+        await gracefulShutdown(1)
+        break
+    }
   }
 
   // Check if running from a package manager

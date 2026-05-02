@@ -65,6 +65,32 @@ export default function App() {
     return () => unlistens.forEach(u => u());
   }, []);
 
+  // Tauri auto-updater: app açıldığında tek seferlik check, yeni sürüm varsa
+  // dialog → kabul ederse indir + yeniden başlat. tauri.conf.json'daki updater
+  // endpoint'i (releases/latest/download/latest.json) Tauri tarafından çekilir,
+  // imza TAURI_UPDATER_PRIVATE_KEY ile production'da doğrulanır.
+  useEffect(() => {
+    (async () => {
+      try {
+        const { check } = await import("@tauri-apps/plugin-updater");
+        const update = await check();
+        if (!update) return;
+        const ok = window.confirm(
+          `Yeni Altaris sürümü mevcut: ${update.version}\n\n` +
+          `Yüklemek ve uygulamayı yeniden başlatmak ister misin?`
+        );
+        if (!ok) return;
+        pushToast("info", `İndiriliyor: ${update.version}…`);
+        await update.downloadAndInstall();
+        const { relaunch } = await import("@tauri-apps/plugin-process");
+        await relaunch();
+      } catch (e) {
+        // Sessizce skip — endpoint down, network yok, vb. Console'a logla.
+        console.debug("[updater] check failed:", e);
+      }
+    })();
+  }, []);
+
   const has = (cap: string) => me?.capabilities?.includes(cap) ?? true;   // bilinmiyorsa göster (defensive)
 
   return (
