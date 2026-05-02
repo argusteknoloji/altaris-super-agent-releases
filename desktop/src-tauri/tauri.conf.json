@@ -50,7 +50,7 @@
       "exceptionDomain": "localhost"
     },
     "windows": {
-      "wix": { "language": ["en-US", "tr-TR"] }
+      "nsis": { "languages": ["English", "Turkish"] }
     }
   },
   "plugins": {
