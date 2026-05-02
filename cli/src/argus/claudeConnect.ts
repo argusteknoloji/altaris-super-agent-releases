@@ -90,7 +90,7 @@ export async function altarisProviderConnectClaude(opts: ConnectOptions = {}): P
     email:            email ?? null,
     expiresAt:        tokens.expiresAt ? Math.floor(tokens.expiresAt / 1000) : null,
     name:             opts.name,
-    model:            opts.model ?? "claude-sonnet-4-7",
+    model:            opts.model ?? "claude-opus-4-7",
     makeDefault:      opts.default ?? false,
   };
 

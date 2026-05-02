@@ -81,7 +81,7 @@ export function registerArgusCommands(program: Command): void {
     .description("OAuth-tabanlı sağlayıcı bağla (codex, claude)")
     .argument("<kind>", "Bağlanacak sağlayıcı türü: codex | claude")
     .option("--name <ad>", "Tenant'ta görünecek ad (örn: 'Codex · ekip')")
-    .option("--model <model>", "Varsayılan model (codex: codexplan|codexspark · claude: claude-sonnet-4-7|claude-opus-4-7)")
+    .option("--model <model>", "Varsayılan model (codex: codexplan|codexspark · claude: claude-opus-4-7|claude-sonnet-4-6|claude-haiku-4-5)")
     .option("--default", "Bu profili tenant'ta default yap")
     .action(async (kind: string, opts: { name?: string; model?: string; default?: boolean }) => {
       const k = kind.toLowerCase();

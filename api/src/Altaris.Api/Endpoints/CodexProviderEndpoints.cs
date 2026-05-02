@@ -89,7 +89,7 @@ public static class CodexProviderEndpoints
         existing.AccountId            = req.AccountUuid;
         existing.AccessTokenExpiresAt = expiresAt;
         existing.LastRefreshedAt      = DateTimeOffset.UtcNow;
-        existing.DefaultModel         = req.Model ?? existing.DefaultModel ?? "claude-sonnet-4-7";
+        existing.DefaultModel         = req.Model ?? existing.DefaultModel ?? "claude-opus-4-7";
         existing.UpdatedAt            = DateTimeOffset.UtcNow;
 
         if (req.MakeDefault)
