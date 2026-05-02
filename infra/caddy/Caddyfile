@@ -1,6 +1,7 @@
-# Altaris Caddy reverse proxy
-# Auto-TLS via Let's Encrypt; for air-gapped deploys replace `tls` directives
-# with self-signed bundle paths.
+# Altaris Caddy reverse proxy — production
+# Auto-TLS via Let's Encrypt; her host için cert otomatik provision edilir.
+# Multi-domain: WEB_HOSTNAMES vb. boşlukla ayrılmış olabilir
+# (örn. "altarisplatform.com altaris.run") — Caddy native space-separated host matching.
 
 {
     email {$LETSENCRYPT_EMAIL}
@@ -9,8 +10,8 @@
     }
 }
 
-# ── Web portal ───────────────────────────────────────────────────────────────
-{$WEB_HOSTNAME} {
+# ── Web portal (Next.js) ────────────────────────────────────────────────────
+{$WEB_HOSTNAMES} {
     encode zstd gzip
     reverse_proxy web:3000 {
         header_up Host {host}
@@ -28,7 +29,7 @@
 }
 
 # ── Keycloak (SSO endpoint) ─────────────────────────────────────────────────
-{$KC_HOSTNAME} {
+{$KC_HOSTNAMES} {
     encode zstd gzip
     reverse_proxy keycloak:8080 {
         header_up Host {host}
@@ -42,18 +43,15 @@
     }
 }
 
-# ── API (optional public exposure for CLI / Desktop / native apps) ──────────
-# Expose API publicly only when CLI / Desktop need to reach it from outside
-# the web portal. Internal-only deploys can leave API_HOSTNAME unset and
-# route everything through the web origin.
-{$API_HOSTNAME:api.localhost} {
+# ── API (CLI / Desktop / external integrations için public) ─────────────────
+{$API_HOSTNAMES} {
     encode zstd gzip
     reverse_proxy api:5000 {
         header_up Host {host}
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
-        # WebSocket support for /ws/pty endpoints
+        # WebSocket / SSE: /ws/pty, /ws/remote-control, executive-brain stream
         flush_interval -1
     }
     header {

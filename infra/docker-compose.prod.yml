@@ -7,7 +7,8 @@
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector image: RAG embedding store gerektiriyor (CREATE EXTENSION vector)
+    image: pgvector/pgvector:pg16
     container_name: altaris-postgres
     restart: unless-stopped
     environment:
@@ -46,13 +47,17 @@ services:
     image: quay.io/keycloak/keycloak:26.0
     container_name: altaris-keycloak
     restart: unless-stopped
-    command: ["start", "--optimized", "--import-realm"]
+    # --optimized flag'i ön-build edilmiş image gerektiriyor; vanilla image'da
+    # `start` ilk çalışmada kendi optimization'ını yapar.
+    command: ["start", "--import-realm"]
     environment:
       KC_DB:           postgres
       KC_DB_URL:       jdbc:postgresql://keycloak-db:5432/${KC_DB_NAME}
       KC_DB_USERNAME:  ${KC_DB_USER}
       KC_DB_PASSWORD:  ${KC_DB_PASSWORD}
-      KC_HOSTNAME:     ${KC_HOSTNAME:?required}
+      # Keycloak iç olarak tek bir hostname tanır (cookies / token issuer için).
+      # Multi-host Caddy seviyesinde — primary hostname Keycloak'a verilir.
+      KC_HOSTNAME:     ${PRIMARY_KC_HOSTNAME:?required}
       KC_HOSTNAME_STRICT_BACKCHANNEL: "true"
       KC_PROXY_HEADERS: xforwarded
       KC_HTTP_ENABLED: "true"
@@ -91,12 +96,14 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};Pooling=true;Maximum Pool Size=64"
       ConnectionStrings__Redis:    "redis:6379,password=${REDIS_PASSWORD}"
-      Keycloak__Authority:         "https://${KC_HOSTNAME}/realms/${KC_REALM:-altaris}"
-      Keycloak__AdminBase:         "https://${KC_HOSTNAME}/admin"
+      Keycloak__Authority:         "https://${PRIMARY_KC_HOSTNAME}/realms/${KC_REALM:-altaris}"
+      Keycloak__AdminBase:         "https://${PRIMARY_KC_HOSTNAME}/admin"
       Keycloak__Realm:             "${KC_REALM:-altaris}"
       Keycloak__AdminClientId:     "altaris-admin-svc"
       Keycloak__AdminClientSecret: "${KC_ADMIN_SVC_SECRET:?required}"
-      Cors__AllowedOrigins__0:     "https://${WEB_HOSTNAME:?required}"
+      # Multi-host CORS — her web hostname için ayrı origin.
+      Cors__AllowedOrigins__0:     "https://${PRIMARY_WEB_HOSTNAME:?required}"
+      Cors__AllowedOrigins__1:     "https://${WEB_HOSTNAME_2:-altaris.run}"
     depends_on:
       postgres:    { condition: service_healthy }
       keycloak-db: { condition: service_healthy }
@@ -121,10 +128,10 @@ services:
       AUTH_SECRET:          ${WEB_AUTH_SECRET:?required}
       AUTH_KEYCLOAK_ID:     altaris-web
       AUTH_KEYCLOAK_SECRET: ${WEB_KEYCLOAK_SECRET:-}
-      AUTH_KEYCLOAK_ISSUER: "https://${KC_HOSTNAME}/realms/${KC_REALM:-altaris}"
+      AUTH_KEYCLOAK_ISSUER: "https://${PRIMARY_KC_HOSTNAME}/realms/${KC_REALM:-altaris}"
       ALTARIS_API_BASE:     "http://api:5000"
       AUTH_TRUST_HOST:      "true"
-      NEXTAUTH_URL:         "https://${WEB_HOSTNAME}"
+      NEXTAUTH_URL:         "https://${PRIMARY_WEB_HOSTNAME}"
     depends_on:
       api: { condition: service_healthy }
     networks: [internal]
@@ -138,10 +145,12 @@ services:
       - "443:443"
       - "443:443/udp"
     environment:
-      WEB_HOSTNAME:       ${WEB_HOSTNAME}
-      KC_HOSTNAME:        ${KC_HOSTNAME}
-      API_HOSTNAME:       ${API_HOSTNAME:-}
-      LETSENCRYPT_EMAIL:  ${LETSENCRYPT_EMAIL:-internal@argusteknoloji.com}
+      # Multi-host: boşlukla ayrılmış FQDN listesi (Caddy native syntax)
+      # Örn: "altarisplatform.com altaris.run"
+      WEB_HOSTNAMES:      ${WEB_HOSTNAMES:?required}
+      KC_HOSTNAMES:       ${KC_HOSTNAMES:?required}
+      API_HOSTNAMES:      ${API_HOSTNAMES:?required}
+      LETSENCRYPT_EMAIL:  ${LETSENCRYPT_EMAIL:-innovahub@argusteknoloji.com.tr}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
