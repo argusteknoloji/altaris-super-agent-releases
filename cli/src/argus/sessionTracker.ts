@@ -46,6 +46,13 @@ export async function initSessionTracker(opts?: { source?: string }): Promise<st
       _token = token;
 
       const { provider, model } = detectProviderModel();
+      // Title kullanıcıya gösteriliyor → toISOString UTC veriyordu (3 saat
+      // geri), Europe/Istanbul'da format'la (Türkiye merkezli platform).
+      const titleStamp = new Date().toLocaleString("tr-TR", {
+        timeZone: "Europe/Istanbul",
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit",
+      });
       const res = await fetch(`${getApiBase()}/api/v1/agent/sessions`, {
         method: "POST",
         headers: {
@@ -55,7 +62,7 @@ export async function initSessionTracker(opts?: { source?: string }): Promise<st
         body: JSON.stringify({
           provider,
           model,
-          title: `altaris ${new Date().toISOString().slice(0, 16).replace("T", " ")}`,
+          title: `altaris ${titleStamp}`,
           source: opts?.source ?? "cli",
         }),
       });
