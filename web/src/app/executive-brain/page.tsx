@@ -178,8 +178,10 @@ export default function ExecutiveBrainPage() {
             <button onClick={newThread} className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-900" title="Yeni konuşma">
               + Yeni
             </button>
-            <Link href="/executive-brain/agents" className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-900">Ajanlar</Link>
-            <Link href="/executive-brain/jobs" className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-900">Jobs</Link>
+            <Link href="/executive-brain/simulate" className="rounded-md border border-purple-500/30 px-3 py-1.5 text-xs text-purple-300 hover:bg-purple-500/10">🔮 Simülatör</Link>
+            <Link href="/executive-brain/briefs"   className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-900">📰 Brief</Link>
+            <Link href="/executive-brain/agents"   className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-900">Ajanlar</Link>
+            <Link href="/executive-brain/jobs"     className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-900">Jobs</Link>
           </div>
         </div>
       </header>

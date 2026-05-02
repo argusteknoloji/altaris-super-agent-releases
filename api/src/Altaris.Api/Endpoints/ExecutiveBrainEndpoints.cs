@@ -49,6 +49,10 @@ public static class ExecutiveBrainEndpoints
         app.MapGet   ("/api/v1/executive-brain/templates",                              ListTemplates).RequireAuthorization();
         app.MapPost  ("/api/v1/executive-brain/agents/from-template/{templateSlug}",    CreateFromTemplate).RequireAuthorization();
 
+        // What-if simulasyonları (Sprint EB-6) — yapılandırılmış scenario → job
+        app.MapGet   ("/api/v1/executive-brain/simulations/scenarios",  ListScenarios).RequireAuthorization();
+        app.MapPost  ("/api/v1/executive-brain/simulations",            RunSimulation).RequireAuthorization();
+
         return app;
     }
 
@@ -311,6 +315,134 @@ public static class ExecutiveBrainEndpoints
 
         return Results.Accepted($"/api/v1/executive-brain/jobs/{job.Id}",
             new { id = job.Id, status = job.Status, threadId = job.ThreadId });
+    }
+
+    // ═════════════════════════ WHAT-IF SIMULATIONS ══════════════════════════
+    // Stratejik soruları (cash-flow, sözleşme yenileme, müşteri kaybı) yapılandırılmış
+    // formdan alıp standart job pipeline'ına yönlendiriyoruz — LLM + calc tool +
+    // RAG kaynaklarıyla senaryoyu projekte ediyor.
+
+    public record ScenarioParam(string Key, string Label, string Type, string? Placeholder, string? Default);
+    public record Scenario(string Slug, string Name, string Description, string Icon, ScenarioParam[] Params, string PromptTemplate);
+
+    private static readonly Scenario[] Scenarios =
+    {
+        new("cash_flow_delay", "Geç ödeme etkisi", "Belirli müşteri/ler 30+ gün geç öderse nakit akışına etkisi.", "💸",
+            new[] {
+                new ScenarioParam("customer", "Müşteri (boş = tümü)", "text", "ACME Ltd", null),
+                new ScenarioParam("delay_days", "Gecikme (gün)", "number", "30", "30"),
+                new ScenarioParam("amount", "Etkilenen tutar (TL, opsiyonel)", "number", "0", null),
+            },
+            """
+            What-if senaryosu — geç ödeme:
+            Müşteri: {customer}
+            Gecikme: {delay_days} gün
+            Etkilenen tutar (varsa): {amount} TL
+
+            Vault'taki finansal verilerden + alacak yaşlandırma raporlarından bu senaryonun
+            etkisini hesapla:
+            - Etkilenen alacakların toplamı
+            - Bu gecikmenin önümüzdeki 60/90 günlük nakit akışına etkisi
+            - Hangi gider kalemleri risk altına girer (maaş/kira/vergi)
+            - Önerilen aksiyonlar (tahsilat, kredi limiti, faktoring)
+
+            Sayısal değerler için calc aracını kullan. Kaynaklı yaz.
+            """),
+
+        new("contract_renewal", "Sözleşme yenilenmezse", "Bir sözleşmenin yenilenmemesi gelir/maliyet açısından nasıl etkiler.", "📄",
+            new[] {
+                new ScenarioParam("counterparty", "Karşı taraf", "text", "Müşteri / tedarikçi adı", null),
+                new ScenarioParam("annual_value", "Yıllık değer (TL)", "number", "100000", null),
+                new ScenarioParam("end_date", "Sözleşme bitiş tarihi", "date", "", null),
+            },
+            """
+            What-if senaryosu — sözleşme yenilenmezse:
+            Karşı taraf: {counterparty}
+            Yıllık değer: {annual_value} TL
+            Bitiş tarihi: {end_date}
+
+            Vault'taki sözleşme dosyalarından + müşteri etkileşim notlarından:
+            - Bu sözleşmenin yenilenmemesi durumunda yıllık gelir/maliyet etkisi
+            - Bağımlı diğer sözleşmeler veya operasyonel zincirler
+            - Yenileme olasılığı için sinyal güçleri (etkileşim, ödeme, NPS)
+            - Yenilemek için 30/60/90 gün önce yapılması gereken aksiyonlar
+
+            Kaynaklı, sayısal cevap ver.
+            """),
+
+        new("customer_churn", "Müşteri kaybı etkisi", "Belirli bir müşteri segmentinin %X kaybı toplam tabloya nasıl yansır.", "📉",
+            new[] {
+                new ScenarioParam("segment", "Segment (boş = tümü)", "text", "SaaS / KOBİ / Kurumsal", null),
+                new ScenarioParam("churn_pct", "Churn oranı (%)", "number", "10", "10"),
+                new ScenarioParam("horizon_months", "Zaman ufku (ay)", "number", "6", "6"),
+            },
+            """
+            What-if senaryosu — müşteri churn'u:
+            Segment: {segment}
+            Churn oranı: %{churn_pct}
+            Ufuk: {horizon_months} ay
+
+            Vault'taki CRM + faturalama + iletişim verilerinden:
+            - Bu segmentin toplam ciroya katkısı (mevcut)
+            - %{churn_pct} kayıpta önümüzdeki {horizon_months} ay için cari ciro etkisi
+            - Hangi müşteriler en yüksek churn riskinde (veriden çıkar)
+            - Retention için öncelikli aksiyonlar (kişi/segment bazlı)
+
+            calc aracını kullan, kaynak göster.
+            """),
+    };
+
+    private static IResult ListScenarios() => Results.Ok(Scenarios.Select(s =>
+        new { s.Slug, s.Name, s.Description, s.Icon, s.Params }));
+
+    public record RunSimulationRequest(string ScenarioSlug, Dictionary<string, string> Params);
+
+    private static async Task<IResult> RunSimulation(
+        RunSimulationRequest req, AltarisDbContext db, ITenantContext tc,
+        Altaris.Infrastructure.Permissions.CapabilityResolver caps, HttpContext http)
+    {
+        if (tc.TenantId is null) return Results.Forbid();
+        var deny = await Altaris.Api.Permissions.CapabilityHttpExtensions.RequireCapabilityAsync(
+            http, caps, Altaris.Domain.Permissions.Capabilities.ExecutiveBrainUse);
+        if (deny is not null) return deny;
+
+        var sc = Scenarios.FirstOrDefault(x => x.Slug == req.ScenarioSlug);
+        if (sc is null) return Results.NotFound(new { error = "scenario_not_found" });
+
+        // Template placeholder'larını user param'larıyla değiştir; eksik anahtarlar boş.
+        var question = sc.PromptTemplate;
+        foreach (var p in sc.Params)
+        {
+            var v = req.Params != null && req.Params.TryGetValue(p.Key, out var vv) ? vv : (p.Default ?? "—");
+            if (string.IsNullOrWhiteSpace(v)) v = "—";
+            question = question.Replace("{" + p.Key + "}", v);
+        }
+
+        // CFO veya Risk gibi calc-yetenekli built-in agent varsa onu seç (opsiyonel
+        // — yoksa default agent ile çalışır, system prompt template içinden geliyor).
+        var agentId = await db.ExecutiveAgents.AsNoTracking()
+            .Where(a => a.TenantId == tc.TenantId && a.Enabled
+                     && (a.Slug.StartsWith("cfo") || a.Slug.StartsWith("risk")))
+            .OrderBy(a => a.Slug)
+            .Select(a => (Guid?)a.Id)
+            .FirstOrDefaultAsync();
+
+        var job = new Domain.Entities.ExecutiveJob
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tc.TenantId.Value,
+            UserId = tc.UserId,
+            AgentId = agentId,
+            ThreadId = Guid.NewGuid(),
+            Question = question,
+            Status = "pending",
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+        db.ExecutiveJobs.Add(job);
+        await db.SaveChangesAsync();
+
+        return Results.Accepted($"/api/v1/executive-brain/jobs/{job.Id}",
+            new { id = job.Id, status = job.Status, threadId = job.ThreadId, scenario = sc.Slug });
     }
 
     private static async Task<IResult> ListJobs(
