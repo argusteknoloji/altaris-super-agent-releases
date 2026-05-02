@@ -97,6 +97,8 @@ try
     builder.Services.AddHostedService<Altaris.Api.Services.CodexTokenRefreshWorker>();
     // Executive Brain async job worker (queue → RAG → LLM → answer/citations)
     builder.Services.AddHostedService<Altaris.Api.Services.ExecutiveJobWorker>();
+    // Executive Brain cron scheduler (schedule_cron'lu agent'ları periyodik tetikle)
+    builder.Services.AddHostedService<Altaris.Api.Services.ExecutiveScheduler>();
 
     // ── Health checks (liveness vs readiness) ──────────────────────────────
     builder.Services.AddHealthChecks()

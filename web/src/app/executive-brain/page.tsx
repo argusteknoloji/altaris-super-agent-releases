@@ -5,9 +5,15 @@ import Link from "next/link";
 
 type Citation = { vault: string; path: string; chunkIndex: number; snippet: string; distance: number };
 type Agent = { id: string; slug: string; name: string; description: string | null; enabled: boolean };
-type Job = {
-  id: string; question: string; status: "pending" | "running" | "completed" | "failed" | "cancelled";
-  answer: string | null; citations: string | null; errorText: string | null;
+type JobStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+// Streaming-aware turn — answer chunk-by-chunk SSE delta'ları ile büyür
+type Turn = {
+  q: string;
+  jobId: string;
+  status: JobStatus;
+  answer: string;
+  citations: Citation[];
+  error: string | null;
 };
 
 const SUGGESTED = [
@@ -21,7 +27,7 @@ export default function ExecutiveBrainPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agentId, setAgentId] = useState<string>("");
   const [threadId, setThreadId] = useState<string | null>(null);
-  const [turns, setTurns] = useState<Array<{ q: string; jobId: string; job?: Job }>>([]);
+  const [turns, setTurns] = useState<Turn[]>([]);
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -35,24 +41,66 @@ export default function ExecutiveBrainPage() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [turns]);
 
-  // Active turn'leri poll et (status değişince UI güncellesin)
-  const pollActive = useCallback(async () => {
-    const updates = await Promise.all(turns.map(async (t) => {
-      if (t.job?.status === "completed" || t.job?.status === "failed" || t.job?.status === "cancelled") return t;
-      const r = await fetch(`/api/proxy/executive-brain/jobs/${t.jobId}`, { cache: "no-store" });
-      if (!r.ok) return t;
-      const job: Job = await r.json();
-      return { ...t, job };
-    }));
-    setTurns(updates);
-    setBusy(updates.some(t => !t.job || t.job.status === "pending" || t.job.status === "running"));
-  }, [turns]);
-  useEffect(() => {
-    if (turns.length === 0) return;
-    if (!turns.some(t => !t.job || t.job.status === "pending" || t.job.status === "running")) return;
-    const i = setInterval(pollActive, 1500);
-    return () => clearInterval(i);
-  }, [turns, pollActive]);
+  /**
+   * SSE okuyucu — bir job'un /stream endpoint'ine bağlanır, event'leri
+   * teker teker UI'a iter. EventSource header desteklemediği için fetch +
+   * ReadableStream ile manual SSE parsing.
+   */
+  const streamJob = useCallback(async (jobId: string) => {
+    let res: Response;
+    try {
+      res = await fetch(`/api/proxy/executive-brain/jobs/${jobId}/stream`, {
+        headers: { Accept: "text/event-stream" },
+      });
+    } catch (e) {
+      setTurns(t => t.map(x => x.jobId === jobId ? { ...x, status: "failed" as JobStatus, error: String(e) } : x));
+      return;
+    }
+    if (!res.ok || !res.body) {
+      setTurns(t => t.map(x => x.jobId === jobId ? { ...x, status: "failed" as JobStatus, error: `HTTP ${res.status}` } : x));
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      // Event sınırı: çift newline
+      let idx;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const block = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        let evt = "message"; let data = "";
+        for (const line of block.split("\n")) {
+          if (line.startsWith("event: ")) evt = line.slice(7);
+          else if (line.startsWith("data: ")) data += line.slice(6);
+        }
+        if (!data) continue;
+        try {
+          const payload = JSON.parse(data);
+          setTurns(prev => prev.map(t => {
+            if (t.jobId !== jobId) return t;
+            if (evt === "status") return { ...t, status: payload.status as JobStatus };
+            if (evt === "delta")  return { ...t, answer: t.answer + (payload.text ?? "") };
+            if (evt === "done") {
+              return {
+                ...t,
+                status: payload.status as JobStatus,
+                answer: payload.answer ?? t.answer,
+                citations: Array.isArray(payload.citations) ? payload.citations : t.citations,
+                error: payload.error ?? null,
+              };
+            }
+            if (evt === "error") return { ...t, status: "failed" as JobStatus, error: payload.message ?? "stream error" };
+            return t;
+          }));
+          if (evt === "done" || evt === "error") return;
+        } catch { /* malformed event — skip */ }
+      }
+    }
+  }, []);
 
   async function ask(question: string) {
     if (!question.trim() || busy) return;
@@ -75,7 +123,12 @@ export default function ExecutiveBrainPage() {
       const submitResp = await r.json() as { id: string; threadId: string };
       if (!threadId) setThreadId(submitResp.threadId);
       setInput("");
-      setTurns(t => [...t, { q: question, jobId: submitResp.id }]);
+      setTurns(t => [...t, {
+        q: question, jobId: submitResp.id, status: "pending",
+        answer: "", citations: [], error: null,
+      }]);
+      // SSE bağlan — fire-and-forget, event'ler turn'ü güncellesin
+      streamJob(submitResp.id).finally(() => setBusy(false));
     } catch (e) {
       alert((e as Error).message);
       setBusy(false);
@@ -160,23 +213,27 @@ export default function ExecutiveBrainPage() {
                 </div>
               </div>
 
-              {!t.job || t.job.status === "pending" || t.job.status === "running" ? (
+              {/* Pending/running iken answer hâlâ akıyorsa typewriter göster */}
+              {(t.status === "pending" || t.status === "running") && t.answer.length === 0 ? (
                 <div className="flex items-center gap-2 text-xs text-neutral-500">
                   <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-orange-400"></span>
-                  {t.job?.status === "running" ? "Belgelerini tarıyorum…" : "Kuyruğa eklendi…"}
-                  <Link href={`/executive-brain/jobs/${t.jobId}`} className="ml-2 underline">canlı izle</Link>
+                  {t.status === "running" ? "Belgelerini tarıyorum…" : "Kuyruğa eklendi…"}
+                  <Link href={`/executive-brain/jobs/${t.jobId}`} className="ml-2 underline">detay</Link>
                 </div>
-              ) : t.job.status === "failed" ? (
+              ) : t.status === "failed" ? (
                 <div className="rounded-md border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300">
-                  ✗ {t.job.errorText ?? "Bilinmeyen hata"}
+                  ✗ {t.error ?? "Bilinmeyen hata"}
                   <Link href={`/executive-brain/jobs/${t.jobId}`} className="ml-2 underline text-xs">detay</Link>
                 </div>
-              ) : t.job.status === "cancelled" ? (
+              ) : t.status === "cancelled" ? (
                 <p className="text-xs text-neutral-500">İptal edildi.</p>
               ) : (
                 <div className="rounded-2xl rounded-tl-sm border border-neutral-800 bg-neutral-900/40 p-5">
                   <div className="text-sm leading-relaxed text-neutral-100 whitespace-pre-wrap">
-                    {renderAnswer(t.job.answer ?? "", t.job.citations ? JSON.parse(t.job.citations) : [])}
+                    {renderAnswer(t.answer, t.citations)}
+                    {(t.status === "pending" || t.status === "running") && (
+                      <span className="ml-1 inline-block h-3 w-1 animate-pulse bg-orange-400 align-middle" />
+                    )}
                   </div>
                   <p className="mt-3 text-[11px] text-neutral-500">
                     <Link href={`/executive-brain/jobs/${t.jobId}`} className="underline">Job detayı + trace + kaynaklar</Link>

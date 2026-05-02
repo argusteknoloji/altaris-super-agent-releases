@@ -34,6 +34,7 @@ public static class ExecutiveBrainEndpoints
         app.MapPost  ("/api/v1/executive-brain/jobs",                   SubmitJob).RequireAuthorization();
         app.MapGet   ("/api/v1/executive-brain/jobs",                   ListJobs).RequireAuthorization();
         app.MapGet   ("/api/v1/executive-brain/jobs/{id:guid}",         GetJob).RequireAuthorization();
+        app.MapGet   ("/api/v1/executive-brain/jobs/{id:guid}/stream",  StreamJob).RequireAuthorization();
         app.MapPost  ("/api/v1/executive-brain/jobs/{id:guid}/cancel",  CancelJob).RequireAuthorization();
         app.MapPost  ("/api/v1/executive-brain/jobs/{id:guid}/retry",   RetryJob).RequireAuthorization();
 
@@ -333,6 +334,76 @@ public static class ExecutiveBrainEndpoints
         var j = await db.ExecutiveJobs.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tc.TenantId);
         if (j is null) return Results.NotFound();
         return Results.Ok(j);
+    }
+
+    /// <summary>
+    ///   SSE stream — UI bir job'u WebSocket-light şekilde takip eder.
+    ///   Her 1 saniyede bir DB poll: status / answer (artımlı) / error / trace.
+    ///   completed/failed/cancelled olduğunda 'done' event yollar ve bağlantıyı kapatır.
+    ///
+    ///   Worker LLM-streaming değil (full response geliyor) ama answer kolonu
+    ///   chunk-chunk yazılırsa (EB-3.5 tool framework'te plan), UI typewriter
+    ///   etkisi görür. MVP polling-based; ileride NOTIFY/LISTEN ile push.
+    /// </summary>
+    private static async Task StreamJob(HttpContext ctx, Guid id, AltarisDbContext db, ITenantContext tc, CancellationToken ct)
+    {
+        ctx.Response.Headers["Content-Type"] = "text/event-stream";
+        ctx.Response.Headers["Cache-Control"] = "no-cache, no-transform";
+        ctx.Response.Headers["X-Accel-Buffering"] = "no";   // nginx/Caddy buffer kapat
+        ctx.Response.StatusCode = 200;
+
+        async Task Send(string evt, object payload)
+        {
+            var json = System.Text.Json.JsonSerializer.Serialize(payload);
+            await ctx.Response.WriteAsync($"event: {evt}\ndata: {json}\n\n", ct);
+            await ctx.Response.Body.FlushAsync(ct);
+        }
+
+        string? lastStatus = null;
+        int lastAnswerLen = 0;
+        var deadline = DateTime.UtcNow.AddMinutes(5);   // safety: 5 dk üst sınır
+
+        while (!ct.IsCancellationRequested && DateTime.UtcNow < deadline)
+        {
+            var j = await db.ExecutiveJobs.AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tc.TenantId, ct);
+            if (j is null)
+            {
+                await Send("error", new { message = "job_not_found" });
+                return;
+            }
+
+            if (j.Status != lastStatus)
+            {
+                await Send("status", new { status = j.Status });
+                lastStatus = j.Status;
+            }
+
+            // Answer artımı — yeni karakterleri delta olarak yolla
+            var ans = j.Answer ?? "";
+            if (ans.Length > lastAnswerLen)
+            {
+                var delta = ans.Substring(lastAnswerLen);
+                await Send("delta", new { text = delta });
+                lastAnswerLen = ans.Length;
+            }
+
+            if (j.Status is "completed" or "failed" or "cancelled")
+            {
+                var citations = j.Citations is null ? null
+                    : System.Text.Json.JsonSerializer.Deserialize<object>(j.Citations);
+                await Send("done", new
+                {
+                    status = j.Status,
+                    answer = j.Answer,
+                    citations,
+                    error = j.ErrorText,
+                });
+                return;
+            }
+
+            await Task.Delay(800, ct);
+        }
     }
 
     private static async Task<IResult> CancelJob(Guid id, AltarisDbContext db, ITenantContext tc)

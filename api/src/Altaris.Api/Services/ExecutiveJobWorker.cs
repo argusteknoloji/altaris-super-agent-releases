@@ -244,36 +244,119 @@ public class ExecutiveJobWorker : BackgroundService
             userPrompt = "Önceki konuşma:\n" + memory + "\n\n---\n" + userPrompt;
         }
 
+        // Agent tools resolve
+        string[] enabledTools = Array.Empty<string>();
+        if (agent is not null)
+        {
+            try { enabledTools = JsonSerializer.Deserialize<string[]>(agent.Tools) ?? Array.Empty<string>(); }
+            catch { }
+        }
+        var toolSpecs = Altaris.Infrastructure.ExecutiveBrain.ToolRegistry.ForAgent(enabledTools);
+        var openAiTools = toolSpecs.Select(s => new
+        {
+            type = "function",
+            function = new { name = s.Name, description = s.Description, parameters = s.Parameters }
+        }).ToArray();
+
+        var conversation = new List<object>
+        {
+            new { role = "system", content = systemPrompt },
+            new { role = "user",   content = userPrompt   },
+        };
+
+        // Multi-step tool-use loop. Max 5 round trip — sonsuz döngü koruması.
         var llm = http.CreateClient();
         llm.Timeout = TimeSpan.FromMinutes(3);
         var llmEndpoint = (prov.BaseUrl ?? "").TrimEnd('/') + "/v1/chat/completions";
-        var msg = new HttpRequestMessage(HttpMethod.Post, llmEndpoint)
+        string? finalAnswer = null;
+        for (int round = 0; round < 5; round++)
         {
-            Content = System.Net.Http.Json.JsonContent.Create(new
+            var sw2 = System.Diagnostics.Stopwatch.StartNew();
+            var requestBody = openAiTools.Length > 0
+                ? new {
+                    model = llmModel, messages = conversation,
+                    tools = openAiTools, tool_choice = "auto",
+                    max_tokens = 2048, temperature = 0.2,
+                }
+                : (object)new {
+                    model = llmModel, messages = conversation,
+                    max_tokens = 2048, temperature = 0.2,
+                };
+            using var msg = new HttpRequestMessage(HttpMethod.Post, llmEndpoint)
             {
-                model = llmModel,
-                messages = new[]
+                Content = System.Net.Http.Json.JsonContent.Create(requestBody),
+            };
+            if (!string.IsNullOrEmpty(prov.ApiKeyEnc))
+                msg.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", prov.ApiKeyEnc);
+
+            using var resp = await llm.SendAsync(msg, ct);
+            var bodyText = await resp.Content.ReadAsStringAsync(ct);
+            if (!resp.IsSuccessStatusCode)
+                throw new InvalidOperationException($"LLM HTTP {resp.StatusCode}: {bodyText}");
+
+            var json = JsonDocument.Parse(bodyText);
+            var choice = json.RootElement.GetProperty("choices")[0];
+            var assistantMsg = choice.GetProperty("message");
+            var content = assistantMsg.TryGetProperty("content", out var c) ? c.GetString() : null;
+
+            // Tool call?
+            if (assistantMsg.TryGetProperty("tool_calls", out var tcs) && tcs.ValueKind == JsonValueKind.Array && tcs.GetArrayLength() > 0)
+            {
+                // Push assistant message (with tool_calls) ve sonra her tool için result.
+                var toolCallList = new List<object>();
+                foreach (var t in tcs.EnumerateArray())
                 {
-                    new { role = "system", content = systemPrompt },
-                    new { role = "user",   content = userPrompt   },
-                },
-                max_tokens = 2048,
-                temperature = 0.2,
-            }),
-        };
-        if (!string.IsNullOrEmpty(prov.ApiKeyEnc))
-            msg.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", prov.ApiKeyEnc);
+                    toolCallList.Add(new
+                    {
+                        id = t.GetProperty("id").GetString(),
+                        type = "function",
+                        function = new
+                        {
+                            name = t.GetProperty("function").GetProperty("name").GetString(),
+                            arguments = t.GetProperty("function").GetProperty("arguments").GetString(),
+                        }
+                    });
+                }
+                conversation.Add(new { role = "assistant", content = content ?? "", tool_calls = toolCallList });
 
-        using var resp = await llm.SendAsync(msg, ct);
-        var bodyText = await resp.Content.ReadAsStringAsync(ct);
-        if (!resp.IsSuccessStatusCode)
-            throw new InvalidOperationException($"LLM HTTP {resp.StatusCode}: {bodyText}");
+                int toolCount = 0;
+                foreach (var t in tcs.EnumerateArray())
+                {
+                    var toolName = t.GetProperty("function").GetProperty("name").GetString() ?? "";
+                    var argsStr  = t.GetProperty("function").GetProperty("arguments").GetString() ?? "{}";
+                    JsonElement argsEl;
+                    try { argsEl = JsonDocument.Parse(argsStr).RootElement; }
+                    catch { argsEl = JsonDocument.Parse("{}").RootElement; }
 
-        var json = JsonDocument.Parse(bodyText);
-        var answer = json.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "";
-        trace.Add(new { step = "llm_call", ms = sw.ElapsedMilliseconds, model = llmModel, chars = answer.Length });
+                    var result = await Altaris.Infrastructure.ExecutiveBrain.ToolRegistry.ExecuteAsync(
+                        toolName, argsEl, db, job.TenantId, ct);
+                    conversation.Add(new
+                    {
+                        role = "tool",
+                        tool_call_id = t.GetProperty("id").GetString(),
+                        name = toolName,
+                        content = result,
+                    });
+                    toolCount++;
+                }
+                trace.Add(new { step = $"tool_round_{round}", ms = sw2.ElapsedMilliseconds, tools_called = toolCount });
+                continue;   // Sonraki round LLM'in son cevabını üretsin
+            }
 
-        await SaveAnswerAsync(db, job.Id, answer, citations, trace, ct);
+            // Tool yok → bu son cevap
+            finalAnswer = content ?? "";
+            trace.Add(new { step = "llm_call", ms = sw2.ElapsedMilliseconds, model = llmModel, chars = finalAnswer.Length, rounds = round + 1 });
+            break;
+        }
+
+        if (finalAnswer is null)
+        {
+            // 5 round'da bitmedi, conversation'daki son içeriği al
+            finalAnswer = "(tool döngüsü 5 round limitini aştı, kısmi cevap)";
+            trace.Add(new { step = "tool_loop_truncated", ms = 0 });
+        }
+
+        await SaveAnswerAsync(db, job.Id, finalAnswer, citations, trace, ct);
     }
 
     private static async Task SaveAnswerAsync(AltarisDbContext db, Guid jobId, string answer, IEnumerable<object> citations,

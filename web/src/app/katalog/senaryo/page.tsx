@@ -89,16 +89,23 @@ export default function SenaryoPage() {
         }
         .hairline { background: linear-gradient(to right, transparent, rgba(120,80,50,.55), transparent); }
 
-        /* ── Sahne ömürleri ───────────────────────────────────────────── */
-        .s1 { animation: scene-life 3s   0s   ease-out forwards; }
-        .s2 { animation: scene-life 3s   3s   ease-out forwards; }
-        .s3 { animation: scene-life 3s   6s   ease-out forwards; }
-        .s4 { animation: scene-life 6s   9s   ease-out forwards; }
-        .s5 { animation: scene-life 3s   15s  ease-out forwards; }
-        .s6 { animation: scene-life 4s   18s  ease-out forwards; }
+        /* ──────────────────────────────────────────────────────────────
+         * Tüm sahne animasyonları yalnızca <html data-play="1"> iken çalışır.
+         * Soundtrack komponenti "Oynat" / "Kaydet" tıklanınca attribute'u
+         * set eder; böylece kayıt sahne 0'dan baştan yakalanır.
+         * ────────────────────────────────────────────────────────────── */
+        [data-play="1"] .s1 { animation: scene-life 3s   0s   ease-out forwards; }
+        [data-play="1"] .s2 { animation: scene-life 3s   3s   ease-out forwards; }
+        [data-play="1"] .s3 { animation: scene-life 3s   6s   ease-out forwards; }
+        [data-play="1"] .s4 { animation: scene-life 6s   9s   ease-out forwards; }
+        [data-play="1"] .s5 { animation: scene-life 3s   15s  ease-out forwards; }
+        [data-play="1"] .s6 { animation: scene-life 4s   18s  ease-out forwards; }
+
+        /* idle iken son sahne (CTA) hafifçe görünsün — boş ekran olmasın */
+        :not([data-play]) .s6, [data-play=""] .s6 { opacity: 0.55; }
 
         /* ── Sahne 1: chaos kartları ──────────────────────────────────── */
-        .s1-card { animation: drift 3.6s ease-in-out infinite; }
+        [data-play="1"] .s1-card { animation: drift 3.6s ease-in-out infinite; }
         .s1-card-a { animation-delay: 0s; }
         .s1-card-b { animation-delay: -1.2s; }
         .s1-card-c { animation-delay: -2.4s; }
@@ -110,27 +117,31 @@ export default function SenaryoPage() {
           overflow: hidden;
           white-space: nowrap;
         }
-        .typed-mask > .reveal {
+        [data-play="1"] .typed-mask > .reveal {
           animation: type-progress 1.6s steps(${TYPED_QUESTION.length}, end) 6.6s forwards;
+        }
+        .typed-mask > .reveal {
           width: 0;
           overflow: hidden;
           display: inline-block;
         }
-        .type-cursor { animation: type-cursor 0.95s steps(1) infinite; }
-        .brain-pulse { animation: brain-pulse 1.4s ease-in-out 8.2s 1 forwards; }
+        [data-play="1"] .type-cursor { animation: type-cursor 0.95s steps(1) infinite; }
+        [data-play="1"] .brain-pulse { animation: brain-pulse 1.4s ease-in-out 8.2s 1 forwards; }
 
         /* ── Sahne 4: risk kartları ───────────────────────────────────── */
-        .risk { opacity: 0; animation: risk-pop 1.4s ease-out forwards; }
+        .risk { opacity: 0; }
+        [data-play="1"] .risk { animation: risk-pop 1.4s ease-out forwards; }
         .risk-1 { animation-delay: 9.5s;  }
         .risk-2 { animation-delay: 11s;   }
         .risk-3 { animation-delay: 12.5s; }
-        .data-line { stroke-dasharray: 240; stroke-dashoffset: 240; animation: data-line 2.2s ease-out 9.4s forwards; }
+        .data-line { stroke-dasharray: 240; stroke-dashoffset: 240; }
+        [data-play="1"] .data-line { animation: data-line 2.2s ease-out 9.4s forwards; }
 
-        /* ── Sahne 5: stopwatch + counter ─────────────────────────────── */
-        .sw-hand { transform-origin: 50% 50%; animation: stopwatch 1.2s linear 15.4s 2 forwards; }
+        /* ── Sahne 5: stopwatch ───────────────────────────────────────── */
+        [data-play="1"] .sw-hand { transform-origin: 50% 50%; animation: stopwatch 1.2s linear 15.4s 2 forwards; }
 
         /* ── Sahne 6: CTA glow ────────────────────────────────────────── */
-        .cta-glow { animation: cta-glow 1.6s ease-in-out 19s infinite; }
+        [data-play="1"] .cta-glow { animation: cta-glow 1.6s ease-in-out 19s infinite; }
       `}</style>
 
       <main className="relative h-screen w-screen overflow-hidden bg-[#0a0908] font-mono text-[#ddd8d0] antialiased">
