@@ -21,8 +21,130 @@ public static class DataSourceEndpoints
         grp.MapDelete("{id:guid}",       Delete);
         grp.MapPost  ("{id:guid}/test",  Test);
         grp.MapPost  ("{id:guid}/sync",  Sync);
+        grp.MapGet   ("templates",       Templates);
         return app;
     }
+
+    /// <summary>
+    ///   Hazır connector preset'leri — admin UI bir kart listeden seçip
+    ///   kendi credentials'ını girip tek tıkla data_source yaratabilir.
+    /// </summary>
+    private static IResult Templates() => Results.Ok(new[]
+    {
+        new {
+            kind = "logo_tiger",
+            label = "Logo Tiger 3 ERP",
+            description = "Türkiye'de en yaygın ERP. Cari, fatura, sipariş, stok endpoint'leri.",
+            authType = "bearer",
+            configTemplate = new {
+                baseUrl = "https://erp.firma.com/api",
+                endpoints = new object[] {
+                    new {
+                        path = "/v1/cariler?limit=500",
+                        vaultPath = "logo/cariler.md", title = "Cariler",
+                        rowsField = "data",
+                        displayFields = new[] { "kod", "ad", "bakiye", "vergiNo" }
+                    },
+                    new {
+                        path = "/v1/faturalar?from=2026-01-01&limit=1000",
+                        vaultPath = "logo/faturalar.md", title = "Faturalar",
+                        rowsField = "data",
+                        displayFields = new[] { "no", "tarih", "cariAd", "tutar", "kdv" }
+                    }
+                }
+            }
+        },
+        new {
+            kind = "netsis",
+            label = "Netsis ERP",
+            description = "Netsis Wings/POS REST API. Cari, hareket, stok.",
+            authType = "header",
+            configTemplate = new {
+                baseUrl = "https://netsis.firma.com:7070/api",
+                headerName = "ApiKey",
+                endpoints = new object[] {
+                    new {
+                        path = "/CariService.svc/GetCariList",
+                        vaultPath = "netsis/cariler.md", title = "Netsis Cariler",
+                        displayFields = new[] { "CariKod", "CariAdi", "Bakiye" }
+                    }
+                }
+            }
+        },
+        new {
+            kind = "salesforce",
+            label = "Salesforce CRM",
+            description = "Lead/Account/Opportunity/Contact SOQL üzerinden çek.",
+            authType = "bearer",
+            configTemplate = new {
+                baseUrl = "https://YOUR-INSTANCE.my.salesforce.com",
+                endpoints = new object[] {
+                    new {
+                        path = "/services/data/v59.0/query?q=SELECT+Id,Name,Industry,AnnualRevenue+FROM+Account+LIMIT+500",
+                        vaultPath = "salesforce/accounts.md", title = "Accounts",
+                        rowsField = "records",
+                        displayFields = new[] { "Name", "Industry", "AnnualRevenue" }
+                    },
+                    new {
+                        path = "/services/data/v59.0/query?q=SELECT+Id,Name,Amount,StageName,CloseDate+FROM+Opportunity+WHERE+IsClosed%3Dfalse+LIMIT+500",
+                        vaultPath = "salesforce/opportunities.md", title = "Açık Fırsatlar",
+                        rowsField = "records",
+                        displayFields = new[] { "Name", "Amount", "StageName", "CloseDate" }
+                    }
+                }
+            }
+        },
+        new {
+            kind = "hubspot",
+            label = "HubSpot CRM",
+            description = "Companies, Deals, Contacts. v3 CRM API.",
+            authType = "bearer",
+            configTemplate = new {
+                baseUrl = "https://api.hubapi.com",
+                endpoints = new object[] {
+                    new {
+                        path = "/crm/v3/objects/companies?limit=100&properties=name,industry,annualrevenue",
+                        vaultPath = "hubspot/companies.md", title = "Companies",
+                        rowsField = "results",
+                        displayFields = new[] { "id", "properties" }
+                    },
+                    new {
+                        path = "/crm/v3/objects/deals?limit=100&properties=dealname,amount,dealstage,closedate",
+                        vaultPath = "hubspot/deals.md", title = "Deals",
+                        rowsField = "results",
+                        displayFields = new[] { "id", "properties" }
+                    }
+                }
+            }
+        },
+        new {
+            kind = "rest_api",
+            label = "Generic REST API",
+            description = "Herhangi bir REST endpoint'i — banka, fatura sağlayıcısı, internal tool.",
+            authType = "none",
+            configTemplate = new {
+                baseUrl = "https://api.example.com",
+                endpoints = new object[] {
+                    new {
+                        path = "/data?format=json",
+                        vaultPath = "generic/data.md", title = "Sample Data"
+                    }
+                }
+            }
+        },
+        new {
+            kind = "csv",
+            label = "Excel / CSV upload",
+            description = "Tek seferlik dosya import — config.csvBase64 veya csvText.",
+            authType = "none",
+            configTemplate = new {
+                csvText = "id,müşteri,tutar,tarih\n1,ACME Ltd,12500,2026-04-15\n2,Beta AŞ,8900,2026-04-22",
+                delimiter = ",",
+                groupByColumn = "",
+                sheetName = "satış-q2"
+            }
+        },
+    });
 
     public record DataSourceDto(Guid Id, string Kind, string Name, string Config,
                                 Guid? TargetVaultId, bool Enabled,

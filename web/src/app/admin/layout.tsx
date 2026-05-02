@@ -21,6 +21,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <Item href="/admin/invitations"  label="Davetler" />
           <Item href="/admin/api-keys"     label="API anahtarları" />
           <Item href="/admin/providers"    label="Provider config" />
+          <Item href="/admin/data-sources" label="🔌 Connector'lar" />
           <Item href="/admin/audit"        label="Denetim kaydı" />
           <Item href="/admin/tenants"      label="Tenant'lar (platform)" />
         </nav>

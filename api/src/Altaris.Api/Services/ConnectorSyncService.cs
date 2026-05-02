@@ -24,9 +24,17 @@ public class ConnectorSyncService
 
     private IConnector? Resolve(string kind) => kind switch
     {
-        "csv"   => new CsvConnector(),
-        "imap"  => new ImapConnector(),
-        _       => null,
+        "csv"        => new CsvConnector(),
+        "imap"       => new ImapConnector(),
+        // TR ERP'leri ve uluslararası CRM'ler aynı RestApiConnector mantığını
+        // paylaşır (config: baseUrl + endpoints[] şeması). kind sadece UI
+        // gruplama + secret label + her sistem için preset config template'i.
+        "logo_tiger" => new RestApiConnector("logo_tiger"),
+        "netsis"     => new RestApiConnector("netsis"),
+        "salesforce" => new RestApiConnector("salesforce"),
+        "hubspot"    => new RestApiConnector("hubspot"),
+        "rest_api"   => new RestApiConnector(),
+        _            => null,
     };
 
     public async Task<TestResult> TestAsync(DataSource ds, string tenantSlug, string? targetVaultSlug, CancellationToken ct)

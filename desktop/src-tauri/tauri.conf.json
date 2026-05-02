@@ -46,8 +46,10 @@
     "macOS": {
       "minimumSystemVersion": "13.0",
       "hardenedRuntime": true,
-      "entitlements": null,
-      "exceptionDomain": "localhost"
+      "entitlements": "entitlements.plist",
+      "exceptionDomain": "localhost",
+      "signingIdentity": null,
+      "providerShortName": null
     },
     "windows": {
       "nsis": { "languages": ["English", "Turkish"] }
