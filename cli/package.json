@@ -1,6 +1,6 @@
 {
   "name": "@argus/altaris-cli",
-  "version": "0.1.0-alpha.15",
+  "version": "0.1.0-alpha.18",
   "description": "Altaris — Argus Teknoloji enterprise agentic AI terminal. Local-first, multi-provider, multi-tenant.",
   "type": "module",
   "bin": {
@@ -57,6 +57,10 @@
   "dependencies": {
     "@alcalzone/ansi-tokenize": "0.3.0",
     "@anthropic-ai/bedrock-sdk": "0.26.4",
+    "@aws-sdk/client-bedrock": "^3.668.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.668.0",
+    "@aws-sdk/client-sts": "^3.668.0",
+    "@aws-sdk/credential-providers": "^3.668.0",
     "@anthropic-ai/foundry-sdk": "0.2.3",
     "@anthropic-ai/sandbox-runtime": "0.0.46",
     "@anthropic-ai/sdk": "0.81.0",

@@ -485,10 +485,11 @@ ${exports}
     // Native image processing
     'sharp',
     // Cloud provider SDKs
-    '@aws-sdk/client-bedrock',
-    '@aws-sdk/client-bedrock-runtime',
-    '@aws-sdk/client-sts',
-    '@aws-sdk/credential-providers',
+    // NOTE: @aws-sdk/* packages are now bundled (added to dependencies and
+    // removed from external) because Bun --compile single-file binaries have
+    // no node_modules at runtime, so externals fail to resolve. The Anthropic
+    // Bedrock SDK eagerly imports these; without bundling, exe crashes on
+    // startup with "Cannot find module '@aws-sdk/client-bedrock-runtime'".
     '@azure/identity',
     'google-auth-library',
     // @vscode/ripgrep ships a platform-specific binary alongside its
