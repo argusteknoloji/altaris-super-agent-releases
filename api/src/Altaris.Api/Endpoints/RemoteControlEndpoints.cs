@@ -27,6 +27,8 @@ public static class RemoteControlEndpoints
         // CLI registers a new agent session (called once at altaris startup).
         app.MapPost("/api/v1/agent/sessions", RegisterSession).RequireAuthorization();
         app.MapPost("/api/v1/agent/sessions/{id:guid}/close", CloseSession).RequireAuthorization();
+        // CLI persists a single message into the session transcript.
+        app.MapPost("/api/v1/agent/sessions/{id:guid}/messages", AppendSessionMessage).RequireAuthorization();
 
         // Master channel: CLI streams here when remote_control is on.
         app.Map("/ws/remote-control/publish", HandlePublish).RequireAuthorization();
@@ -58,6 +60,40 @@ public static class RemoteControlEndpoints
         db.Sessions.Add(session);
         await db.SaveChangesAsync();
         return Results.Ok(new { id = session.Id, title = session.Title });
+    }
+
+    public record AppendMessageRequest(string Role, string Content);
+
+    private static async Task<IResult> AppendSessionMessage(
+        Guid id, AppendMessageRequest req, AltarisDbContext db, ITenantContext tc)
+    {
+        if (tc.TenantId is null || tc.UserId is null) return Results.Forbid();
+        if (string.IsNullOrEmpty(req.Role) || string.IsNullOrEmpty(req.Content))
+            return Results.BadRequest(new { error = "role and content required" });
+
+        var owns = await db.Sessions.AnyAsync(s =>
+            s.Id == id && s.TenantId == tc.TenantId && s.UserId == tc.UserId);
+        if (!owns) return Results.NotFound();
+
+        // Cap stored content to keep DB rows reasonable; oversize pastes get clipped.
+        var content = req.Content.Length > 64_000 ? req.Content[..64_000] : req.Content;
+
+        // session_messages.content jsonb olduğu için raw string'i doğrudan
+        // INSERT edersek Postgres "invalid input syntax for type json" hatası
+        // verir. CLI/Web her zaman düz metin yolluyor — { text: "..." }
+        // envelope'una sarıyoruz; admin sayfaları content.text okur.
+        var jsonContent = JsonSerializer.Serialize(new { text = content });
+
+        db.SessionMessages.Add(new SessionMessage
+        {
+            TenantId = tc.TenantId.Value,
+            SessionId = id,
+            Role = req.Role,
+            Content = jsonContent,
+            CreatedAt = DateTimeOffset.UtcNow
+        });
+        await db.SaveChangesAsync();
+        return Results.NoContent();
     }
 
     private static async Task<IResult> CloseSession(Guid id, AltarisDbContext db, ITenantContext tc)

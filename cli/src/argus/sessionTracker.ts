@@ -59,10 +59,14 @@ export async function initSessionTracker(opts?: { source?: string }): Promise<st
           source: opts?.source ?? "cli",
         }),
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        dbg("init fail", { status: res.status });
+        return;
+      }
       const reg = (await res.json()) as { id: string };
       _sessionId = reg.id;
       process.env.ALTARIS_SESSION_ID = reg.id;
+      dbg("init ok", { sessionId: reg.id, api: getApiBase() });
 
       // Close the session on shutdown so admin dashboards see it transition
       // from "active" to "ended" (and EndedAt gets stamped).
@@ -112,10 +116,22 @@ function ensureDrainLoop(): void {
   if (typeof _drainTimer.unref === "function") _drainTimer.unref();
 }
 
-async function postOne(msg: QueuedMessage): Promise<void> {
-  if (!_sessionId || !_token) return;
+const _debug = process.env.ALTARIS_TRANSCRIPT_DEBUG === "1";
+
+function dbg(...parts: unknown[]): void {
+  if (!_debug) return;
   try {
-    await fetch(`${getApiBase()}/api/v1/agent/sessions/${_sessionId}/messages`, {
+    process.stderr.write(`\x1b[2m[altaris-tx] ${parts.map(p => typeof p === "string" ? p : JSON.stringify(p)).join(" ")}\x1b[0m\n`);
+  } catch { /* ignore */ }
+}
+
+async function postOne(msg: QueuedMessage): Promise<void> {
+  if (!_sessionId || !_token) {
+    dbg("skip post — no session/token", { hasSession: !!_sessionId, hasToken: !!_token });
+    return;
+  }
+  try {
+    const res = await fetch(`${getApiBase()}/api/v1/agent/sessions/${_sessionId}/messages`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${_token}`,
@@ -123,8 +139,13 @@ async function postOne(msg: QueuedMessage): Promise<void> {
       },
       body: JSON.stringify(msg),
     });
-  } catch {
-    /* best effort — drop on persistent network failure */
+    if (!res.ok) {
+      dbg("post fail", { status: res.status, role: msg.role, len: msg.content.length });
+    } else {
+      dbg("post ok", { role: msg.role, len: msg.content.length });
+    }
+  } catch (e) {
+    dbg("post error", { err: (e as Error).message });
   }
 }
 
@@ -156,13 +177,21 @@ export function pushSessionMessage(
   role: "user" | "assistant" | "system",
   content: string,
 ): void {
-  if (!_sessionId || !_token) return;
-  if (!content || content.trim().length === 0) return;
+  if (!_sessionId || !_token) {
+    dbg("enqueue skip — no session/token yet", { role, len: content?.length });
+    return;
+  }
+  if (!content || content.trim().length === 0) {
+    dbg("enqueue skip — empty content", { role });
+    return;
+  }
   if (_queue.length >= QUEUE_MAX) {
     // Network'tedir muhtemelen — en eski mesajı düşür ki yeni gelen sığsın.
     _queue.shift();
+    dbg("queue full — dropped oldest");
   }
   _queue.push({ role, content });
+  dbg("enqueue", { role, len: content.length, queue: _queue.length });
   ensureDrainLoop();
 }
 
@@ -218,21 +247,33 @@ function blocksToTranscriptText(content: unknown): string {
  * UUIDs are filtered out.
  */
 export function syncSessionMessages(messages: ReadonlyArray<SerializableMessage>): void {
-  if (!_sessionId || !_token) return;
+  if (!_sessionId || !_token) {
+    dbg("sync skip — no session", { count: messages.length, hasSession: !!_sessionId, hasToken: !!_token });
+    return;
+  }
+  let seen = 0, meta = 0, role_skip = 0, empty = 0, sent = 0;
   for (const msg of messages) {
     const uuid = msg.uuid;
-    if (!uuid || _seenUuids.has(uuid)) continue;
-    if (msg.isMeta) continue;
+    if (!uuid || _seenUuids.has(uuid)) { seen++; continue; }
+    if (msg.isMeta) { _seenUuids.add(uuid); meta++; continue; }
     const role = msg.type;
-    if (role !== "user" && role !== "assistant") continue;
+    if (role !== "user" && role !== "assistant") {
+      _seenUuids.add(uuid);
+      role_skip++;
+      continue;
+    }
     const text = blocksToTranscriptText(msg.message?.content);
     if (!text || text.trim().length === 0) {
       _seenUuids.add(uuid);
+      empty++;
       continue;
     }
     _seenUuids.add(uuid);
-    // Enqueue (sync) — worker drain'leyecek; LLM operasyonu beklemez.
     pushSessionMessage(role, text);
+    sent++;
+  }
+  if (sent > 0 || _debug) {
+    dbg("sync", { total: messages.length, sent, seen, meta, role_skip, empty });
   }
 }
 
