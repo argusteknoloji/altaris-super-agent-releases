@@ -1,15 +1,18 @@
 name: Release CLI Binaries
 
 # Asıl source code burada (private). Tag push veya manuel tetik ile derlenen
-# binary'ler PUBLIC release repo'suna SSH deploy key ile push edilir:
+# binary'ler PUBLIC release repo'sunda asset olarak yayımlanır:
 #   https://github.com/argusteknoloji/altaris-super-agent-releases
 #
-# Releases repo'sunda kendi `publish-release.yml` workflow'u tag push'unu
-# yakalayıp default GITHUB_TOKEN ile release oluşturur (cross-repo PAT yok).
+# Neden API + token (SSH değil): bun --compile çıktıları 80-130 MB; GitHub'ın
+# git push limiti 100 MB / dosya iken Releases asset upload limiti 2 GB.
+# Binary'leri git'e koymak yanlış pattern; doğrudan Release sayfasına atılır.
 #
 # Gerekli secret (source repo'da):
-#   RELEASES_DEPLOY_KEY — SSH private key (ed25519). Public yarısı releases
-#                         repo'sunda Deploy Key olarak (Allow write access ✓).
+#   RELEASES_REPO_TOKEN — fine-grained PAT
+#     · Repository access: argusteknoloji/altaris-super-agent-releases (sadece o)
+#     · Permissions:        Contents = Read & Write
+#     · Süre:               1 yıl (rotate edersin)
 
 on:
   push:
@@ -17,12 +20,15 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag to release (e.g. v0.1.0-beta.1)'
+        description: 'Version tag to release (e.g. v0.1.0-beta.2)'
         required: true
         type: string
 
 env:
-  RELEASES_REPO_SSH: git@github.com:argusteknoloji/altaris-super-agent-releases.git
+  RELEASES_REPO: argusteknoloji/altaris-super-agent-releases
+  # vscode/ripgrep postinstall GitHub'dan binary indiriyor; anon trafik 403
+  # yiyor. Authenticated default GITHUB_TOKEN ile rate limit 5000/saat.
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   build:
@@ -47,17 +53,24 @@ jobs:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: latest }
-      - run: bun install --frozen-lockfile
-      - run: bun run build
+      - name: Install deps (with retry — postinstall scripts hit GitHub)
+        run: |
+          for i in 1 2 3; do
+            bun install --frozen-lockfile && break || sleep 10
+          done
+
+      - name: Bundle main artifact (dist/cli.mjs)
+        run: bun run build
+
       - name: Compile single-file binary
         # bun --compile statically resolves every await import() — opsiyonel
         # cloud-provider SDK'ları (AWS Bedrock, Azure, GCP) ve OTel exporters
         # ile sharp/ripgrep external geçilmeli. Liste cli/scripts/build.ts'teki
         # external[] ile eşleşir; bir gün dinamik üretmeli.
         #
-        # GÜVENLIK: --sourcemap KALDIRILDI. Public release repo'sunda yalnız
-        # minified binary olsun; sourcemap orijinal source path'lerini ve
-        # bazı durumlarda gömülü kaynağı sızdırabilir. Source private kalır.
+        # GÜVENLIK: --sourcemap KULLANILMIYOR. Public release repo'sunda yalnız
+        # minified binary olsun; sourcemap orijinal source path'lerini ve bazı
+        # durumlarda gömülü kaynağı sızdırabilir. Source private kalır.
         run: |
           mkdir -p release
           bun build --compile --minify --target=${{ matrix.target }} \
@@ -89,19 +102,13 @@ jobs:
             --external google-auth-library \
             --external @vscode/ripgrep \
             ./dist/cli.mjs --outfile release/${{ matrix.artifact }}
-      # Smoke test devre dışı: --version çağrısı bile startup eager import
-      # yolunda @aws-sdk/client-bedrock-runtime'ı resolve etmeye çalışıyor;
-      # external single-file binary'de node_modules yok. Lazy-import refactor
-      # gerekene kadar binary üretimi yeterli (smoke step release'i blokluyordu).
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: cli/release/${{ matrix.artifact }}
 
   publish:
-    # Tag push (refs/tags/v*) VEYA manual workflow_dispatch ile çalışır.
-    # SSH deploy key ile releases repo'suna binary'leri commit edip
-    # tag push eder; releases repo'sundaki workflow gerçek release'i oluşturur.
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     needs: build
     runs-on: ubuntu-latest
@@ -119,9 +126,9 @@ jobs:
           fi
 
       - name: Flatten artifacts + compute SHA256SUMS
-        # Sıkı whitelist: sadece beş bilinen artifact ismi. Sourcemap/.txt/
-        # logs/sample/profile gibi yan dosyalar ASLA copy edilmesin —
-        # public release repo'sunda yalnız compiled binary olur.
+        # Sıkı whitelist: yalnız beş bilinen artifact ismi. Sourcemap/.txt/
+        # log/profile gibi yan dosyalar ASLA copy edilmesin — public release
+        # asset olarak yalnız compiled binary çıksın.
         run: |
           mkdir -p flat
           for name in altaris-darwin-arm64 altaris-darwin-x64 \
@@ -131,7 +138,6 @@ jobs:
             if [ -z "$src" ]; then echo "MISSING $name" >&2; exit 1; fi
             cp "$src" "flat/$name"
           done
-          # Sourcemap/leak guard: flat/ içinde sadece beklenen 5 dosya olmalı
           unexpected=$(find flat -type f -not -name 'altaris-*' | head)
           if [ -n "$unexpected" ]; then
             echo "REJECT: unexpected file(s) in artifact set: $unexpected" >&2
@@ -142,65 +148,37 @@ jobs:
           ls -la
           cat SHA256SUMS
 
-      - name: Setup SSH agent (deploy key)
-        uses: webfactory/ssh-agent@v0.9.0
+      - name: Publish to public release repo
+        # Doğrudan Releases API ile asset upload — git push limiti (100 MB)
+        # bypass. PAT scope: yalnız `argusteknoloji/altaris-super-agent-
+        # releases` üzerinde Contents: Read & Write.
+        uses: softprops/action-gh-release@v2
         with:
-          ssh-private-key: ${{ secrets.RELEASES_DEPLOY_KEY }}
+          repository: ${{ env.RELEASES_REPO }}
+          token: ${{ secrets.RELEASES_REPO_TOKEN }}
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: Altaris CLI ${{ steps.tag.outputs.name }}
+          files: |
+            flat/altaris-darwin-arm64
+            flat/altaris-darwin-x64
+            flat/altaris-linux-x64
+            flat/altaris-linux-arm64
+            flat/altaris-windows-x64.exe
+            flat/SHA256SUMS
+          body: |
+            Altaris CLI binary release.
+            Source: private `argusteknoloji/altaris-super-agent` (CI build).
 
-      - name: Add github.com to known_hosts
-        run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan github.com >> ~/.ssh/known_hosts
+            ## Indirme
 
-      - name: Push artifacts + tag to releases repo
-        env:
-          TAG: ${{ steps.tag.outputs.name }}
-        run: |
-          set -euo pipefail
-          # Çıktı dizininde temiz bir release repo clone'u oluştur.
-          git clone --depth=1 "$RELEASES_REPO_SSH" release-repo
-          cd release-repo
+            | Platform | Asset |
+            |---|---|
+            | macOS Apple Silicon | `altaris-darwin-arm64` |
+            | macOS Intel         | `altaris-darwin-x64`   |
+            | Linux x86_64        | `altaris-linux-x64`    |
+            | Linux aarch64       | `altaris-linux-arm64`  |
+            | Windows x64         | `altaris-windows-x64.exe` |
 
-          # Bu sürüme ait dosyaları ./bin/<tag>/ altına yerleştir
-          # (latest alias için ayrıca ./bin/latest/ overwrite edilir).
-          # Tek-tek isimle kopyala (glob expansion ile beklenmedik dosya gelmesin).
-          rm -rf "bin/$TAG" bin/latest
-          mkdir -p "bin/$TAG" bin/latest
-          for name in altaris-darwin-arm64 altaris-darwin-x64 \
-                      altaris-linux-x64 altaris-linux-arm64 \
-                      altaris-windows-x64.exe SHA256SUMS; do
-            cp "../flat/$name" "bin/$TAG/$name"
-            cp "../flat/$name" "bin/latest/$name"
-          done
+            Tek-satır kurulum komutları için: Altaris web portal → **CLI Kurulum** (`/setup`).
 
-          # README'yi ilk push'ta yarat — sonraki run'larda override etme.
-          if [ ! -f README.md ]; then
-            cat > README.md <<'EOF'
-          # Altaris CLI — Public Release Artifacts
-
-          Cross-platform CLI binary release'leri. Source code private repo'da:
-          `argusteknoloji/altaris-super-agent`.
-
-          Tüm release'ler Source repo'sundaki `release.yml` workflow'u tarafından
-          SSH deploy key ile bu repo'ya push edilir; bu repo'nun
-          `publish-release.yml` workflow'u tag push'unda otomatik GitHub Release
-          oluşturur.
-
-          Anonymous download:
-          `https://github.com/argusteknoloji/altaris-super-agent-releases/releases/latest/download/<asset>`
-
-          Tek-satır install komutları için: Altaris web portal → **CLI Kurulum** (`/setup`).
-          EOF
-          fi
-
-          git config user.name  "altaris-release-bot"
-          git config user.email "release-bot@argusteknoloji.com"
-          git add bin/ README.md
-          git commit -m "release: $TAG ($(date -u +%Y-%m-%dT%H:%M:%SZ))" || echo "nothing to commit"
-          # Aynı tag yeniden çalışırsa (workflow_dispatch) eski tag'i sil
-          git push origin HEAD:main
-          if git ls-remote --tags origin | grep -q "refs/tags/$TAG$"; then
-            git push origin ":refs/tags/$TAG" || true
-          fi
-          git tag -a "$TAG" -m "Altaris CLI $TAG"
-          git push origin "$TAG"
+            Bütünlük: `SHA256SUMS`
