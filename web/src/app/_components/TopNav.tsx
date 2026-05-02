@@ -57,7 +57,15 @@ export default function TopNav({ email, tenantSlug }: Props) {
       <div className="flex items-center gap-3 text-xs">
         <TenantSwitcher />
         <PresenceBadge />
-        {email && <span className="text-neutral-400">{email}</span>}
+        {email && (
+          <Link
+            href="/account/security"
+            className="text-neutral-400 hover:text-orange-400"
+            title="Hesap güvenliği (2FA, şifre)"
+          >
+            {email}
+          </Link>
+        )}
         <a
           href="/api/auth/full-signout"
           className="rounded-md border border-neutral-800 px-3 py-1 text-neutral-300 hover:bg-neutral-900"

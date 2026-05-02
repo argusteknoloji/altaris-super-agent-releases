@@ -264,6 +264,24 @@ public class KeycloakAdminClient
         putResp.EnsureSuccessStatusCode();
     }
 
+    /// <summary>
+    ///   Bir kullanıcının TOTP credential'ı kurulu mu? (self-service security
+    ///   sayfası bunu çekip "2FA: aktif" göstermek için kullanır.)
+    /// </summary>
+    public async Task<bool> HasTotpAsync(string keycloakUserId, CancellationToken ct = default)
+    {
+        var req = await AuthedAsync(HttpMethod.Get, $"/users/{keycloakUserId}/credentials", null, ct);
+        using var resp = await _http.SendAsync(req, ct);
+        if (!resp.IsSuccessStatusCode) return false;
+        var arr = await resp.Content.ReadFromJsonAsync<List<JsonElement>>(cancellationToken: ct) ?? new();
+        foreach (var c in arr)
+        {
+            var type = c.TryGetProperty("type", out var t) ? t.GetString() : null;
+            if (type is "otp" or "totp") return true;
+        }
+        return false;
+    }
+
     /// <summary>Aynı simetri: RemoveTotpAsync — TOTP credential'ları siler.</summary>
     public async Task RemoveTotpAsync(string keycloakUserId, CancellationToken ct = default)
     {

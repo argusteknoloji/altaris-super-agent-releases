@@ -161,7 +161,7 @@ export default async function HomePage() {
                 altaris
               </code>{" "}
               komutu, web üzerinden yönetilen tek panel, on-prem ya da bulut deploy.
-              KVKK uyumlu audit trail, çoklu kiracı izolasyonu, vault tabanlı kurumsal hafıza —
+              KVKK uyumlu audit trail, kurumlara özel veri izolasyonu, vault tabanlı kurumsal hafıza —
               tek binary, tek kontrol düzlemi, ekibinizin paylaşılan zihni.
             </p>
           </div>
@@ -176,7 +176,7 @@ export default async function HomePage() {
               <span className="text-[#7a7166]">altaris</span>{" "}
               <span className="text-[#ddd8d0]">login</span>{" "}
               <span className="text-[#9b9285]">--api</span>{" "}
-              <span className="text-[#f08c50]">https://altaris.acme.com</span>
+              <span className="text-[#f08c50]">https://altaris.local</span>
             </code>
             <span aria-hidden className="ml-1 inline-block h-4 w-[7px] bg-[#f08c50] a-blink" />
           </div>
@@ -198,8 +198,8 @@ export default async function HomePage() {
           <div className="grid gap-px overflow-hidden rounded-md border border-[rgba(120,80,50,0.22)] bg-[rgba(120,80,50,0.22)] md:grid-cols-3">
             <FeatureCard num="01" title="Terminal">
               <code className="text-[#f08c50]">altaris</code> komutu ile lokal LLM destekli agentik shell.
-              macOS, Linux, Windows tek binary. Codex, OpenAI, Anthropic, Ollama, Mistral, Gemini —
-              hepsi tek <em className="text-[#ddd8d0] not-italic">tenant config</em>'in arkasında.
+              macOS, Linux, Windows tek binary. Bulut ve kurum içi model sağlayıcıları —
+              hepsi tek <em className="text-[#ddd8d0] not-italic">kurum ayarı</em>'nın arkasında.
             </FeatureCard>
             <FeatureCard num="02" title="Web Chat">
               Tarayıcıdan oturum aç, ekibinizle paylaşılan kurumsal hafızada sohbet et. Vault tabanlı bağlam,
@@ -221,10 +221,10 @@ export default async function HomePage() {
               title="Bulut"
               subtitle="Hızlı başla, üst-tier modeller"
               points={[
-                "Anthropic Claude · OpenAI GPT · Google Gemini",
-                "Çoklu kiracı izolasyonlu PostgreSQL · Row-Level Security",
-                "Keycloak OAuth + kurumsal SSO entegrasyonu hazır",
-                "Tarayıcı OAuth ile ChatGPT/Codex hesabı bağlama",
+                "Üst seviye bulut model seçenekleri",
+                "Veritabanı seviyesinde kurumlara özel veri izolasyonu",
+                "Kurumsal SSO entegrasyonu hazır",
+                "Tarayıcı üzerinden mevcut model hesaplarını bağlama",
               ]}
             />
             <DeployPanel
@@ -232,8 +232,8 @@ export default async function HomePage() {
               title="On-Prem"
               subtitle="Veri tek bir bayt dışarı çıkmaz"
               points={[
-                "Lokal Ollama · vLLM · LM Studio bağlantısı",
-                "Kurum içi PostgreSQL + Keycloak konteynerleri",
+                "Kurum içi model altyapısı bağlantısı",
+                "Kurum içi veritabanı ve kimlik yönetimi",
                 "Air-gapped kurulum, hava boşluklu güncelleme paketleri",
                 "Kamu, savunma, finans için KVKK + ISO 27001 hizalı",
               ]}
@@ -396,24 +396,24 @@ function DeployPanel({
 
 const CAPS: Array<[string, string]> = [
   [
-    "Multi-tenant RLS",
-    "Tek fiziksel veritabanı, tenant_id discrimination, PostgreSQL Row-Level Security policy'leri ile katı izolasyon.",
+    "Kurumsal veri izolasyonu",
+    "Tek fiziksel veritabanı üzerinde kurum bazlı ayrım ve katı erişim politikalarıyla izolasyon.",
   ],
   [
     "KVKK-uyumlu audit",
-    "Her API çağrısı, her takeover, her provider geçişi audit_events'e yazılır. Tam izlenebilir kurumsal trail.",
+    "Her işlem, yetkili erişim ve model geçişi merkezi olarak kayıt altına alınır. Tam izlenebilir kurumsal trail.",
   ],
   [
-    "Keycloak OAuth + SSO",
-    "CLI için Device Flow, web için NextAuth, kurumsal IdP federasyonu — tek SSO tüm yüzeyleri kapsar.",
+    "Kurumsal SSO",
+    "CLI, web ve yönetim paneli aynı kurumsal kimlik altyapısı üzerinden güvenli oturum açar.",
   ],
   [
-    "Provider abstraction",
-    "Codex · OpenAI · Anthropic · Ollama · Mistral · Gemini. Tek tenant config'te değiştir, mid-session geçiş yap.",
+    "Model soyutlama katmanı",
+    "Bulut ve kurum içi model sağlayıcıları tek kurum ayarında yönetilir; oturum içinde kontrollü geçiş yapılır.",
   ],
   [
     "Vault tabanlı hafıza",
-    "Obsidian uyumlu kurumsal knowledge base, PostgreSQL FTS + pg_trgm fuzzy search, paylaşımlı bağlam.",
+    "Obsidian uyumlu kurumsal knowledge base, güçlü arama ve paylaşımlı bağlam yönetimi.",
   ],
   [
     "Container-only kurulum",
