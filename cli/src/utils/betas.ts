@@ -160,20 +160,28 @@ export function modelSupportsStructuredOutputs(model: string): boolean {
 export function modelSupportsAutoMode(model: string): boolean {
   if (feature('TRANSCRIPT_CLASSIFIER')) {
     const m = getCanonicalName(model)
-    // External: firstParty-only at launch (PI probes not wired for
-    // Bedrock/Vertex/Foundry yet). Checked before allowModels so the GB
-    // override can't enable auto mode on unsupported providers.
-    if (process.env.USER_TYPE !== 'ant' && getAPIProvider() !== 'firstParty') {
+
+    // Altaris: provider firstParty kısıtını kaldırıyoruz. Altaris LM Studio,
+    // Ollama, OpenAI, Anthropic vb. her provider'da çalışmalı; auto mode
+    // bizim sorumluluğumuz (PI probe upstream'de Anthropic infra'sına
+    // bağlı, bizde gerek yok). ALTARIS_AUTO_MODE_FIRSTPARTY_ONLY=1 ile
+    // upstream davranışına geri döner.
+    const altarisFirstPartyOnly = process.env.ALTARIS_AUTO_MODE_FIRSTPARTY_ONLY === '1'
+    if (altarisFirstPartyOnly && process.env.USER_TYPE !== 'ant' && getAPIProvider() !== 'firstParty') {
       return false
     }
+
     // GrowthBook override: tengu_auto_mode_config.allowModels force-enables
     // auto mode for listed models, bypassing the denylist/allowlist below.
-    // Exact model IDs (e.g. "claude-strudel-v6-p") match only that model;
-    // canonical names (e.g. "claude-strudel") match the whole family.
+    // Altaris build-default'u allowModels=['*'] gönderir (no-telemetry-plugin),
+    // dolayısıyla wildcard her modeli kabul eder.
     const config = getFeatureValue_CACHED_MAY_BE_STALE<{
       allowModels?: string[]
     }>('tengu_auto_mode_config', {})
     const rawLower = model.toLowerCase()
+    if (config?.allowModels?.some(am => am === '*')) {
+      return true
+    }
     if (
       config?.allowModels?.some(
         am => am.toLowerCase() === rawLower || am.toLowerCase() === m,
@@ -188,7 +196,7 @@ export function modelSupportsAutoMode(model: string): boolean {
       if (/claude-(opus|sonnet|haiku)-4(?!-[6-9])/.test(m)) return false
       return true
     }
-    // External allowlist (firstParty already checked above).
+    // External allowlist (Altaris build'inde allowModels=['*'] zaten true döndürür).
     return /^claude-(opus|sonnet)-4-6/.test(m)
   }
   return false

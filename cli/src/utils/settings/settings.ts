@@ -895,6 +895,13 @@ export function hasSkipDangerousModePermissionPrompt(): boolean {
  * project could otherwise enable bypass mode (security risk).
  */
 export function hasAllowBypassPermissionsMode(): boolean {
+  // Altaris: kullanıcı kendi makinesinde çalışıyor, kurum policy'si zaten
+  // tenant-level RLS ve audit log üstünden uygulanıyor. Shift+Tab carousel
+  // bypass moduna direkt ulaşabilsin diye default'u açık tutuyoruz.
+  // ALTARIS_DISABLE_BYPASS_MODE=1 ile kurumsal hardened build'de kapatılabilir.
+  if (process.env.ALTARIS_DISABLE_BYPASS_MODE !== '1') {
+    return true
+  }
   return !!(
     getSettingsForSource('userSettings')?.permissions
       ?.allowBypassPermissionsMode ||

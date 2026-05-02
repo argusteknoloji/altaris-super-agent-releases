@@ -4,6 +4,9 @@ import autofixPr from './commands/autofix-pr/index.js'
 import backfillSessions from './commands/backfill-sessions/index.js'
 import btw from './commands/btw/index.js'
 import goodClaude from './commands/good-altaris/index.js'
+// Argus extensions
+import argusRemoteControl from './commands/remote-control/index.js'
+import argusCreateVault from './commands/create-vault/index.js'
 import issue from './commands/issue/index.js'
 import feedback from './commands/feedback/index.js'
 import clear from './commands/clear/index.js'
@@ -342,6 +345,9 @@ const COMMANDS = memoize((): Command[] => [
   ...(assistantCommand ? [assistantCommand] : []),
   ...(bridge ? [bridge] : []),
   ...(remoteControlServerCommand ? [remoteControlServerCommand] : []),
+  // Argus: vault yönetimi + Remote Control yayını için interactive slash'lar
+  argusRemoteControl,
+  argusCreateVault,
   ...(voiceCommand ? [voiceCommand] : []),
   thinkback,
   thinkbackPlay,

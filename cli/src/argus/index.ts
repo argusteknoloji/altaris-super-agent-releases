@@ -12,7 +12,7 @@ import type { Command } from "commander";
 import { altarisLogin, altarisLogout, altarisWhoami, getAccessToken } from "./login.js";
 import { registerVaultCommands } from "./vaults.js";
 
-const API_BASE = process.env.ALTARIS_API_BASE ?? "http://localhost:5000";
+const API_BASE = process.env.ALTARIS_API_BASE ?? "http://localhost:5050";
 
 export function registerArgusCommands(program: Command): void {
   program

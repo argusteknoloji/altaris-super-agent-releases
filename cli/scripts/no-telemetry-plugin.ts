@@ -54,6 +54,18 @@ const _openBuildDefaults = {
   'tengu_hive_evidence': true,  // VERIFICATION_AGENT — read-only test/verification agent (upstream: false)
   'tengu_passport_quail': true, // EXTRACT_MEMORIES — enable memory extraction (upstream: false)
   'tengu_coral_fern': true,     // EXTRACT_MEMORIES — enable memory search in past context (upstream: false)
+  // Auto mode (Shift+Tab carousel'inin son durağı). Altaris kendi infra'sını
+  // çalıştırdığı için GrowthBook gate'i yok; build-default 'enabled'.
+  // ALTARIS_AUTO_MODE_OPT_IN=1 → 'opt-in' (yalnızca explicit --enable-auto-mode).
+  // ALTARIS_AUTO_MODE_DISABLE=1 → 'disabled' (kurum policy switch'i).
+  'tengu_auto_mode_config': (() => {
+    if (process.env.ALTARIS_AUTO_MODE_DISABLE === '1') return { enabled: 'disabled' };
+    if (process.env.ALTARIS_AUTO_MODE_OPT_IN  === '1') return { enabled: 'opt-in'   };
+    // allowModels: '*' → modelSupportsAutoMode için universal whitelist.
+    // Provider firstParty kısıtı patch'i (modelSupportsAutoMode) ile birlikte
+    // her provider'da (LM Studio, Ollama, OpenAI, Anthropic) çalışır.
+    return { enabled: 'enabled', allowModels: ['*'] };
+  })(),
 };
 
 /* ── Known runtime feature keys (reference only) ───────────────────────
