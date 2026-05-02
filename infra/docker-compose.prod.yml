@@ -130,8 +130,11 @@ services:
       AUTH_KEYCLOAK_SECRET: ${WEB_KEYCLOAK_SECRET:-}
       AUTH_KEYCLOAK_ISSUER: "https://${PRIMARY_KC_HOSTNAME}/realms/${KC_REALM:-altaris}"
       ALTARIS_API_BASE:     "http://api:5000"
+      # AUTH_TRUST_HOST=true + NEXTAUTH_URL UNSET → NextAuth callback URL'i istek
+      # host'undan dinamik üretir. Multi-domain (altarisplatform.com + altaris.run)
+      # için zorunlu. NEXTAUTH_URL set edilirse o domain'e zorla redirect ederek
+      # state cookie mismatch yaratıyor.
       AUTH_TRUST_HOST:      "true"
-      NEXTAUTH_URL:         "https://${PRIMARY_WEB_HOSTNAME}"
     depends_on:
       api: { condition: service_healthy }
     networks: [internal]
