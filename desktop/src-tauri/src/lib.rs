@@ -50,6 +50,7 @@ pub fn run() {
             api::api_put,
             api::api_patch,
             api::api_delete,
+            api::ws_connection_info,
             terminal::terminal_open,
             terminal::terminal_write,
             terminal::terminal_close,

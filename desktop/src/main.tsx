@@ -7,6 +7,7 @@ import ChatPage from "./pages/ChatPage";
 import CodePage from "./pages/CodePage";
 import TerminalPage from "./pages/TerminalPage";
 import VaultsPage from "./pages/VaultsPage";
+import RemoteControlPage from "./pages/RemoteControlPage";
 import "./index.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
@@ -20,6 +21,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="code" element={<CodePage />} />
           <Route path="terminal" element={<TerminalPage />} />
           <Route path="vaults" element={<VaultsPage />} />
+          <Route path="remote-control" element={<RemoteControlPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

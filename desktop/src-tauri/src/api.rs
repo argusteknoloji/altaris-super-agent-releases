@@ -52,3 +52,16 @@ pub async fn api_patch(path: String, body: Option<serde_json::Value>, state: Sta
 pub async fn api_delete(path: String, state: State<'_, Arc<AppState>>) -> Result<serde_json::Value, String> {
     authed_call(reqwest::Method::DELETE, path, None, state).await
 }
+
+/// WebSocket bağlantısı kurmak için renderer'a access_token + api_base ver.
+/// Browser WebSocket Authorization header desteklemediğinden token query string'e
+/// eklenir (?access_token=...). Backend JWT bearer middleware bunu zaten kabul ediyor.
+#[tauri::command]
+pub async fn ws_connection_info(state: State<'_, Arc<AppState>>) -> Result<serde_json::Value, String> {
+    let token = state.token.lock().await.clone()
+        .ok_or_else(|| "Not logged in".to_string())?;
+    Ok(serde_json::json!({
+        "apiBase":     state.api_base,
+        "accessToken": token,
+    }))
+}

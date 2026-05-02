@@ -92,6 +92,7 @@ export default function App() {
           {has("vault.read")       && <NavItem to="/vaults"   label="Vaults" />}
           {true                    && <NavItem to="/code"     label="Code" />}
           {true                    && <NavItem to="/terminal" label="Terminal" />}
+          {has("remote_control.view") && <NavItem to="/remote-control" label="🎥 Remote" />}
         </nav>
         <div className="mt-auto pt-4">
           {me?.capabilities && (
