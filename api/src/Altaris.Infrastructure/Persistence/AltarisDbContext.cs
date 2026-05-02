@@ -17,6 +17,7 @@ public class AltarisDbContext : DbContext
     public DbSet<ProviderConfig> ProviderConfigs => Set<ProviderConfig>();
     public DbSet<Vault> Vaults => Set<Vault>();
     public DbSet<VaultFile> VaultFiles => Set<VaultFile>();
+    public DbSet<VaultEmbedding> VaultEmbeddings => Set<VaultEmbedding>();
     public DbSet<UserCapability> UserCapabilities => Set<UserCapability>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -161,6 +162,22 @@ public class AltarisDbContext : DbContext
             e.Property(x => x.Bytes).HasColumnName("bytes");
             e.Property(x => x.IndexedAt).HasColumnName("indexed_at");
             e.HasIndex(x => new { x.VaultId, x.Path }).IsUnique();
+        });
+
+        modelBuilder.Entity<VaultEmbedding>(e =>
+        {
+            e.ToTable("vault_embeddings");
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.VaultId).HasColumnName("vault_id");
+            e.Property(x => x.TenantId).HasColumnName("tenant_id");
+            e.Property(x => x.FileId).HasColumnName("file_id");
+            e.Property(x => x.FilePath).HasColumnName("file_path");
+            e.Property(x => x.ChunkIndex).HasColumnName("chunk_index");
+            e.Property(x => x.ChunkText).HasColumnName("chunk_text");
+            e.Property(x => x.EmbeddingModel).HasColumnName("embedding_model");
+            e.Property(x => x.Embedding).HasColumnName("embedding").HasColumnType("vector");
+            e.Property(x => x.IndexedAt).HasColumnName("indexed_at");
+            e.HasIndex(x => new { x.VaultId, x.FilePath, x.ChunkIndex, x.EmbeddingModel }).IsUnique();
         });
 
         modelBuilder.Entity<UserCapability>(e =>

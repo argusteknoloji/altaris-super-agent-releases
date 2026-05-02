@@ -28,6 +28,8 @@ public static class VaultEndpoints
         app.MapPatch ("/api/v1/vaults/{slug}",         PatchVault).RequireAuthorization();   // body: {visibility?, name?}
 
         app.MapGet   ("/api/v1/vaults/{slug}/search",  Search).RequireAuthorization();       // ?q=...
+        app.MapGet   ("/api/v1/vaults/{slug}/semantic-search", SemanticSearch).RequireAuthorization(); // ?q=...&k=10
+        app.MapPost  ("/api/v1/vaults/{slug}/reindex", ReindexAll).RequireAuthorization();   // tenant-admin reembed
         app.MapGet   ("/api/v1/vaults/{slug}/graph",   Graph).RequireAuthorization();
         return app;
     }
@@ -154,7 +156,9 @@ public static class VaultEndpoints
 
     private static async Task<IResult> PutFile(
         string slug, PutFileRequest body, AltarisDbContext db, ITenantContext tc,
-        VaultStorage store, CancellationToken ct)
+        VaultStorage store,
+        IServiceScopeFactory scopeFactory,
+        CancellationToken ct)
     {
         if (tc.TenantId is null || tc.TenantSlug is null) return Results.Forbid();
         if (!store.VaultExists(tc.TenantSlug, slug)) return Results.NotFound();
@@ -219,6 +223,43 @@ public static class VaultEndpoints
         }
 
         await db.SaveChangesAsync(ct);
+
+        // Embedding pipeline — fire-and-forget AYRI scope'la (request scope
+        // bittikten sonra DbContext dispose olur). Provider yoksa veya
+        // embedding fail olsa bile vault yazımı başarılı sayılır.
+        if (IsIndexable(body.Path))
+        {
+            var vaultId   = v.Id;
+            var vaultTid  = v.TenantId;
+            var filePath  = body.Path;
+            var content   = body.Content;
+            _ = Task.Run(async () =>
+            {
+                using var scope = scopeFactory.CreateScope();
+                var sdb     = scope.ServiceProvider.GetRequiredService<AltarisDbContext>();
+                var stc     = scope.ServiceProvider.GetRequiredService<ITenantContext>();
+                stc.Set(vaultTid, "", Guid.Empty, "embedding-worker");
+                // RLS context — embedding worker tenant_id'yi kendisi set eder
+                // (request middleware bu scope'ta çalışmıyor).
+                await sdb.Database.ExecuteSqlRawAsync(
+                    "SELECT set_config('app.tenant_id', @p0, true)", vaultTid.ToString());
+                var sIndexer = scope.ServiceProvider.GetRequiredService<Altaris.Infrastructure.Embeddings.EmbeddingIndexer>();
+                try
+                {
+                    var prov = await ResolveEmbeddingProvider(sdb, stc, default);
+                    if (prov is null) return;
+                    await sIndexer.IngestAsync(new Altaris.Infrastructure.Embeddings.EmbeddingIndexer.IngestRequest(
+                        VaultId: vaultId, TenantId: vaultTid, FileId: null,
+                        FilePath: filePath, Content: content,
+                        EmbeddingBaseUrl: prov.Value.baseUrl,
+                        EmbeddingApiKey:  prov.Value.apiKey,
+                        EmbeddingModel:   prov.Value.model
+                    ), default);
+                }
+                catch { /* indexing fail kullanıcıyı engellemez */ }
+            });
+        }
+
         return Results.Ok(new
         {
             path     = body.Path,
@@ -380,5 +421,100 @@ public static class VaultEndpoints
         if (tc.TenantSlug is null) return Results.Forbid();
         if (!store.VaultExists(tc.TenantSlug, slug)) return Results.NotFound();
         return Results.Ok(store.BuildGraph(tc.TenantSlug, slug));
+    }
+
+    // ─── EMBEDDING / RAG (Sprint EB-1) ────────────────────────────────────
+
+    /// <summary>
+    ///   Tenant'ın aktif embedding provider'ı için config çek. Default
+    ///   provider'ın model alanı 'text-embedding-3-small' veya
+    ///   'nomic-embed-text' (Ollama) gibi bir embedding model'i olmalı.
+    ///   Provider yoksa null → semantic search disable.
+    /// </summary>
+    private static async Task<(string baseUrl, string apiKey, string model)?> ResolveEmbeddingProvider(
+        AltarisDbContext db, ITenantContext tc, CancellationToken ct)
+    {
+        // Convention: provider kaydının metadata.kind == "embedding" olanı
+        // tercih et, yoksa default provider'ın model'i embedding gibi
+        // görünüyorsa onu kullan. MVP: en basit — default provider model + base.
+        var p = await db.ProviderConfigs.AsNoTracking()
+            .Where(x => x.TenantId == tc.TenantId && x.Enabled)
+            .OrderByDescending(x => x.IsDefault).ThenBy(x => x.Provider)
+            .FirstOrDefaultAsync(ct);
+        if (p is null) return null;
+        var baseUrl = p.BaseUrl ?? "";
+        var apiKey  = p.ApiKeyEnc ?? "";
+        // Embedding-için-uygun-model heuristic: tenant default model embedding
+        // adına benziyor mu? Değilse OpenAI default'a düş.
+        var model = (p.DefaultModel ?? "").Contains("embed", StringComparison.OrdinalIgnoreCase)
+            ? p.DefaultModel!
+            : "text-embedding-3-small";   // OpenAI default
+        return (baseUrl, apiKey, model);
+    }
+
+    public record SemanticHitDto(string Path, int ChunkIndex, string Snippet, float Distance);
+
+    private static async Task<IResult> SemanticSearch(
+        string slug, string q, AltarisDbContext db, ITenantContext tc,
+        Altaris.Infrastructure.Embeddings.EmbeddingClient client,
+        Altaris.Infrastructure.Embeddings.EmbeddingIndexer indexer,
+        int k = 10, CancellationToken ct = default)
+    {
+        if (tc.TenantId is null) return Results.Forbid();
+        var v = await db.Vaults.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.TenantId == tc.TenantId && x.Slug == slug, ct);
+        if (v is null) return Results.NotFound();
+        if (string.IsNullOrWhiteSpace(q)) return Results.Ok(Array.Empty<SemanticHitDto>());
+
+        var prov = await ResolveEmbeddingProvider(db, tc, ct);
+        if (prov is null)
+            return Results.BadRequest(new { error = "no_embedding_provider", hint = "Tenant'a en az bir aktif provider ekle" });
+
+        var queryEmb = await client.EmbedAsync(
+            new Altaris.Infrastructure.Embeddings.EmbeddingClient.EmbedRequest(
+                prov.Value.baseUrl, prov.Value.apiKey, prov.Value.model, new[] { q }), ct);
+        if (queryEmb.Vectors.Count == 0)
+            return Results.Problem("Embedding üretilemedi", statusCode: 502);
+
+        var hits = await indexer.SearchAsync(v.Id, prov.Value.model, queryEmb.Vectors[0], Math.Clamp(k, 1, 50), ct);
+        return Results.Ok(hits.Select(h => new SemanticHitDto(h.FilePath, h.ChunkIndex, h.Snippet, h.Distance)));
+    }
+
+    /// <summary>
+    ///   Vault'un TÜM dosyalarını yeniden chunkle + embed. Provider/model
+    ///   değişimi sonrası veya ilk kez embedding kuran tenant için.
+    /// </summary>
+    private static async Task<IResult> ReindexAll(
+        string slug, AltarisDbContext db, ITenantContext tc, VaultStorage store,
+        Altaris.Infrastructure.Embeddings.EmbeddingIndexer indexer, CancellationToken ct)
+    {
+        if (tc.TenantId is null || tc.TenantSlug is null) return Results.Forbid();
+        var v = await db.Vaults.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.TenantId == tc.TenantId && x.Slug == slug, ct);
+        if (v is null) return Results.NotFound();
+        var prov = await ResolveEmbeddingProvider(db, tc, ct);
+        if (prov is null)
+            return Results.BadRequest(new { error = "no_embedding_provider" });
+
+        int count = 0;
+        foreach (var f in store.List(tc.TenantSlug, slug))
+        {
+            // Sadece text-based dosyaları index'le.
+            var lower = f.Path.ToLowerInvariant();
+            if (!lower.EndsWith(".md") && !lower.EndsWith(".txt")
+             && !lower.EndsWith(".json") && !lower.EndsWith(".yaml") && !lower.EndsWith(".yml"))
+                continue;
+
+            string text;
+            try { text = await store.ReadTextAsync(tc.TenantSlug, slug, f.Path, ct); }
+            catch { continue; }
+
+            await indexer.IngestAsync(new Altaris.Infrastructure.Embeddings.EmbeddingIndexer.IngestRequest(
+                VaultId: v.Id, TenantId: v.TenantId, FileId: null, FilePath: f.Path, Content: text,
+                EmbeddingBaseUrl: prov.Value.baseUrl, EmbeddingApiKey: prov.Value.apiKey, EmbeddingModel: prov.Value.model
+            ), ct);
+            count++;
+        }
+        return Results.Ok(new { indexedFiles = count, model = prov.Value.model });
     }
 }

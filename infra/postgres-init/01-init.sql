@@ -5,6 +5,10 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- pg_trgm for trigram fuzzy matching (vault search snippets / typos).
 CREATE EXTENSION IF NOT EXISTS "pg_trgm";
+-- pgvector — Executive Brain Vision RAG katmanı için embedding store.
+-- Postgres 16 image'ı pgvector default kurulu değildir; image olarak
+-- pgvector/pgvector:pg16 kullanılmalı veya extension manuel eklenmeli.
+CREATE EXTENSION IF NOT EXISTS "vector";
 
 -- Tenant registry (no RLS — system table)
 CREATE TABLE IF NOT EXISTS tenants (
@@ -143,6 +147,47 @@ CREATE TABLE IF NOT EXISTS user_capabilities (
 CREATE INDEX IF NOT EXISTS user_capabilities_user_idx ON user_capabilities(user_id);
 ALTER TABLE user_capabilities ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation_user_caps ON user_capabilities
+    USING (tenant_id::text = current_setting('app.tenant_id', true));
+
+-- ============================================================
+-- Vault embedding store — Executive Brain RAG layer
+--
+-- Her vault dosyası 512-token civarı chunk'lara bölünüp embedding
+-- modelinden geçirilir. Vector dimension provider seçimine bağlı:
+--   - OpenAI text-embedding-3-small: 1536
+--   - sentence-transformers all-MiniLM-L6-v2 (lokal): 384
+--   - cohere embed-multilingual-v3: 1024
+-- Tek tablo, dimension farklı modeller için NULL dimension constraint
+-- konmadı; semantic_search endpoint'i provider'a göre filter atar.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS vault_embeddings (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    vault_id        UUID NOT NULL REFERENCES vaults(id) ON DELETE CASCADE,
+    tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    file_id         UUID REFERENCES vault_files(id) ON DELETE CASCADE,
+    file_path       TEXT NOT NULL,
+    chunk_index     INTEGER NOT NULL,
+    chunk_text      TEXT NOT NULL,
+    -- Provider sabit: aynı tenant aynı modelle tutarlı embedding üretir,
+    -- model değişirse re-embed gerekir (bütün kayıtlar yenilenir).
+    embedding_model TEXT NOT NULL,
+    -- pgvector kolonu — boyut model'e bağlı; ikisi de aynı endeksi
+    -- kullanamaz, tek tabloda farklı boyutlu vektörler için
+    -- 'embedding_model' filter'ı zorunludur.
+    embedding       vector,
+    indexed_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (vault_id, file_path, chunk_index, embedding_model)
+);
+CREATE INDEX IF NOT EXISTS vault_embeddings_tenant_idx ON vault_embeddings(tenant_id);
+CREATE INDEX IF NOT EXISTS vault_embeddings_vault_idx  ON vault_embeddings(vault_id);
+-- Cosine similarity için ivfflat index (model dimension'ına göre yeniden
+-- inşa edilmesi gerekir — embedding_model değiştirince ALTER TABLE +
+-- REINDEX). lists=100 ortalama 1M satır altı için iyi default.
+-- Index oluşturma init.sql'de skip edilir; ilk embedding'den sonra
+-- altaris-api startup'ta opsiyonel olarak ANALYZE + index oluşturur.
+
+ALTER TABLE vault_embeddings ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_vault_embeds ON vault_embeddings
     USING (tenant_id::text = current_setting('app.tenant_id', true));
 
 -- Invitations (tenant onboarding)

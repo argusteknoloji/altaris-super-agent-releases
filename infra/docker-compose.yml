@@ -16,7 +16,9 @@
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector dahil official image — Executive Brain RAG için 'vector'
+    # extension'ı önceden derlenmiş (postgres:16-alpine'da bulunmaz).
+    image: pgvector/pgvector:pg16
     container_name: altaris-postgres
     restart: unless-stopped
     environment:

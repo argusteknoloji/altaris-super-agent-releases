@@ -83,11 +83,17 @@ try
 
     var pgConn = builder.Configuration.GetConnectionString("Postgres")
                  ?? "Host=localhost;Port=5433;Database=altaris;Username=altaris;Password=altaris_dev";
-    builder.Services.AddDbContext<AltarisDbContext>(opts => opts.UseNpgsql(pgConn));
+    builder.Services.AddDbContext<AltarisDbContext>(opts =>
+        opts.UseNpgsql(pgConn, npg => npg.UseVector()));
 
     builder.Services.AddScoped<ITenantContext, TenantContext>();
     builder.Services.AddHttpContextAccessor();
     builder.Services.AddScoped<Altaris.Infrastructure.Permissions.CapabilityResolver>();
+
+    // Embedding pipeline (Sprint EB-1) — vault.PUT event'inde Indexer'a
+    // file gönderir; HttpClientFactory ile network call'lar pool'lanır.
+    builder.Services.AddHttpClient<Altaris.Infrastructure.Embeddings.EmbeddingClient>();
+    builder.Services.AddScoped<Altaris.Infrastructure.Embeddings.EmbeddingIndexer>();
     builder.Services.AddHostedService<Altaris.Api.Services.CodexTokenRefreshWorker>();
 
     // ── Health checks (liveness vs readiness) ──────────────────────────────
@@ -207,6 +213,28 @@ try
                 ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS account_id               TEXT;
                 ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS access_token_expires_at  TIMESTAMPTZ;
                 ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS last_refreshed_at        TIMESTAMPTZ;
+
+                CREATE EXTENSION IF NOT EXISTS ""vector"";
+
+                CREATE TABLE IF NOT EXISTS vault_embeddings (
+                    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                    vault_id        UUID NOT NULL REFERENCES vaults(id) ON DELETE CASCADE,
+                    tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                    file_id         UUID REFERENCES vault_files(id) ON DELETE CASCADE,
+                    file_path       TEXT NOT NULL,
+                    chunk_index     INTEGER NOT NULL,
+                    chunk_text      TEXT NOT NULL,
+                    embedding_model TEXT NOT NULL,
+                    embedding       vector,
+                    indexed_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    UNIQUE (vault_id, file_path, chunk_index, embedding_model)
+                );
+                CREATE INDEX IF NOT EXISTS vault_embeddings_tenant_idx ON vault_embeddings(tenant_id);
+                CREATE INDEX IF NOT EXISTS vault_embeddings_vault_idx  ON vault_embeddings(vault_id);
+                ALTER TABLE vault_embeddings ENABLE ROW LEVEL SECURITY;
+                DROP POLICY IF EXISTS tenant_isolation_vault_embeds ON vault_embeddings;
+                CREATE POLICY tenant_isolation_vault_embeds ON vault_embeddings
+                    USING (tenant_id::text = current_setting('app.tenant_id', true));
 
                 CREATE TABLE IF NOT EXISTS user_capabilities (
                     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

@@ -6,4 +6,9 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- pgvector C# binding — Pgvector.Vector entity property tipi. -->
+    <PackageReference Include="Pgvector" Version="0.3.0" />
+  </ItemGroup>
+
 </Project>
