@@ -44,6 +44,11 @@ public static class Capabilities
     // Admin (platform scope — only platform_admin role grants by default)
     public const string AdminTenants      = "admin.tenants";
 
+    // Executive Brain
+    public const string ExecutiveBrainUse           = "executive_brain.use";
+    public const string ExecutiveBrainManageAgents  = "executive_brain.manage_agents";
+    public const string ExecutiveBrainViewAllJobs   = "executive_brain.view_all_jobs";
+
     // API keys
     public const string ApiKeyCreate      = "api_key.create";
     public const string ApiKeyListOwn     = "api_key.list_own";
@@ -57,6 +62,7 @@ public static class Capabilities
         VaultRead, VaultWrite, VaultCreate, VaultDelete, VaultShare,
         RemoteControlPublish, RemoteControlView, RemoteControlTakeover,
         AdminUsers, AdminProviders, AdminAudit, AdminInvitations, AdminTenants,
+        ExecutiveBrainUse, ExecutiveBrainManageAgents, ExecutiveBrainViewAllJobs,
         ApiKeyCreate, ApiKeyListOwn, ApiKeyListAll,
     };
 }
@@ -73,6 +79,7 @@ public static class RoleDefaults
         Capabilities.SessionCreate, Capabilities.SessionViewOwn,
         Capabilities.VaultRead, Capabilities.VaultWrite, Capabilities.VaultCreate,
         Capabilities.RemoteControlPublish,
+        Capabilities.ExecutiveBrainUse,
         Capabilities.ApiKeyCreate, Capabilities.ApiKeyListOwn,
     };
 
@@ -83,6 +90,7 @@ public static class RoleDefaults
         Capabilities.RemoteControlView, Capabilities.RemoteControlTakeover,
         Capabilities.AdminUsers, Capabilities.AdminProviders,
         Capabilities.AdminAudit, Capabilities.AdminInvitations,
+        Capabilities.ExecutiveBrainManageAgents, Capabilities.ExecutiveBrainViewAllJobs,
         Capabilities.ApiKeyListAll,
     };
 

@@ -190,6 +190,80 @@ ALTER TABLE vault_embeddings ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation_vault_embeds ON vault_embeddings
     USING (tenant_id::text = current_setting('app.tenant_id', true));
 
+-- ============================================================
+-- Executive Brain — production-grade agent system
+--
+-- Her tenant kendi yöneticisine özgü ajanlar tanımlar (CFO Ajanı, CRO,
+-- Risk Analisti vb.). Ajan = system_prompt + model + vault filtresi +
+-- izin verilen tool listesi + (opsiyonel) cron schedule.
+-- ============================================================
+CREATE TABLE IF NOT EXISTS executive_agents (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    slug            TEXT NOT NULL,
+    name            TEXT NOT NULL,
+    description     TEXT,
+    system_prompt   TEXT NOT NULL,
+    -- Model override; NULL ise tenant default provider'ın model'i kullanılır.
+    model           TEXT,
+    embedding_model TEXT,
+    -- JSON array of vault slugs to scope. NULL → tüm executive/tenant vault'lar.
+    vault_filter    JSONB,
+    -- JSON array of allowed tool names (calc, code_exec, sql, chart)
+    tools           JSONB NOT NULL DEFAULT '[]'::jsonb,
+    -- Cron expression for scheduled runs (NULL → manuel sadece)
+    schedule_cron   TEXT,
+    schedule_prompt TEXT,        -- Cron tetiklendiğinde kullanılacak otomatik soru
+    enabled         BOOLEAN NOT NULL DEFAULT true,
+    created_by      UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (tenant_id, slug)
+);
+CREATE INDEX IF NOT EXISTS executive_agents_tenant_idx ON executive_agents(tenant_id);
+ALTER TABLE executive_agents ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_exec_agents ON executive_agents
+    USING (tenant_id::text = current_setting('app.tenant_id', true));
+
+-- ============================================================
+-- Async Job queue
+--
+-- Yöneticinin sorduğu her soru bir job satırı yaratır. Background
+-- worker queue'dan çeker, RAG + LLM çalıştırır, answer_json'a yazar.
+-- Hızlı sorular ~saniye, complex tool-using ajanlar dakikalar sürebilir;
+-- UI status polling yapar (websocket alternatifi).
+-- ============================================================
+CREATE TABLE IF NOT EXISTS executive_jobs (
+    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    user_id         UUID REFERENCES users(id) ON DELETE SET NULL,
+    agent_id        UUID REFERENCES executive_agents(id) ON DELETE SET NULL,
+    -- Conversation thread (multi-turn için EB-3.4)
+    thread_id       UUID,
+    question        TEXT NOT NULL,
+    -- 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+    status          TEXT NOT NULL DEFAULT 'pending',
+    answer          TEXT,
+    citations       JSONB,
+    error_text      TEXT,
+    -- Progress trace — her adım (embed, search, llm) için süre + meta
+    trace           JSONB,
+    -- Scheduled job için: çalıştırılacak zaman; NULL ise hemen.
+    scheduled_for   TIMESTAMPTZ,
+    started_at      TIMESTAMPTZ,
+    completed_at    TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Worker'ın claim'lediği — çift-işleme engeli
+    claimed_by      TEXT,
+    claimed_at      TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS executive_jobs_tenant_idx ON executive_jobs(tenant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS executive_jobs_status_idx ON executive_jobs(status) WHERE status IN ('pending','running');
+CREATE INDEX IF NOT EXISTS executive_jobs_thread_idx ON executive_jobs(thread_id) WHERE thread_id IS NOT NULL;
+ALTER TABLE executive_jobs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_exec_jobs ON executive_jobs
+    USING (tenant_id::text = current_setting('app.tenant_id', true));
+
 -- Invitations (tenant onboarding)
 CREATE TABLE IF NOT EXISTS invitations (
     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

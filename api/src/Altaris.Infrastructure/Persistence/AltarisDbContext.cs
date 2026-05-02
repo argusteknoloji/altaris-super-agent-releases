@@ -19,6 +19,8 @@ public class AltarisDbContext : DbContext
     public DbSet<VaultFile> VaultFiles => Set<VaultFile>();
     public DbSet<VaultEmbedding> VaultEmbeddings => Set<VaultEmbedding>();
     public DbSet<UserCapability> UserCapabilities => Set<UserCapability>();
+    public DbSet<ExecutiveAgent> ExecutiveAgents => Set<ExecutiveAgent>();
+    public DbSet<ExecutiveJob> ExecutiveJobs => Set<ExecutiveJob>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -191,6 +193,51 @@ public class AltarisDbContext : DbContext
             e.Property(x => x.GrantedBy).HasColumnName("granted_by");
             e.Property(x => x.GrantedAt).HasColumnName("granted_at");
             e.HasIndex(x => new { x.UserId, x.Capability }).IsUnique();
+        });
+
+        modelBuilder.Entity<ExecutiveAgent>(e =>
+        {
+            e.ToTable("executive_agents");
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.TenantId).HasColumnName("tenant_id");
+            e.Property(x => x.Slug).HasColumnName("slug");
+            e.Property(x => x.Name).HasColumnName("name");
+            e.Property(x => x.Description).HasColumnName("description");
+            e.Property(x => x.SystemPrompt).HasColumnName("system_prompt");
+            e.Property(x => x.Model).HasColumnName("model");
+            e.Property(x => x.EmbeddingModel).HasColumnName("embedding_model");
+            e.Property(x => x.VaultFilter).HasColumnName("vault_filter").HasColumnType("jsonb");
+            e.Property(x => x.Tools).HasColumnName("tools").HasColumnType("jsonb");
+            e.Property(x => x.ScheduleCron).HasColumnName("schedule_cron");
+            e.Property(x => x.SchedulePrompt).HasColumnName("schedule_prompt");
+            e.Property(x => x.Enabled).HasColumnName("enabled");
+            e.Property(x => x.CreatedBy).HasColumnName("created_by");
+            e.Property(x => x.CreatedAt).HasColumnName("created_at");
+            e.Property(x => x.UpdatedAt).HasColumnName("updated_at");
+            e.HasIndex(x => new { x.TenantId, x.Slug }).IsUnique();
+        });
+
+        modelBuilder.Entity<ExecutiveJob>(e =>
+        {
+            e.ToTable("executive_jobs");
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.TenantId).HasColumnName("tenant_id");
+            e.Property(x => x.UserId).HasColumnName("user_id");
+            e.Property(x => x.AgentId).HasColumnName("agent_id");
+            e.Property(x => x.ThreadId).HasColumnName("thread_id");
+            e.Property(x => x.Question).HasColumnName("question");
+            e.Property(x => x.Status).HasColumnName("status");
+            e.Property(x => x.Answer).HasColumnName("answer");
+            e.Property(x => x.Citations).HasColumnName("citations").HasColumnType("jsonb");
+            e.Property(x => x.ErrorText).HasColumnName("error_text");
+            e.Property(x => x.Trace).HasColumnName("trace").HasColumnType("jsonb");
+            e.Property(x => x.ScheduledFor).HasColumnName("scheduled_for");
+            e.Property(x => x.StartedAt).HasColumnName("started_at");
+            e.Property(x => x.CompletedAt).HasColumnName("completed_at");
+            e.Property(x => x.CreatedAt).HasColumnName("created_at");
+            e.Property(x => x.ClaimedBy).HasColumnName("claimed_by");
+            e.Property(x => x.ClaimedAt).HasColumnName("claimed_at");
+            e.HasIndex(x => new { x.TenantId, x.CreatedAt });
         });
 
         modelBuilder.Entity<AuditEvent>(e =>

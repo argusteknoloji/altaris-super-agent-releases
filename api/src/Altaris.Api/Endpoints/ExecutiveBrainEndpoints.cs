@@ -27,13 +27,338 @@ public static class ExecutiveBrainEndpoints
 {
     public static IEndpointRouteBuilder MapExecutiveBrainEndpoints(this IEndpointRouteBuilder app)
     {
-        // RAG ask — JSON cevap (MVP, streaming sonra).
+        // Synchronous ask (kısa sorular, instant cevap)
         app.MapPost("/api/v1/executive-brain/ask", Ask).RequireAuthorization();
 
-        // Sources lookup — bir cevabın citation'larını görüntüle.
-        // Şu an inline döner; ileride multi-vault search için ayrı endpoint.
+        // Job queue — async pipeline (uzun sorular, agent + tool kullanımı)
+        app.MapPost  ("/api/v1/executive-brain/jobs",                   SubmitJob).RequireAuthorization();
+        app.MapGet   ("/api/v1/executive-brain/jobs",                   ListJobs).RequireAuthorization();
+        app.MapGet   ("/api/v1/executive-brain/jobs/{id:guid}",         GetJob).RequireAuthorization();
+        app.MapPost  ("/api/v1/executive-brain/jobs/{id:guid}/cancel",  CancelJob).RequireAuthorization();
+        app.MapPost  ("/api/v1/executive-brain/jobs/{id:guid}/retry",   RetryJob).RequireAuthorization();
+
+        // Agent CRUD
+        app.MapGet   ("/api/v1/executive-brain/agents",                 ListAgents).RequireAuthorization();
+        app.MapGet   ("/api/v1/executive-brain/agents/{id:guid}",       GetAgent).RequireAuthorization();
+        app.MapPost  ("/api/v1/executive-brain/agents",                 CreateAgent).RequireAuthorization();
+        app.MapPatch ("/api/v1/executive-brain/agents/{id:guid}",       UpdateAgent).RequireAuthorization();
+        app.MapDelete("/api/v1/executive-brain/agents/{id:guid}",       DeleteAgent).RequireAuthorization();
+
+        // Built-in agent templates (CFO, Risk, Sales, Contract)
+        app.MapGet   ("/api/v1/executive-brain/templates",                              ListTemplates).RequireAuthorization();
+        app.MapPost  ("/api/v1/executive-brain/agents/from-template/{templateSlug}",    CreateFromTemplate).RequireAuthorization();
 
         return app;
+    }
+
+    // ═════════════════════════ AGENT CRUD ═════════════════════════════
+
+    public record AgentDto(Guid Id, string Slug, string Name, string? Description,
+                          string SystemPrompt, string? Model, string? EmbeddingModel,
+                          string[]? VaultFilter, string[] Tools,
+                          string? ScheduleCron, string? SchedulePrompt,
+                          bool Enabled, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
+
+    private static AgentDto ToDto(Domain.Entities.ExecutiveAgent a) => new(
+        a.Id, a.Slug, a.Name, a.Description, a.SystemPrompt, a.Model, a.EmbeddingModel,
+        a.VaultFilter is null ? null : System.Text.Json.JsonSerializer.Deserialize<string[]>(a.VaultFilter),
+        System.Text.Json.JsonSerializer.Deserialize<string[]>(a.Tools) ?? Array.Empty<string>(),
+        a.ScheduleCron, a.SchedulePrompt, a.Enabled, a.CreatedAt, a.UpdatedAt
+    );
+
+    private static async Task<IResult> ListAgents(AltarisDbContext db, ITenantContext tc)
+    {
+        if (tc.TenantId is null) return Results.Forbid();
+        var rows = await db.ExecutiveAgents.AsNoTracking()
+            .Where(a => a.TenantId == tc.TenantId)
+            .OrderBy(a => a.Name)
+            .ToListAsync();
+        return Results.Ok(rows.Select(ToDto));
+    }
+
+    private static async Task<IResult> GetAgent(Guid id, AltarisDbContext db, ITenantContext tc)
+    {
+        var a = await db.ExecutiveAgents.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tc.TenantId);
+        if (a is null) return Results.NotFound();
+        return Results.Ok(ToDto(a));
+    }
+
+    public record CreateAgentRequest(string Slug, string Name, string? Description, string SystemPrompt,
+                                     string? Model, string? EmbeddingModel,
+                                     string[]? VaultFilter, string[]? Tools,
+                                     string? ScheduleCron, string? SchedulePrompt,
+                                     bool Enabled = true);
+
+    private static async Task<IResult> CreateAgent(
+        CreateAgentRequest req, AltarisDbContext db, ITenantContext tc,
+        Altaris.Infrastructure.Permissions.CapabilityResolver caps, HttpContext http)
+    {
+        if (tc.TenantId is null || tc.UserId is null) return Results.Forbid();
+        var deny = await Altaris.Api.Permissions.CapabilityHttpExtensions.RequireCapabilityAsync(
+            http, caps, Altaris.Domain.Permissions.Capabilities.ExecutiveBrainManageAgents);
+        if (deny is not null) return deny;
+        if (string.IsNullOrWhiteSpace(req.Slug) || string.IsNullOrWhiteSpace(req.Name) || string.IsNullOrWhiteSpace(req.SystemPrompt))
+            return Results.BadRequest(new { error = "slug+name+system_prompt required" });
+
+        var slug = new string(req.Slug.ToLowerInvariant().Where(c => char.IsLetterOrDigit(c) || c is '-' or '_').ToArray());
+        if (slug.Length == 0 || slug.Length > 64)
+            return Results.BadRequest(new { error = "invalid_slug" });
+
+        if (await db.ExecutiveAgents.AnyAsync(x => x.TenantId == tc.TenantId && x.Slug == slug))
+            return Results.Conflict(new { error = "slug_exists" });
+
+        var a = new Domain.Entities.ExecutiveAgent
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tc.TenantId.Value,
+            Slug = slug,
+            Name = req.Name.Trim(),
+            Description = req.Description,
+            SystemPrompt = req.SystemPrompt,
+            Model = req.Model,
+            EmbeddingModel = req.EmbeddingModel,
+            VaultFilter = req.VaultFilter is null ? null : System.Text.Json.JsonSerializer.Serialize(req.VaultFilter),
+            Tools = System.Text.Json.JsonSerializer.Serialize(req.Tools ?? Array.Empty<string>()),
+            ScheduleCron = req.ScheduleCron,
+            SchedulePrompt = req.SchedulePrompt,
+            Enabled = req.Enabled,
+            CreatedBy = tc.UserId,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        };
+        db.ExecutiveAgents.Add(a);
+        await db.SaveChangesAsync();
+        return Results.Created($"/api/v1/executive-brain/agents/{a.Id}", ToDto(a));
+    }
+
+    public record UpdateAgentRequest(string? Name, string? Description, string? SystemPrompt,
+                                     string? Model, string? EmbeddingModel,
+                                     string[]? VaultFilter, string[]? Tools,
+                                     string? ScheduleCron, string? SchedulePrompt,
+                                     bool? Enabled);
+
+    private static async Task<IResult> UpdateAgent(
+        Guid id, UpdateAgentRequest req, AltarisDbContext db, ITenantContext tc,
+        Altaris.Infrastructure.Permissions.CapabilityResolver caps, HttpContext http)
+    {
+        var deny = await Altaris.Api.Permissions.CapabilityHttpExtensions.RequireCapabilityAsync(
+            http, caps, Altaris.Domain.Permissions.Capabilities.ExecutiveBrainManageAgents);
+        if (deny is not null) return deny;
+
+        var a = await db.ExecutiveAgents.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tc.TenantId);
+        if (a is null) return Results.NotFound();
+
+        if (!string.IsNullOrWhiteSpace(req.Name))         a.Name = req.Name.Trim();
+        if (req.Description is not null)                  a.Description = req.Description;
+        if (!string.IsNullOrWhiteSpace(req.SystemPrompt)) a.SystemPrompt = req.SystemPrompt;
+        if (req.Model is not null)                        a.Model = string.IsNullOrEmpty(req.Model) ? null : req.Model;
+        if (req.EmbeddingModel is not null)               a.EmbeddingModel = string.IsNullOrEmpty(req.EmbeddingModel) ? null : req.EmbeddingModel;
+        if (req.VaultFilter is not null)                  a.VaultFilter = req.VaultFilter.Length == 0 ? null : System.Text.Json.JsonSerializer.Serialize(req.VaultFilter);
+        if (req.Tools is not null)                        a.Tools = System.Text.Json.JsonSerializer.Serialize(req.Tools);
+        if (req.ScheduleCron is not null)                 a.ScheduleCron = string.IsNullOrEmpty(req.ScheduleCron) ? null : req.ScheduleCron;
+        if (req.SchedulePrompt is not null)               a.SchedulePrompt = string.IsNullOrEmpty(req.SchedulePrompt) ? null : req.SchedulePrompt;
+        if (req.Enabled is not null)                      a.Enabled = req.Enabled.Value;
+        a.UpdatedAt = DateTimeOffset.UtcNow;
+
+        await db.SaveChangesAsync();
+        return Results.Ok(ToDto(a));
+    }
+
+    private static async Task<IResult> DeleteAgent(
+        Guid id, AltarisDbContext db, ITenantContext tc,
+        Altaris.Infrastructure.Permissions.CapabilityResolver caps, HttpContext http)
+    {
+        var deny = await Altaris.Api.Permissions.CapabilityHttpExtensions.RequireCapabilityAsync(
+            http, caps, Altaris.Domain.Permissions.Capabilities.ExecutiveBrainManageAgents);
+        if (deny is not null) return deny;
+
+        var a = await db.ExecutiveAgents.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tc.TenantId);
+        if (a is null) return Results.NotFound();
+        db.ExecutiveAgents.Remove(a);
+        await db.SaveChangesAsync();
+        return Results.NoContent();
+    }
+
+    // ═════════════════════════ TEMPLATES ════════════════════════════════
+
+    private record AgentTemplate(string Slug, string Name, string Description, string SystemPrompt, string[] Tools, string? Cron, string? CronPrompt);
+
+    private static readonly AgentTemplate[] Templates =
+    {
+        new("cfo", "CFO Asistanı",
+            "Finansal sorulara cevap verir; nakit akışı, alacaklar, marjlar.",
+            """
+            Sen bir CFO Asistanı'sın. Şirket finansal verilerinden (vault'taki muhasebe + ERP belgeleri)
+            cevap üretirsin. Kurallar:
+            - Sayısal değerleri kaynaktan birebir alıntıla. Hesaplama gerekiyorsa adım adım göster.
+            - Para birimi ve dönem (ay/çeyrek) her zaman belirt.
+            - Eğer veri yoksa "Bu soruya cevap verecek finansal belge bulamadım" de.
+            - Türkçe, kısa, doğrudan cevap ver — yönetici zamanı kıymetli.
+            """,
+            new[] { "calc" }, "0 0 6 * * *", "Bugün için kritik finansal alarmları özetle"),
+
+        new("risk", "Risk Analisti",
+            "Müşteri risk sinyallerini izler — ödeme gecikmesi, sentiment, iletişim sıklığı.",
+            """
+            Sen bir Risk Analisti'sin. CRM görüşme notları + e-posta + ödeme verileri kullanarak
+            risk sinyallerini tespit edersin. Kurallar:
+            - Her risk için: müşteri adı + sinyal türü + son 30 gün eylem + öneri.
+            - Üç sinyal kombinasyonu = yüksek risk.
+            - Mutlaka kaynaklı yaz.
+            """,
+            Array.Empty<string>(), "0 0 8 * * MON", "Geçen hafta risk profili değişen müşterileri listele"),
+
+        new("sales", "Satış Görünümü",
+            "Satış pipeline, müşteri durumları, fırsatları takip eder.",
+            """
+            Sen bir Satış Görünümü ajanısın. CRM + e-posta verisinden satış sürecini özetlersin.
+            Pipeline, kapanan/kapanmayan deal'ler, ekibin takıldığı yerler. Hedef vs. gerçekleşen.
+            """,
+            new[] { "calc", "chart" }, null, null),
+
+        new("contract", "Sözleşme Analisti",
+            "Sözleşme PDF'lerinden risk + yenileme + önemli madde çıkarır.",
+            """
+            Sen bir Sözleşme Analisti'sin. Vault'taki PDF/Word sözleşmelerden:
+            - Yenileme tarihleri (90 gün içinde dolanlar uyarı)
+            - Olağandışı şartlar (ceza, exclusivity, IP devri)
+            - Karşı taraf yükümlülükleri
+            çıkarır, listelersin.
+            """,
+            Array.Empty<string>(), "0 0 9 * * *", "Sözleşmelerimde 90 gün içinde yenilenecek olanları listele"),
+    };
+
+    private static IResult ListTemplates() => Results.Ok(Templates.Select(t =>
+        new { t.Slug, t.Name, t.Description, tools = t.Tools, cron = t.Cron, cronPrompt = t.CronPrompt }));
+
+    private static async Task<IResult> CreateFromTemplate(
+        string templateSlug, AltarisDbContext db, ITenantContext tc,
+        Altaris.Infrastructure.Permissions.CapabilityResolver caps, HttpContext http)
+    {
+        var deny = await Altaris.Api.Permissions.CapabilityHttpExtensions.RequireCapabilityAsync(
+            http, caps, Altaris.Domain.Permissions.Capabilities.ExecutiveBrainManageAgents);
+        if (deny is not null) return deny;
+        if (tc.TenantId is null || tc.UserId is null) return Results.Forbid();
+        var t = Templates.FirstOrDefault(x => x.Slug == templateSlug);
+        if (t is null) return Results.NotFound(new { error = "template_not_found" });
+
+        var slug = t.Slug;
+        int n = 1;
+        while (await db.ExecutiveAgents.AnyAsync(x => x.TenantId == tc.TenantId && x.Slug == slug))
+            slug = $"{t.Slug}-{++n}";
+
+        var a = new Domain.Entities.ExecutiveAgent
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tc.TenantId.Value,
+            Slug = slug,
+            Name = t.Name,
+            Description = t.Description,
+            SystemPrompt = t.SystemPrompt,
+            Tools = System.Text.Json.JsonSerializer.Serialize(t.Tools),
+            ScheduleCron = t.Cron,
+            SchedulePrompt = t.CronPrompt,
+            Enabled = true,
+            CreatedBy = tc.UserId,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        };
+        db.ExecutiveAgents.Add(a);
+        await db.SaveChangesAsync();
+        return Results.Created($"/api/v1/executive-brain/agents/{a.Id}", ToDto(a));
+    }
+
+    // ═════════════════════════ JOBS ═════════════════════════════════════
+
+    public record SubmitJobRequest(string Question, Guid? AgentId, Guid? ThreadId, DateTimeOffset? ScheduledFor);
+
+    private static async Task<IResult> SubmitJob(
+        SubmitJobRequest req, AltarisDbContext db, ITenantContext tc,
+        Altaris.Infrastructure.Permissions.CapabilityResolver caps, HttpContext http)
+    {
+        if (tc.TenantId is null) return Results.Forbid();
+        var deny = await Altaris.Api.Permissions.CapabilityHttpExtensions.RequireCapabilityAsync(
+            http, caps, Altaris.Domain.Permissions.Capabilities.ExecutiveBrainUse);
+        if (deny is not null) return deny;
+        if (string.IsNullOrWhiteSpace(req.Question))
+            return Results.BadRequest(new { error = "question_required" });
+
+        var job = new Domain.Entities.ExecutiveJob
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tc.TenantId.Value,
+            UserId = tc.UserId,
+            AgentId = req.AgentId,
+            ThreadId = req.ThreadId ?? Guid.NewGuid(),
+            Question = req.Question,
+            Status = "pending",
+            ScheduledFor = req.ScheduledFor,
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+        db.ExecutiveJobs.Add(job);
+        await db.SaveChangesAsync();
+
+        return Results.Accepted($"/api/v1/executive-brain/jobs/{job.Id}",
+            new { id = job.Id, status = job.Status, threadId = job.ThreadId });
+    }
+
+    private static async Task<IResult> ListJobs(
+        AltarisDbContext db, ITenantContext tc,
+        Altaris.Infrastructure.Permissions.CapabilityResolver caps,
+        Guid? threadId, Guid? agentId, string? status, int take = 50, int skip = 0)
+    {
+        if (tc.TenantId is null) return Results.Forbid();
+        var canViewAll = await caps.HasAsync(Altaris.Domain.Permissions.Capabilities.ExecutiveBrainViewAllJobs);
+        var q = db.ExecutiveJobs.AsNoTracking().Where(j => j.TenantId == tc.TenantId);
+        if (!canViewAll) q = q.Where(j => j.UserId == tc.UserId);
+        if (threadId is not null) q = q.Where(j => j.ThreadId == threadId);
+        if (agentId  is not null) q = q.Where(j => j.AgentId  == agentId);
+        if (!string.IsNullOrEmpty(status)) q = q.Where(j => j.Status == status);
+
+        var total = await q.CountAsync();
+        var rows = await q.OrderByDescending(j => j.CreatedAt)
+            .Skip(Math.Max(skip, 0))
+            .Take(Math.Clamp(take, 1, 200))
+            .Select(j => new {
+                j.Id, j.UserId, j.AgentId, j.ThreadId, j.Question, j.Status,
+                j.ScheduledFor, j.StartedAt, j.CompletedAt, j.CreatedAt,
+                hasError = j.ErrorText != null
+            })
+            .ToListAsync();
+        return Results.Ok(new { items = rows, total });
+    }
+
+    private static async Task<IResult> GetJob(Guid id, AltarisDbContext db, ITenantContext tc)
+    {
+        var j = await db.ExecutiveJobs.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tc.TenantId);
+        if (j is null) return Results.NotFound();
+        return Results.Ok(j);
+    }
+
+    private static async Task<IResult> CancelJob(Guid id, AltarisDbContext db, ITenantContext tc)
+    {
+        var j = await db.ExecutiveJobs.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tc.TenantId);
+        if (j is null) return Results.NotFound();
+        if (j.Status is not ("pending" or "running")) return Results.BadRequest(new { error = "cannot_cancel" });
+        j.Status = "cancelled";
+        j.CompletedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync();
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> RetryJob(Guid id, AltarisDbContext db, ITenantContext tc)
+    {
+        var j = await db.ExecutiveJobs.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tc.TenantId);
+        if (j is null) return Results.NotFound();
+        if (j.Status != "failed") return Results.BadRequest(new { error = "only_failed_jobs_can_retry" });
+        j.Status = "pending";
+        j.ErrorText = null;
+        j.ClaimedAt = null;
+        j.ClaimedBy = null;
+        j.StartedAt = null;
+        j.CompletedAt = null;
+        await db.SaveChangesAsync();
+        return Results.Ok(new { id = j.Id, status = j.Status });
     }
 
     public record AskRequest(string Question, int? TopK, bool? IncludeAllVaults);

@@ -95,6 +95,8 @@ try
     builder.Services.AddHttpClient<Altaris.Infrastructure.Embeddings.EmbeddingClient>();
     builder.Services.AddScoped<Altaris.Infrastructure.Embeddings.EmbeddingIndexer>();
     builder.Services.AddHostedService<Altaris.Api.Services.CodexTokenRefreshWorker>();
+    // Executive Brain async job worker (queue → RAG → LLM → answer/citations)
+    builder.Services.AddHostedService<Altaris.Api.Services.ExecutiveJobWorker>();
 
     // ── Health checks (liveness vs readiness) ──────────────────────────────
     builder.Services.AddHealthChecks()
@@ -215,6 +217,58 @@ try
                 ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS last_refreshed_at        TIMESTAMPTZ;
 
                 CREATE EXTENSION IF NOT EXISTS ""vector"";
+
+                CREATE TABLE IF NOT EXISTS executive_agents (
+                    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                    tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                    slug            TEXT NOT NULL,
+                    name            TEXT NOT NULL,
+                    description     TEXT,
+                    system_prompt   TEXT NOT NULL,
+                    model           TEXT,
+                    embedding_model TEXT,
+                    vault_filter    JSONB,
+                    tools           JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    schedule_cron   TEXT,
+                    schedule_prompt TEXT,
+                    enabled         BOOLEAN NOT NULL DEFAULT true,
+                    created_by      UUID REFERENCES users(id) ON DELETE SET NULL,
+                    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    UNIQUE (tenant_id, slug)
+                );
+                CREATE INDEX IF NOT EXISTS executive_agents_tenant_idx ON executive_agents(tenant_id);
+                ALTER TABLE executive_agents ENABLE ROW LEVEL SECURITY;
+                DROP POLICY IF EXISTS tenant_isolation_exec_agents ON executive_agents;
+                CREATE POLICY tenant_isolation_exec_agents ON executive_agents
+                    USING (tenant_id::text = current_setting('app.tenant_id', true));
+
+                CREATE TABLE IF NOT EXISTS executive_jobs (
+                    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                    tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                    user_id         UUID REFERENCES users(id) ON DELETE SET NULL,
+                    agent_id        UUID REFERENCES executive_agents(id) ON DELETE SET NULL,
+                    thread_id       UUID,
+                    question        TEXT NOT NULL,
+                    status          TEXT NOT NULL DEFAULT 'pending',
+                    answer          TEXT,
+                    citations       JSONB,
+                    error_text      TEXT,
+                    trace           JSONB,
+                    scheduled_for   TIMESTAMPTZ,
+                    started_at      TIMESTAMPTZ,
+                    completed_at    TIMESTAMPTZ,
+                    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    claimed_by      TEXT,
+                    claimed_at      TIMESTAMPTZ
+                );
+                CREATE INDEX IF NOT EXISTS executive_jobs_tenant_idx ON executive_jobs(tenant_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS executive_jobs_status_idx ON executive_jobs(status) WHERE status IN ('pending','running');
+                CREATE INDEX IF NOT EXISTS executive_jobs_thread_idx ON executive_jobs(thread_id) WHERE thread_id IS NOT NULL;
+                ALTER TABLE executive_jobs ENABLE ROW LEVEL SECURITY;
+                DROP POLICY IF EXISTS tenant_isolation_exec_jobs ON executive_jobs;
+                CREATE POLICY tenant_isolation_exec_jobs ON executive_jobs
+                    USING (tenant_id::text = current_setting('app.tenant_id', true));
 
                 CREATE TABLE IF NOT EXISTS vault_embeddings (
                     id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
