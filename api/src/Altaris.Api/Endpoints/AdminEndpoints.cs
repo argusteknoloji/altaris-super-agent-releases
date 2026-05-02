@@ -50,6 +50,12 @@ public static class AdminEndpoints
         grp.MapGet    ("/users/{userId:guid}/sso-sessions",                  ListUserSessions);
         grp.MapDelete ("/users/{userId:guid}/sso-sessions/{sessionId}",      KillUserSession);
         grp.MapPost   ("/users/{userId:guid}/sso-sessions/logout-all",       LogoutAllSessions);
+        // 2FA enforcement
+        grp.MapPost   ("/users/{userId:guid}/require-totp",                  RequireTotp);
+        grp.MapPost   ("/users/{userId:guid}/remove-totp",                   RemoveTotp);
+        // KVKK / GDPR
+        grp.MapGet    ("/users/{userId:guid}/data-export",                   DataExport);
+        grp.MapPost   ("/users/{userId:guid}/data-erase",                    DataErase);
 
         // ===== INVITATIONS =====
         grp.MapGet("/invitations", ListInvitations);
@@ -311,6 +317,129 @@ public static class AdminEndpoints
         var u = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == userId && x.TenantId == tc.TenantId);
         if (u is null) return Results.NotFound();
         await kc.LogoutAllAsync(u.KeycloakSub);
+        return Results.NoContent();
+    }
+
+    // ---- 2FA ----
+    private static async Task<IResult> RequireTotp(Guid userId, AltarisDbContext db, ITenantContext tc, KeycloakAdminClient kc)
+    {
+        var u = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == userId && x.TenantId == tc.TenantId);
+        if (u is null) return Results.NotFound();
+        await kc.RequireTotpAsync(u.KeycloakSub);
+        return Results.NoContent();
+    }
+    private static async Task<IResult> RemoveTotp(Guid userId, AltarisDbContext db, ITenantContext tc, KeycloakAdminClient kc)
+    {
+        var u = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == userId && x.TenantId == tc.TenantId);
+        if (u is null) return Results.NotFound();
+        await kc.RemoveTotpAsync(u.KeycloakSub);
+        return Results.NoContent();
+    }
+
+    // ---- KVKK / GDPR ----
+    /// <summary>
+    ///   "Right to data portability" — kullanıcının tenant'taki tüm
+    ///   verisi tek JSON döküm (sessions/messages/audit/api_keys/vaults metadata).
+    ///   Vault dosya içerikleri filesystem'de — bu endpoint metadata özetini
+    ///   döner; full vault export ayrı bir endpoint olabilir.
+    /// </summary>
+    private static async Task<IResult> DataExport(Guid userId, AltarisDbContext db, ITenantContext tc)
+    {
+        var u = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == userId && x.TenantId == tc.TenantId);
+        if (u is null) return Results.NotFound();
+
+        var sessions = await db.Sessions.AsNoTracking()
+            .Where(s => s.UserId == userId)
+            .Select(s => new { s.Id, s.Source, s.Provider, s.Model, s.Title, s.Status, s.StartedAt, s.EndedAt })
+            .ToListAsync();
+        var messages = await db.SessionMessages.AsNoTracking()
+            .Join(db.Sessions, m => m.SessionId, s => s.Id, (m, s) => new { m, s })
+            .Where(x => x.s.UserId == userId)
+            .Select(x => new { x.m.Id, x.m.SessionId, x.m.Role, x.m.Content, x.m.CreatedAt })
+            .ToListAsync();
+        var audits = await db.AuditEvents.AsNoTracking()
+            .Where(a => a.UserId == userId)
+            .Select(a => new { a.Id, a.Actor, a.Action, a.ResourceType, a.ResourceId, a.Ip, a.OccurredAt })
+            .ToListAsync();
+        var apiKeys = await db.ApiKeys.AsNoTracking()
+            .Where(k => k.UserId == userId)
+            .Select(k => new { k.Id, k.Name, k.Prefix, k.CreatedAt, k.LastUsedAt, k.RevokedAt })
+            .ToListAsync();
+        var vaults = await db.Vaults.AsNoTracking()
+            .Where(v => v.OwnerUserId == userId)
+            .Select(v => new { v.Id, v.Slug, v.Name, v.Visibility, v.FileCount, v.ByteSize, v.CreatedAt, v.UpdatedAt })
+            .ToListAsync();
+
+        var bundle = new
+        {
+            exportedAt = DateTimeOffset.UtcNow,
+            requestedBy = tc.UserEmail,
+            user = new { u.Id, u.Email, u.DisplayName, u.Role, u.KeycloakSub, u.CreatedAt },
+            tenant = new { id = tc.TenantId, slug = tc.TenantSlug },
+            sessions, messages, audits, apiKeys, vaults,
+        };
+        var bytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(bundle, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        return Results.File(
+            bytes,
+            contentType: "application/json",
+            fileDownloadName: $"altaris-user-export-{u.Email}-{DateTimeOffset.UtcNow:yyyyMMdd-HHmm}.json"
+        );
+    }
+
+    public record DataEraseRequest(string Confirm);
+
+    /// <summary>
+    ///   "Right to erasure" — KVKK 11. madde / GDPR Article 17.
+    ///   Mesajları + audit log'u + api_keys'i ANONIMIZE eder (hard delete yerine
+    ///   PII'yi kaldırır), Keycloak hesabını + lokal user row'unu hard-delete eder.
+    ///   Vault'lar OwnerUserId üzerinden FK ile düşeceği için CASCADE; canonical
+    ///   bytes filesystem'de kalır (admin manuel temizleyebilir).
+    /// </summary>
+    private static async Task<IResult> DataErase(Guid userId, DataEraseRequest req, AltarisDbContext db, ITenantContext tc, KeycloakAdminClient kc)
+    {
+        var u = await db.Users.FirstOrDefaultAsync(x => x.Id == userId && x.TenantId == tc.TenantId);
+        if (u is null) return Results.NotFound();
+        if (req.Confirm != $"erase {u.Email}")
+            return Results.BadRequest(new { error = "confirm_required", expected = $"erase {u.Email}" });
+
+        // 1) Audit row'da PII'yi anonymize et (FK + log invariant kalsın)
+        await db.AuditEvents
+            .Where(a => a.UserId == userId)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(a => a.Actor, "[erased]")
+                .SetProperty(a => a.UserId, (Guid?)null)
+                .SetProperty(a => a.Ip, (string?)null)
+                .SetProperty(a => a.UserAgent, (string?)null));
+
+        // 2) Session messages content'ini sil (transcript okunamaz hale getir)
+        var sessionIds = await db.Sessions.Where(s => s.UserId == userId).Select(s => s.Id).ToListAsync();
+        if (sessionIds.Count > 0)
+        {
+            await db.SessionMessages
+                .Where(m => sessionIds.Contains(m.SessionId))
+                .ExecuteUpdateAsync(s => s.SetProperty(m => m.Content, "{\"text\":\"[erased]\"}"));
+        }
+
+        // 3) Keycloak hesabını sil
+        try { await kc.DeleteUserAsync(u.KeycloakSub); } catch { /* zaten gitmiş olabilir */ }
+
+        // 4) Lokal user row'unu sil — sessions/api_keys/vaults FK CASCADE düşer
+        db.Users.Remove(u);
+        await db.SaveChangesAsync();
+
+        // 5) Audit kaydı (kim sildi)
+        db.AuditEvents.Add(new Domain.Entities.AuditEvent
+        {
+            TenantId = tc.TenantId,
+            UserId = tc.UserId,
+            Actor = tc.UserEmail ?? "unknown",
+            Action = "user.kvkk_erased",
+            ResourceType = "user",
+            ResourceId = u.Id.ToString(),
+            Payload = "{\"reason\":\"data_subject_request\"}",
+            OccurredAt = DateTimeOffset.UtcNow,
+        });
+        await db.SaveChangesAsync();
         return Results.NoContent();
     }
 

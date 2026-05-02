@@ -92,6 +92,38 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
     const r = await fetch(`/api/proxy/admin/users/${id}/sso-sessions/logout-all`, { method: "POST" });
     if (r.ok) load(); else setErr(`HTTP ${r.status}`);
   }
+
+  async function require2fa() {
+    if (!confirm("Bu kullanıcı bir sonraki girişte TOTP (Google Authenticator vb.) kurmak ZORUNDA olsun?")) return;
+    const r = await fetch(`/api/proxy/admin/users/${id}/require-totp`, { method: "POST" });
+    if (r.ok) alert("✓ Kullanıcı bir sonraki login'de QR code göstereceği zorunlu adıma yönlenecek.");
+    else setErr(`HTTP ${r.status}`);
+  }
+  async function remove2fa() {
+    if (!confirm("Mevcut TOTP credential'ları silinsin? Kullanıcı 2FA'sız giriş yapabilir hale gelir.")) return;
+    const r = await fetch(`/api/proxy/admin/users/${id}/remove-totp`, { method: "POST" });
+    if (r.ok) alert("✓ TOTP kaldırıldı."); else setErr(`HTTP ${r.status}`);
+  }
+  async function dataExport() {
+    // Direkt link — proxy zaten file response döndürüyor.
+    window.location.href = `/api/proxy/admin/users/${id}/data-export`;
+  }
+  async function dataErase() {
+    const email = data?.role && prompt(`KVKK 11. madde / GDPR Article 17 — kullanıcı verisi silme.\n\nDoğrulama için yaz: "erase ${"<EMAIL>"}"`)?.trim();
+    if (!email) return;
+    const r = await fetch(`/api/proxy/admin/users/${id}/data-erase`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirm: email }),
+    });
+    if (r.ok) {
+      alert("✓ Kullanıcı verisi silindi / anonimize edildi. Listeye dönülecek.");
+      window.location.href = "/admin/users";
+    } else {
+      const txt = await r.text();
+      setErr(`HTTP ${r.status}: ${txt}`);
+    }
+  }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
 
   const groups = useMemo(() => {
@@ -182,6 +214,25 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
         <strong className="text-red-400"> Deny</strong> (rol verse bile elle).
         Effective = Default ∪ Allow ∖ Deny.
       </p>
+
+      <section className="mt-6 grid gap-3 rounded-lg border border-neutral-800 bg-neutral-900/30 p-4 md:grid-cols-2">
+        <div>
+          <h3 className="text-sm font-semibold text-neutral-200">İki faktörlü doğrulama (TOTP)</h3>
+          <p className="mt-1 text-xs text-neutral-500">Kurumsal güvenlik politikası gereği zorunlu kılabilirsin.</p>
+          <div className="mt-2 flex gap-2">
+            <button onClick={require2fa} className="rounded-md border border-emerald-500/30 px-3 py-1 text-xs text-emerald-300 hover:bg-emerald-500/10">Zorunlu kıl (next login)</button>
+            <button onClick={remove2fa} className="rounded-md border border-neutral-700 px-3 py-1 text-xs text-neutral-300 hover:bg-neutral-900">TOTP kaldır</button>
+          </div>
+        </div>
+        <div>
+          <h3 className="text-sm font-semibold text-neutral-200">KVKK / GDPR — Veri sahibi hakları</h3>
+          <p className="mt-1 text-xs text-neutral-500">Veri taşınabilirliği + silme talebi (Article 17 / KVKK 11).</p>
+          <div className="mt-2 flex gap-2">
+            <button onClick={dataExport} className="rounded-md border border-sky-500/30 px-3 py-1 text-xs text-sky-300 hover:bg-sky-500/10">Tüm veriyi indir (JSON)</button>
+            <button onClick={dataErase} className="rounded-md border border-red-500/30 px-3 py-1 text-xs text-red-400 hover:bg-red-500/10">Veriyi sil (irreversible)</button>
+          </div>
+        </div>
+      </section>
 
       <section className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900/30 p-4">
         <div className="flex items-baseline justify-between">

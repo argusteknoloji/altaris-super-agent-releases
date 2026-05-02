@@ -239,6 +239,50 @@ public class KeycloakAdminClient
         resp.EnsureSuccessStatusCode();
     }
 
+    /// <summary>
+    ///   Bir kullanıcıya CONFIGURE_TOTP required-action ekler — kullanıcı bir
+    ///   sonraki login'de zorunlu olarak Google Authenticator / Authy ile
+    ///   QR code okutup TOTP kurmak zorunda kalır. Mevcut required actions'ı
+    ///   bozmaz (read-then-write).
+    /// </summary>
+    public async Task RequireTotpAsync(string keycloakUserId, CancellationToken ct = default)
+    {
+        // 1) get current actions
+        var getReq = await AuthedAsync(HttpMethod.Get, $"/users/{keycloakUserId}", null, ct);
+        using var getResp = await _http.SendAsync(getReq, ct);
+        getResp.EnsureSuccessStatusCode();
+        var json = await getResp.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct);
+        var actions = new HashSet<string>();
+        if (json.TryGetProperty("requiredActions", out var ra) && ra.ValueKind == JsonValueKind.Array)
+            foreach (var el in ra.EnumerateArray()) if (el.GetString() is { } s) actions.Add(s);
+        actions.Add("CONFIGURE_TOTP");
+
+        // 2) put back
+        var putReq = await AuthedAsync(HttpMethod.Put, $"/users/{keycloakUserId}",
+            new { requiredActions = actions.ToArray() }, ct);
+        using var putResp = await _http.SendAsync(putReq, ct);
+        putResp.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>Aynı simetri: RemoveTotpAsync — TOTP credential'ları siler.</summary>
+    public async Task RemoveTotpAsync(string keycloakUserId, CancellationToken ct = default)
+    {
+        // List credentials, find the TOTP/OTP ones, delete each.
+        var listReq = await AuthedAsync(HttpMethod.Get, $"/users/{keycloakUserId}/credentials", null, ct);
+        using var listResp = await _http.SendAsync(listReq, ct);
+        if (!listResp.IsSuccessStatusCode) return;
+        var arr = await listResp.Content.ReadFromJsonAsync<List<JsonElement>>(cancellationToken: ct) ?? new();
+        foreach (var c in arr)
+        {
+            var type = c.TryGetProperty("type", out var t) ? t.GetString() : null;
+            if (type is not ("otp" or "totp")) continue;
+            var credId = c.GetProperty("id").GetString();
+            if (credId is null) continue;
+            var delReq = await AuthedAsync(HttpMethod.Delete, $"/users/{keycloakUserId}/credentials/{credId}", null, ct);
+            using var _ = await _http.SendAsync(delReq, ct);
+        }
+    }
+
     public async Task<List<string>> GetRealmRolesAsync(string keycloakUserId, CancellationToken ct = default)
     {
         var req = await AuthedAsync(HttpMethod.Get, $"/users/{keycloakUserId}/role-mappings/realm", null, ct);
