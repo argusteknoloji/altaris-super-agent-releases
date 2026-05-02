@@ -11,13 +11,14 @@ type Props = {
 };
 
 const LINKS: Array<{ href: string; label: string; match: (p: string) => boolean }> = [
-  { href: "/dashboard",     label: "Panel",         match: p => p.startsWith("/dashboard") },
-  { href: "/chat",          label: "Chat",          match: p => p.startsWith("/chat") },
-  { href: "/vaults",        label: "Vaults",        match: p => p.startsWith("/vaults") },
-  { href: "/remote-control", label: "Remote Control", match: p => p.startsWith("/remote-control") },
-  { href: "/terminal",      label: "Terminal",      match: p => p.startsWith("/terminal") },
-  { href: "/admin",         label: "Admin",         match: p => p.startsWith("/admin") },
-  { href: "/setup",         label: "CLI Kurulum",   match: p => p.startsWith("/setup") }
+  { href: "/dashboard",       label: "Panel",          match: p => p.startsWith("/dashboard") },
+  { href: "/executive-brain", label: "🧠 Beyin",       match: p => p.startsWith("/executive-brain") },
+  { href: "/chat",            label: "Chat",           match: p => p.startsWith("/chat") },
+  { href: "/vaults",          label: "Vaults",         match: p => p.startsWith("/vaults") },
+  { href: "/remote-control",  label: "Remote Control", match: p => p.startsWith("/remote-control") },
+  { href: "/terminal",        label: "Terminal",       match: p => p.startsWith("/terminal") },
+  { href: "/admin",           label: "Admin",          match: p => p.startsWith("/admin") },
+  { href: "/setup",           label: "CLI Kurulum",    match: p => p.startsWith("/setup") }
 ];
 
 export default function TopNav({ email, tenantSlug }: Props) {

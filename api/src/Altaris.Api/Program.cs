@@ -348,6 +348,7 @@ try
     app.MapInviteEndpoints();
     app.MapMeEndpoints();
     app.MapCodexProviderEndpoints();
+    app.MapExecutiveBrainEndpoints();
 
     Log.Information("Altaris API starting in {Env}", app.Environment.EnvironmentName);
     app.Run();
