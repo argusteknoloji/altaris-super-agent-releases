@@ -240,13 +240,37 @@ try
         return Results.Ok(new { issuer, clientId, webBase });
     }).AllowAnonymous();
 
-    app.MapGet("/api/v1/me", (ITenantContext tc) => Results.Ok(new
+    app.MapGet("/api/v1/me", (HttpContext http, ITenantContext tc) =>
     {
-        tenantId   = tc.TenantId,
-        tenantSlug = tc.TenantSlug,
-        userId     = tc.UserId,
-        email      = tc.UserEmail
-    })).RequireAuthorization();
+        // Expose realm roles to the UI so it can hide/show admin pages and
+        // tenant picker without each page re-decoding the JWT.
+        var roles = new List<string>();
+        var raClaim = http.User.FindFirst("realm_access")?.Value;
+        if (!string.IsNullOrEmpty(raClaim))
+        {
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(raClaim);
+                if (doc.RootElement.TryGetProperty("roles", out var arr)
+                    && arr.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    foreach (var el in arr.EnumerateArray())
+                        if (el.GetString() is { } s) roles.Add(s);
+                }
+            }
+            catch { /* malformed claim — fall through with empty roles */ }
+        }
+        return Results.Ok(new
+        {
+            tenantId   = tc.TenantId,
+            tenantSlug = tc.TenantSlug,
+            userId     = tc.UserId,
+            email      = tc.UserEmail,
+            roles,
+            isPlatformAdmin = roles.Contains("platform_admin"),
+            isTenantAdmin   = roles.Contains("tenant_admin") || roles.Contains("platform_admin")
+        });
+    }).RequireAuthorization();
 
     app.MapGet("/api/v1/sessions", async (AltarisDbContext db, ITenantContext tc) =>
     {

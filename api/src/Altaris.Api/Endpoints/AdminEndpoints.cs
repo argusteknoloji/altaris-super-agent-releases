@@ -38,6 +38,7 @@ public static class AdminEndpoints
         // ===== USERS (Keycloak + local mirror) =====
         grp.MapGet("/users", ListUsers);
         grp.MapPost("/users", CreateUser);
+        grp.MapPatch("/users/{userId:guid}", UpdateUser);
         grp.MapDelete("/users/{userId:guid}", DeleteUser);
         grp.MapPost("/users/{userId:guid}/reset-password", ResetPassword);
 
@@ -49,6 +50,8 @@ public static class AdminEndpoints
         // ===== TENANTS (platform_admin only — gated inline) =====
         grp.MapGet("/tenants", ListTenants);
         grp.MapPost("/tenants", CreateTenant);
+        grp.MapPatch("/tenants/{id:guid}", UpdateTenant);
+        grp.MapDelete("/tenants/{id:guid}", DeleteTenant);
 
         // ===== AUDIT =====
         grp.MapGet("/audit", ListAudit);
@@ -90,18 +93,38 @@ public static class AdminEndpoints
             .Select(u => new { u.Id, u.Email, u.DisplayName, u.Role, u.KeycloakSub, u.CreatedAt })
             .ToListAsync());
 
-    public record CreateUserRequest(string Email, string? FirstName, string? LastName, string Password, bool Temporary, string Role);
+    /// <summary>
+    ///   <c>TargetTenantId</c> yalnızca platform_admin tarafından kullanılabilir.
+    ///   Tenant_admin için yok sayılır — kendi tenant'ından başkasına yazamaz
+    ///   (RLS zaten engeller, biz daha erken net cevap dönüyoruz).
+    /// </summary>
+    public record CreateUserRequest(
+        string Email, string? FirstName, string? LastName, string Password,
+        bool Temporary, string Role, Guid? TargetTenantId = null);
 
     private static async Task<IResult> CreateUser(
-        CreateUserRequest req, AltarisDbContext db, ITenantContext tc, KeycloakAdminClient kc)
+        HttpContext http, CreateUserRequest req, AltarisDbContext db, ITenantContext tc, KeycloakAdminClient kc)
     {
         if (tc.TenantId is null || tc.TenantSlug is null) return Results.Forbid();
         var role = req.Role is "tenant_admin" or "tenant_member" or "platform_admin" ? req.Role : "tenant_member";
+
+        // Cross-tenant create — sadece platform_admin yapabilir.
+        var (effectiveTenantId, effectiveTenantSlug) = (tc.TenantId.Value, tc.TenantSlug);
+        if (req.TargetTenantId is { } targetId && targetId != tc.TenantId.Value)
+        {
+            if (!ExtractRealmRoles(http).Contains("platform_admin"))
+                return Results.Forbid();
+            var target = await db.Tenants.AsNoTracking().FirstOrDefaultAsync(t => t.Id == targetId);
+            if (target is null) return Results.BadRequest(new { error = "target tenant not found" });
+            effectiveTenantId   = target.Id;
+            effectiveTenantSlug = target.Slug;
+        }
+
         var kcId = await kc.CreateUserAsync(new CreateKeycloakUserRequest(
             Email: req.Email,
             FirstName: req.FirstName,
             LastName: req.LastName,
-            TenantSlug: tc.TenantSlug,
+            TenantSlug: effectiveTenantSlug,
             Password: req.Password,
             TemporaryPassword: req.Temporary,
             RealmRoles: new[] { role }
@@ -109,7 +132,7 @@ public static class AdminEndpoints
         var user = new User
         {
             Id = Guid.NewGuid(),
-            TenantId = tc.TenantId.Value,
+            TenantId = effectiveTenantId,
             KeycloakSub = kcId,
             Email = req.Email,
             DisplayName = $"{req.FirstName} {req.LastName}".Trim(),
@@ -118,7 +141,43 @@ public static class AdminEndpoints
         };
         db.Users.Add(user);
         await db.SaveChangesAsync();
-        return Results.Created($"/api/v1/admin/users/{user.Id}", new { user.Id, user.Email, keycloakSub = kcId });
+        return Results.Created($"/api/v1/admin/users/{user.Id}", new { user.Id, user.Email, keycloakSub = kcId, tenantId = effectiveTenantId });
+    }
+
+    public record UpdateUserRequest(string? Email, string? FirstName, string? LastName, string? Role, bool? Enabled);
+
+    private static async Task<IResult> UpdateUser(
+        Guid userId, UpdateUserRequest req, AltarisDbContext db, ITenantContext tc, KeycloakAdminClient kc)
+    {
+        var u = await db.Users.FirstOrDefaultAsync(x => x.Id == userId && x.TenantId == tc.TenantId);
+        if (u is null) return Results.NotFound();
+
+        // 1) Keycloak attribute update (email/name/enabled)
+        await kc.UpdateUserAsync(u.KeycloakSub, req.Email, req.FirstName, req.LastName, req.Enabled);
+
+        // 2) Realm role swap if role changed
+        if (!string.IsNullOrWhiteSpace(req.Role) && req.Role != u.Role)
+        {
+            var newRole = req.Role is "tenant_admin" or "tenant_member" or "platform_admin"
+                ? req.Role : "tenant_member";
+            // Eski rolü kaldır, yenisini ata. AssignRealmRoles aditif olduğu
+            // için eski rol kalırdı — RemoveRealmRoles ile temizliyoruz.
+            try { await kc.RemoveRealmRolesAsync(u.KeycloakSub, new[] { u.Role }); } catch { /* role yoksa OK */ }
+            await kc.AssignRealmRolesAsync(u.KeycloakSub, new[] { newRole });
+            u.Role = newRole;
+        }
+
+        // 3) Local mirror sync
+        if (req.Email is not null) u.Email = req.Email;
+        if (req.FirstName is not null || req.LastName is not null)
+        {
+            var fn = req.FirstName ?? "";
+            var ln = req.LastName  ?? "";
+            u.DisplayName = $"{fn} {ln}".Trim();
+        }
+
+        await db.SaveChangesAsync();
+        return Results.Ok(new { u.Id, u.Email, u.DisplayName, u.Role });
     }
 
     private static async Task<IResult> DeleteUser(Guid userId, AltarisDbContext db, ITenantContext tc, KeycloakAdminClient kc)
@@ -204,6 +263,42 @@ public static class AdminEndpoints
         db.Tenants.Add(t);
         await db.SaveChangesAsync();
         return Results.Created($"/api/v1/admin/tenants/{t.Id}", new { t.Id, t.Slug, t.Name });
+    }
+
+    public record UpdateTenantRequest(string? Name, string? Status);
+
+    private static async Task<IResult> UpdateTenant(HttpContext http, Guid id, UpdateTenantRequest req, AltarisDbContext db)
+    {
+        if (!ExtractRealmRoles(http).Contains("platform_admin")) return Results.Forbid();
+        var t = await db.Tenants.FirstOrDefaultAsync(x => x.Id == id);
+        if (t is null) return Results.NotFound();
+
+        if (!string.IsNullOrWhiteSpace(req.Name))   t.Name   = req.Name.Trim();
+        if (!string.IsNullOrWhiteSpace(req.Status))
+        {
+            var st = req.Status.Trim().ToLowerInvariant();
+            if (st is not ("active" or "suspended" or "archived"))
+                return Results.BadRequest(new { error = "status must be active|suspended|archived" });
+            t.Status = st;
+        }
+        t.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync();
+        return Results.Ok(new { t.Id, t.Slug, t.Name, t.Status });
+    }
+
+    /// <summary>
+    ///   Tenant'ı sil — ON DELETE CASCADE ile users/sessions/messages/audit/
+    ///   vaults/api_keys/invitations/provider_configs hepsi düşer. Geri alınamaz.
+    ///   Filesystem'deki vault dosyaları manuel silinmez (audit için tutulabilir).
+    /// </summary>
+    private static async Task<IResult> DeleteTenant(HttpContext http, Guid id, AltarisDbContext db)
+    {
+        if (!ExtractRealmRoles(http).Contains("platform_admin")) return Results.Forbid();
+        var t = await db.Tenants.FirstOrDefaultAsync(x => x.Id == id);
+        if (t is null) return Results.NotFound();
+        db.Tenants.Remove(t);
+        await db.SaveChangesAsync();
+        return Results.NoContent();
     }
 
     // ---- AUDIT ----

@@ -129,6 +129,51 @@ public class KeycloakAdminClient
         resp.EnsureSuccessStatusCode();
     }
 
+    /// <summary>
+    ///   Update Keycloak user attributes. Only non-null fields in the payload
+    ///   are sent — partial PUT'lar Keycloak'ta sıfırlanmaz; nullları es geç.
+    /// </summary>
+    public async Task UpdateUserAsync(
+        string keycloakUserId,
+        string? email,
+        string? firstName,
+        string? lastName,
+        bool? enabled,
+        CancellationToken ct = default)
+    {
+        var payload = new Dictionary<string, object?>();
+        if (email     is not null) payload["email"]     = email;
+        if (firstName is not null) payload["firstName"] = firstName;
+        if (lastName  is not null) payload["lastName"]  = lastName;
+        if (enabled   is not null) payload["enabled"]   = enabled;
+        if (payload.Count == 0) return;
+
+        var req = await AuthedAsync(HttpMethod.Put, $"/users/{keycloakUserId}", payload, ct);
+        using var resp = await _http.SendAsync(req, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>
+    ///   Remove the listed realm roles from a user (DELETE role-mappings/realm).
+    ///   Used when changing user.role — eski rolü çıkar, yenisini Assign.
+    /// </summary>
+    public async Task RemoveRealmRolesAsync(string keycloakUserId, IEnumerable<string> roleNames, CancellationToken ct = default)
+    {
+        var rolesToRemove = new List<JsonElement>();
+        foreach (var name in roleNames)
+        {
+            var r = await AuthedAsync(HttpMethod.Get, $"/roles/{Uri.EscapeDataString(name)}", null, ct);
+            using var rr = await _http.SendAsync(r, ct);
+            if (rr.IsSuccessStatusCode)
+                rolesToRemove.Add(await rr.Content.ReadFromJsonAsync<JsonElement>(cancellationToken: ct));
+        }
+        if (rolesToRemove.Count == 0) return;
+
+        var req = await AuthedAsync(HttpMethod.Delete, $"/users/{keycloakUserId}/role-mappings/realm", rolesToRemove, ct);
+        using var resp = await _http.SendAsync(req, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
     public async Task ResetPasswordAsync(string keycloakUserId, string newPassword, bool temporary, CancellationToken ct = default)
     {
         var payload = new { type = "password", value = newPassword, temporary };
