@@ -122,18 +122,34 @@ try
 
     var keycloakAuthority = builder.Configuration["Keycloak:Authority"]
                             ?? "http://localhost:8081/realms/altaris";
+    // When the API runs in a container the issuer is reachable from the
+    // browser as http://localhost:8081 (which is also baked into JWT 'iss')
+    // but discovery from inside the container must use the container DNS
+    // (http://keycloak:8080). Setting MetadataAddress decouples the two.
+    var keycloakMetadata  = builder.Configuration["Keycloak:MetadataAddress"];
 
     builder.Services
         .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         .AddJwtBearer(o =>
         {
             o.Authority = keycloakAuthority;
+            if (!string.IsNullOrEmpty(keycloakMetadata)) o.MetadataAddress = keycloakMetadata;
             o.Audience  = "altaris-api";
             o.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
             o.MapInboundClaims = false;
             o.TokenValidationParameters = new TokenValidationParameters
             {
                 ValidateIssuer = true,
+                // Container modunda discovery'i container DNS (keycloak:8080)
+                // üzerinden yapıyoruz ama tokendaki 'iss' claim'i her zaman
+                // public hostname (localhost:8081). İki kaynak tutarsız olabilir
+                // diye ValidIssuers listesi ile her ikisini de kabul ediyoruz.
+                ValidIssuer  = keycloakAuthority,
+                ValidIssuers = new[]
+                {
+                    keycloakAuthority,
+                    builder.Configuration["Keycloak:AltIssuer"] ?? "http://keycloak:8080/realms/altaris"
+                },
                 ValidateAudience = false,
                 ValidateLifetime = true,
                 ValidateIssuerSigningKey = true,
@@ -217,6 +233,7 @@ try
     app.MapFileEndpoints();
     app.MapRemoteControlEndpoints();
     app.MapVaultEndpoints();
+    app.MapSetupEndpoints();
 
     Log.Information("Altaris API starting in {Env}", app.Environment.EnvironmentName);
     app.Run();

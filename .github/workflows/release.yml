@@ -1,9 +1,28 @@
 name: Release CLI Binaries
 
+# Asıl source code burada (private). Tag push veya manuel tetik ile derlenen
+# binary'ler PUBLIC release repo'suna SSH deploy key ile push edilir:
+#   https://github.com/argusteknoloji/altaris-super-agent-releases
+#
+# Releases repo'sunda kendi `publish-release.yml` workflow'u tag push'unu
+# yakalayıp default GITHUB_TOKEN ile release oluşturur (cross-repo PAT yok).
+#
+# Gerekli secret (source repo'da):
+#   RELEASES_DEPLOY_KEY — SSH private key (ed25519). Public yarısı releases
+#                         repo'sunda Deploy Key olarak (Allow write access ✓).
+
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to release (e.g. v0.1.0-beta.1)'
+        required: true
+        type: string
+
+env:
+  RELEASES_REPO_SSH: git@github.com:argusteknoloji/altaris-super-agent-releases.git
 
 jobs:
   build:
@@ -43,16 +62,89 @@ jobs:
           name: ${{ matrix.artifact }}
           path: cli/release/${{ matrix.artifact }}
 
-  release:
-    if: startsWith(github.ref, 'refs/tags/v')
+  publish:
+    # Tag push (refs/tags/v*) VEYA manual workflow_dispatch ile çalışır.
+    # SSH deploy key ile releases repo'suna binary'leri commit edip
+    # tag push eder; releases repo'sundaki workflow gerçek release'i oluşturur.
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     needs: build
     runs-on: ubuntu-latest
-    permissions: { contents: write }
     steps:
       - uses: actions/download-artifact@v4
         with: { path: dist }
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+
+      - name: Resolve tag name
+        id: tag
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "name=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Flatten artifacts + compute SHA256SUMS
+        run: |
+          mkdir -p flat
+          find dist -type f -name 'altaris-*' -exec cp {} flat/ \;
+          cd flat
+          sha256sum altaris-* > SHA256SUMS
+          ls -la
+          cat SHA256SUMS
+
+      - name: Setup SSH agent (deploy key)
+        uses: webfactory/ssh-agent@v0.9.0
         with:
-          files: dist/**/*
-          generate_release_notes: true
+          ssh-private-key: ${{ secrets.RELEASES_DEPLOY_KEY }}
+
+      - name: Add github.com to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - name: Push artifacts + tag to releases repo
+        env:
+          TAG: ${{ steps.tag.outputs.name }}
+        run: |
+          set -euo pipefail
+          # Çıktı dizininde temiz bir release repo clone'u oluştur.
+          git clone --depth=1 "$RELEASES_REPO_SSH" release-repo
+          cd release-repo
+
+          # Bu sürüme ait dosyaları ./bin/<tag>/ altına yerleştir
+          # (latest alias için ayrıca ./bin/latest/ overwrite edilir).
+          rm -rf "bin/$TAG" bin/latest
+          mkdir -p "bin/$TAG" bin/latest
+          cp ../flat/altaris-* ../flat/SHA256SUMS "bin/$TAG/"
+          cp ../flat/altaris-* ../flat/SHA256SUMS "bin/latest/"
+
+          # README'yi ilk push'ta yarat — sonraki run'larda override etme.
+          if [ ! -f README.md ]; then
+            cat > README.md <<'EOF'
+          # Altaris CLI — Public Release Artifacts
+
+          Cross-platform CLI binary release'leri. Source code private repo'da:
+          `argusteknoloji/altaris-super-agent`.
+
+          Tüm release'ler Source repo'sundaki `release.yml` workflow'u tarafından
+          SSH deploy key ile bu repo'ya push edilir; bu repo'nun
+          `publish-release.yml` workflow'u tag push'unda otomatik GitHub Release
+          oluşturur.
+
+          Anonymous download:
+          `https://github.com/argusteknoloji/altaris-super-agent-releases/releases/latest/download/<asset>`
+
+          Tek-satır install komutları için: Altaris web portal → **CLI Kurulum** (`/setup`).
+          EOF
+          fi
+
+          git config user.name  "altaris-release-bot"
+          git config user.email "release-bot@argusteknoloji.com"
+          git add bin/ README.md
+          git commit -m "release: $TAG ($(date -u +%Y-%m-%dT%H:%M:%SZ))" || echo "nothing to commit"
+          # Aynı tag yeniden çalışırsa (workflow_dispatch) eski tag'i sil
+          git push origin HEAD:main
+          if git ls-remote --tags origin | grep -q "refs/tags/$TAG$"; then
+            git push origin ":refs/tags/$TAG" || true
+          fi
+          git tag -a "$TAG" -m "Altaris CLI $TAG"
+          git push origin "$TAG"

@@ -15,7 +15,8 @@ const LINKS: Array<{ href: string; label: string; match: (p: string) => boolean 
   { href: "/vaults",        label: "Vaults",        match: p => p.startsWith("/vaults") },
   { href: "/remote-control", label: "Remote Control", match: p => p.startsWith("/remote-control") },
   { href: "/terminal",      label: "Terminal",      match: p => p.startsWith("/terminal") },
-  { href: "/admin",         label: "Admin",         match: p => p.startsWith("/admin") }
+  { href: "/admin",         label: "Admin",         match: p => p.startsWith("/admin") },
+  { href: "/setup",         label: "CLI Kurulum",   match: p => p.startsWith("/setup") }
 ];
 
 export default function TopNav({ email, tenantSlug }: Props) {
@@ -55,12 +56,12 @@ export default function TopNav({ email, tenantSlug }: Props) {
       <div className="flex items-center gap-3 text-xs">
         <PresenceBadge />
         {email && <span className="text-neutral-400">{email}</span>}
-        <Link
-          href="/api/auth/signout"
+        <a
+          href="/api/auth/full-signout"
           className="rounded-md border border-neutral-800 px-3 py-1 text-neutral-300 hover:bg-neutral-900"
         >
           Çıkış
-        </Link>
+        </a>
       </div>
     </header>
   );
