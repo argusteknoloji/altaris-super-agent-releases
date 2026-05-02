@@ -54,9 +54,13 @@ jobs:
         # cloud-provider SDK'ları (AWS Bedrock, Azure, GCP) ve OTel exporters
         # ile sharp/ripgrep external geçilmeli. Liste cli/scripts/build.ts'teki
         # external[] ile eşleşir; bir gün dinamik üretmeli.
+        #
+        # GÜVENLIK: --sourcemap KALDIRILDI. Public release repo'sunda yalnız
+        # minified binary olsun; sourcemap orijinal source path'lerini ve
+        # bazı durumlarda gömülü kaynağı sızdırabilir. Source private kalır.
         run: |
           mkdir -p release
-          bun build --compile --minify --sourcemap --target=${{ matrix.target }} \
+          bun build --compile --minify --target=${{ matrix.target }} \
             --external @opentelemetry/api \
             --external @opentelemetry/api-logs \
             --external @opentelemetry/core \
@@ -115,9 +119,24 @@ jobs:
           fi
 
       - name: Flatten artifacts + compute SHA256SUMS
+        # Sıkı whitelist: sadece beş bilinen artifact ismi. Sourcemap/.txt/
+        # logs/sample/profile gibi yan dosyalar ASLA copy edilmesin —
+        # public release repo'sunda yalnız compiled binary olur.
         run: |
           mkdir -p flat
-          find dist -type f -name 'altaris-*' -exec cp {} flat/ \;
+          for name in altaris-darwin-arm64 altaris-darwin-x64 \
+                      altaris-linux-x64 altaris-linux-arm64 \
+                      altaris-windows-x64.exe; do
+            src=$(find dist -type f -name "$name" | head -1)
+            if [ -z "$src" ]; then echo "MISSING $name" >&2; exit 1; fi
+            cp "$src" "flat/$name"
+          done
+          # Sourcemap/leak guard: flat/ içinde sadece beklenen 5 dosya olmalı
+          unexpected=$(find flat -type f -not -name 'altaris-*' | head)
+          if [ -n "$unexpected" ]; then
+            echo "REJECT: unexpected file(s) in artifact set: $unexpected" >&2
+            exit 1
+          fi
           cd flat
           sha256sum altaris-* > SHA256SUMS
           ls -la
@@ -144,10 +163,15 @@ jobs:
 
           # Bu sürüme ait dosyaları ./bin/<tag>/ altına yerleştir
           # (latest alias için ayrıca ./bin/latest/ overwrite edilir).
+          # Tek-tek isimle kopyala (glob expansion ile beklenmedik dosya gelmesin).
           rm -rf "bin/$TAG" bin/latest
           mkdir -p "bin/$TAG" bin/latest
-          cp ../flat/altaris-* ../flat/SHA256SUMS "bin/$TAG/"
-          cp ../flat/altaris-* ../flat/SHA256SUMS "bin/latest/"
+          for name in altaris-darwin-arm64 altaris-darwin-x64 \
+                      altaris-linux-x64 altaris-linux-arm64 \
+                      altaris-windows-x64.exe SHA256SUMS; do
+            cp "../flat/$name" "bin/$TAG/$name"
+            cp "../flat/$name" "bin/latest/$name"
+          done
 
           # README'yi ilk push'ta yarat — sonraki run'larda override etme.
           if [ ! -f README.md ]; then
