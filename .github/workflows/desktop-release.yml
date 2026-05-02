@@ -41,21 +41,16 @@ jobs:
           - os: macos-14            # Apple Silicon
             label: macos-arm64
             target: aarch64-apple-darwin
-            artifact_glob: "src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg"
           - os: macos-13            # Intel
             label: macos-x64
             target: x86_64-apple-darwin
-            artifact_glob: "src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg"
           - os: ubuntu-22.04
             label: linux-x64
             target: x86_64-unknown-linux-gnu
-            artifact_glob: "src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/{appimage,deb}/*"
           - os: windows-latest
             label: windows-x64
             target: x86_64-pc-windows-msvc
-            # NSIS-only bundle — WiX MSI runner'da default yok ve EV cert ile
-            # Authenticode imzası yok (kurum AV uyarıları için), NSIS yeterli.
-            artifact_glob: "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe"
+            # NSIS-only bundle (WiX MSI runner'da yok, EV cert de yok — Sprint #67)
     defaults: { run: { working-directory: desktop } }
     steps:
       - uses: actions/checkout@v4
@@ -110,18 +105,30 @@ jobs:
         shell: bash
 
       - name: Stage artifacts
+        # find ile yalnız regular file'ları topla — Tauri bazı bundler'lar
+        # ara dizin (örn. linux/appimage/Altaris.AppDir/) bırakıyor, glob
+        # bunu da match ediyor + cp non-recursive fail ediyordu.
+        # Ek olarak macOS default bash 3.2'de `shopt globstar` yok (set -e ile
+        # ilk satırda exit). find çapraz-OS güvenli.
         shell: bash
         run: |
           mkdir -p staging
-          shopt -s globstar nullglob
-          for f in ${{ matrix.artifact_glob }}; do
-            base="$(basename "$f")"
-            # Standart isimlendirme: altaris-desktop-<label>.<ext>
-            # macOS dmg / windows msi+nsis / linux deb+AppImage doğal extensions korunur.
-            ext="${base##*.}"
-            cp "$f" "staging/altaris-desktop-${{ matrix.label }}-${base}"
-          done
+          BASE="src-tauri/target/${{ matrix.target }}/release/bundle"
+          # Tüm bilinen Tauri bundle çıktılarını tek find ile yakala.
+          find "$BASE" -maxdepth 3 -type f \( \
+              -name '*.dmg'      -o \
+              -name '*.AppImage' -o \
+              -name '*.deb'      -o \
+              -name '*.msi'      -o \
+              -name '*-setup.exe' \
+            \) | while read -r f; do
+              base="$(basename "$f")"
+              cp "$f" "staging/altaris-desktop-${{ matrix.label }}-${base}"
+            done
+          echo "=== staging/ ==="
           ls -la staging/
+          # Hiçbir artifact toplanmadıysa (ki olmamalı), explicit fail.
+          test -n "$(ls -A staging/)" || { echo "::error::No artifacts produced"; exit 1; }
 
       - uses: actions/upload-artifact@v4
         with:
