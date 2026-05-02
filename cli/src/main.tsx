@@ -4080,45 +4080,27 @@ async function run(): Promise<CommanderCommand> {
     });
   }
 
-  // altaris auth
-
-  const auth = program.command('auth').description('Manage authentication').configureHelp(createSortedHelpConfig());
-  auth.command('login').description('Sign in to your Anthropic account').option('--email <email>', 'Pre-populate email address on the login page').option('--sso', 'Force SSO login flow').option('--console', 'Use Anthropic Console (API usage billing) instead of Altaris subscription').option('--claudeai', 'Use Altaris subscription (default)').action(async ({
-    email,
-    sso,
-    console: useConsole,
-    claudeai
-  }: {
-    email?: string;
-    sso?: boolean;
-    console?: boolean;
-    claudeai?: boolean;
-  }) => {
-    const {
-      authLogin
-    } = await import('./cli/handlers/auth.js');
-    await authLogin({
-      email,
-      sso,
-      console: useConsole,
-      claudeai
-    });
-  });
-  auth.command('status').description('Show authentication status').option('--json', 'Output as JSON (default)').option('--text', 'Output as human-readable text').action(async (opts: {
-    json?: boolean;
-    text?: boolean;
-  }) => {
-    const {
-      authStatus
-    } = await import('./cli/handlers/auth.js');
-    await authStatus(opts);
-  });
-  auth.command('logout').description('Log out from your Anthropic account').action(async () => {
-    const {
-      authLogout
-    } = await import('./cli/handlers/auth.js');
-    await authLogout();
-  });
+  // altaris auth — Argus tek-katman auth modeline geçtiğinden upstream
+  // (opencode) Anthropic OAuth komutları kullanılmıyor. Yanlışlıkla yazan
+  // kullanıcıyı doğru komuta yönlendirmek için stub bırakıyoruz.
+  const auth = program.command('auth')
+    .description("[deprecated] Argus identity için 'altaris login' kullan")
+    .configureHelp(createSortedHelpConfig());
+  const authRedirect = (sub: 'login' | 'logout' | 'status') => () => {
+    const m: Record<typeof sub, string> = {
+      login:  "altaris login --api https://api.altarisplatform.com",
+      logout: "altaris logout",
+      status: "altaris whoami",
+    };
+    process.stderr.write(
+      `'altaris auth ${sub}' artık kullanılmıyor (opencode/Anthropic OAuth katmanı).\n` +
+      `Argus identity için: ${m[sub]}\n`,
+    );
+    process.exit(2);
+  };
+  auth.command('login').description("[deprecated] → altaris login").action(authRedirect('login'));
+  auth.command('logout').description("[deprecated] → altaris logout").action(authRedirect('logout'));
+  auth.command('status').description("[deprecated] → altaris whoami").action(authRedirect('status'));
 
   /**
    * Helper function to handle marketplace command errors consistently.
