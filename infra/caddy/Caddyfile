@@ -1,7 +1,9 @@
 # Altaris Caddy reverse proxy — production
 # Auto-TLS via Let's Encrypt; her host için cert otomatik provision edilir.
-# Multi-domain: WEB_HOSTNAMES vb. boşlukla ayrılmış olabilir
-# (örn. "altarisplatform.com altaris.run") — Caddy native space-separated host matching.
+#
+# Domain stratejisi: altarisplatform.com canonical. altaris.run brand alias —
+# her isteği altarisplatform.com'a 301 yönlendirir (NextAuth v5 multi-domain
+# OAuth flow'unu desteklemiyor; tek canonical host gerek).
 
 {
     email {$LETSENCRYPT_EMAIL}
@@ -10,14 +12,26 @@
     }
 }
 
+# ── altaris.run brand alias → altarisplatform.com (301 permanent) ───────────
+altaris.run {
+    redir https://altarisplatform.com{uri} permanent
+}
+api.altaris.run {
+    redir https://api.altarisplatform.com{uri} permanent
+}
+auth.altaris.run {
+    redir https://auth.altarisplatform.com{uri} permanent
+}
+
 # ── Web portal (Next.js) ────────────────────────────────────────────────────
-{$WEB_HOSTNAMES} {
+altarisplatform.com {
     encode zstd gzip
     reverse_proxy web:3000 {
         header_up Host {host}
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
     }
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
@@ -29,13 +43,14 @@
 }
 
 # ── Keycloak (SSO endpoint) ─────────────────────────────────────────────────
-{$KC_HOSTNAMES} {
+auth.altarisplatform.com {
     encode zstd gzip
     reverse_proxy keycloak:8080 {
         header_up Host {host}
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
     }
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
@@ -44,13 +59,14 @@
 }
 
 # ── API (CLI / Desktop / external integrations için public) ─────────────────
-{$API_HOSTNAMES} {
+api.altarisplatform.com {
     encode zstd gzip
     reverse_proxy api:5000 {
         header_up Host {host}
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
+        header_up X-Forwarded-Host {host}
         # WebSocket / SSE: /ws/pty, /ws/remote-control, executive-brain stream
         flush_interval -1
     }
