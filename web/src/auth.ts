@@ -91,11 +91,21 @@ export const { handlers, signIn, signOut, auth: nextAuth } = NextAuth({
 
 // auth() fonksiyonu OIDC discovery yapmadan session cookie'yi doğrudan decode eder.
 // Bu, web container içinden localhost:8081'e erişilememesi sorununu bypass eder.
+//
+// Auth.js v5 cookie naming:
+//   HTTP  (dev) : "authjs.session-token"
+//   HTTPS (prod): "__Secure-authjs.session-token"  ← __Secure- prefix zorunlu
+// JWT decode salt'ı da aktif cookie name'iyle eşleşmeli, aksi halde token decode fail.
 export async function auth(): Promise<AltarisSession | null> {
   try {
     const cookieStore = await cookies();
-    const cookieName = "authjs.session-token";
-    const raw = cookieStore.get(cookieName)?.value;
+    // Önce production cookie'sine bak, yoksa dev cookie'sine düş.
+    const prodName = "__Secure-authjs.session-token";
+    const devName  = "authjs.session-token";
+    const prod = cookieStore.get(prodName)?.value;
+    const dev  = cookieStore.get(devName)?.value;
+    const raw       = prod ?? dev;
+    const cookieName = prod ? prodName : devName;
     if (!raw) return null;
 
     const token = await decode({ token: raw, secret: process.env.AUTH_SECRET!, salt: cookieName });

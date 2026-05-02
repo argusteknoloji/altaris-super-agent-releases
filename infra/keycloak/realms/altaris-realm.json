@@ -1,6 +1,7 @@
 {
   "realm": "altaris",
   "enabled": true,
+  "sslRequired": "none",
   "displayName": "Altaris Platform",
   "registrationAllowed": false,
   "resetPasswordAllowed": true,
@@ -24,15 +25,24 @@
   "eventsEnabled": true,
   "eventsExpiration": 2592000,
   "enabledEventTypes": [
-    "LOGIN", "LOGIN_ERROR",
-    "LOGOUT", "LOGOUT_ERROR",
-    "REGISTER", "REGISTER_ERROR",
-    "DELETE_ACCOUNT", "DELETE_ACCOUNT_ERROR",
-    "UPDATE_PASSWORD", "UPDATE_PASSWORD_ERROR",
-    "UPDATE_TOTP", "UPDATE_TOTP_ERROR",
-    "REMOVE_TOTP", "REMOVE_TOTP_ERROR",
-    "RESET_PASSWORD", "RESET_PASSWORD_ERROR",
-    "SEND_VERIFY_EMAIL", "SEND_RESET_PASSWORD"
+    "LOGIN",
+    "LOGIN_ERROR",
+    "LOGOUT",
+    "LOGOUT_ERROR",
+    "REGISTER",
+    "REGISTER_ERROR",
+    "DELETE_ACCOUNT",
+    "DELETE_ACCOUNT_ERROR",
+    "UPDATE_PASSWORD",
+    "UPDATE_PASSWORD_ERROR",
+    "UPDATE_TOTP",
+    "UPDATE_TOTP_ERROR",
+    "REMOVE_TOTP",
+    "REMOVE_TOTP_ERROR",
+    "RESET_PASSWORD",
+    "RESET_PASSWORD_ERROR",
+    "SEND_VERIFY_EMAIL",
+    "SEND_RESET_PASSWORD"
   ],
   "adminEventsEnabled": true,
   "adminEventsDetailsEnabled": true,
@@ -44,7 +54,9 @@
   "oauth2DeviceCodeLifespan": 600,
   "oauth2DevicePollingInterval": 5,
   "attributes": {
-    "frontendUrl": "http://localhost:8081"
+    "frontendUrl": "http://localhost:8081",
+    "userProfileEnabled": "true",
+    "userProfile": "{\"attributes\":[{\"name\":\"username\",\"displayName\":\"${username}\",\"validations\":{\"length\":{\"min\":3,\"max\":255},\"username-prohibited-characters\":{},\"up-username-not-idn-homograph\":{}},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"email\",\"displayName\":\"${email}\",\"validations\":{\"email\":{},\"length\":{\"max\":255}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"firstName\",\"displayName\":\"${firstName}\",\"validations\":{\"length\":{\"max\":255},\"person-name-prohibited-characters\":{}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"lastName\",\"displayName\":\"${lastName}\",\"validations\":{\"length\":{\"max\":255},\"person-name-prohibited-characters\":{}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"tenant_id\",\"displayName\":\"Tenant ID\",\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\"]},\"multivalued\":false}],\"groups\":[{\"name\":\"user-metadata\",\"displayHeader\":\"User metadata\",\"displayDescription\":\"Attributes, which refer to user metadata\"}]}"
   },
   "roles": {
     "realm": [

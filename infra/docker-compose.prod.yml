@@ -97,8 +97,16 @@ services:
       ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};Pooling=true;Maximum Pool Size=64"
       ConnectionStrings__Redis:    "redis:6379,password=${REDIS_PASSWORD}"
       Keycloak__Authority:         "https://${PRIMARY_KC_HOSTNAME}/realms/${KC_REALM:-altaris}"
+      # PublicAuthority CLI'ya tarayıcı login URL'i için verilir; Authority ile aynı.
+      Keycloak__PublicAuthority:   "https://${PRIMARY_KC_HOSTNAME}/realms/${KC_REALM:-altaris}"
       Keycloak__AdminBase:         "https://${PRIMARY_KC_HOSTNAME}/admin"
       Keycloak__Realm:             "${KC_REALM:-altaris}"
+      # /api/v1/config/cli endpoint'i bu env'leri okur — CLI device flow için
+      Auth__Issuer:                "https://${PRIMARY_KC_HOSTNAME}/realms/${KC_REALM:-altaris}"
+      Auth__CliClientId:           "altaris-cli"
+      Web__BaseUrl:                "https://${PRIMARY_WEB_HOSTNAME}"
+      # CLI'in kendisini /setup ile yönlendirmesi için web URL
+      Setup__PublicWebBase:        "https://${PRIMARY_WEB_HOSTNAME}"
       Keycloak__AdminClientId:     "altaris-admin-svc"
       Keycloak__AdminClientSecret: "${KC_ADMIN_SVC_SECRET:?required}"
       # Multi-host CORS — her web hostname için ayrı origin.
