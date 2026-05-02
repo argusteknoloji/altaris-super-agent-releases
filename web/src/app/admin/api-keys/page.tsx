@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { fmtDateTimeTR } from "@/lib/datetime";
 
 type Row = { id: string; name: string; prefix: string; lastUsedAt: string | null; expiresAt: string | null; createdAt: string };
 
@@ -66,8 +67,8 @@ export default function ApiKeysPage() {
               <tr key={k.id} className="border-t border-neutral-800">
                 <td className="px-4 py-3">{k.name}</td>
                 <td className="px-4 py-3 font-mono text-xs">{k.prefix}…</td>
-                <td className="px-4 py-3 text-xs text-neutral-400">{k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString("tr-TR") : "—"}</td>
-                <td className="px-4 py-3 text-xs text-neutral-400">{k.expiresAt ? new Date(k.expiresAt).toLocaleString("tr-TR") : "süresiz"}</td>
+                <td className="px-4 py-3 text-xs text-neutral-400">{k.lastUsedAt ? fmtDateTimeTR(k.lastUsedAt) : "—"}</td>
+                <td className="px-4 py-3 text-xs text-neutral-400">{k.expiresAt ? fmtDateTimeTR(k.expiresAt) : "süresiz"}</td>
                 <td className="px-4 py-3 text-right">
                   <button onClick={() => revoke(k.id)} className="rounded-md border border-red-500/30 px-3 py-1 text-xs text-red-400 hover:bg-red-500/10">İptal</button>
                 </td>

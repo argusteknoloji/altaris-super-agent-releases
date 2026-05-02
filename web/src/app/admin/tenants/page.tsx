@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { fmtDateTimeTR } from "@/lib/datetime";
 
 type Row = { id: string; slug: string; name: string; status: string; createdAt: string };
 
@@ -60,7 +61,7 @@ export default function TenantsPage() {
                 <td className="px-4 py-3 font-mono text-xs">{t.slug}</td>
                 <td className="px-4 py-3">{t.name}</td>
                 <td className="px-4 py-3 text-xs">{t.status}</td>
-                <td className="px-4 py-3 text-xs text-neutral-400">{new Date(t.createdAt).toLocaleString("tr-TR")}</td>
+                <td className="px-4 py-3 text-xs text-neutral-400">{fmtDateTimeTR(t.createdAt)}</td>
               </tr>
             ))}
           </tbody>

@@ -1,5 +1,6 @@
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
+import { fmtDateTimeTR } from "@/lib/datetime";
 
 type SessionRow = {
   id: string;
@@ -73,7 +74,7 @@ export default async function Dashboard() {
                 <td className="px-4 py-3 font-mono text-xs">{s.provider}</td>
                 <td className="px-4 py-3 font-mono text-xs">{s.model}</td>
                 <td className="px-4 py-3">{s.status}</td>
-                <td className="px-4 py-3 text-xs text-neutral-400">{new Date(s.startedAt).toLocaleString("tr-TR")}</td>
+                <td className="px-4 py-3 text-xs text-neutral-400">{fmtDateTimeTR(s.startedAt)}</td>
               </tr>
             ))}
           </tbody>

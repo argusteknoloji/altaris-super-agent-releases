@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { fmtDateTimeTR } from "@/lib/datetime";
 
 type Visibility = "private" | "tenant" | "executive";
 
@@ -146,7 +147,7 @@ export default function VaultsPage() {
               {v.fileCount} dosya · {fmtBytes(v.byteSize)} · {v.owner.email}
             </p>
             <p className="mt-1 text-xs text-neutral-600">
-              güncellendi {new Date(v.updatedAt).toLocaleString("tr-TR")}
+              güncellendi {fmtDateTimeTR(v.updatedAt)}
             </p>
             <div className="mt-3 flex items-center gap-2">
               <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${VIS_LABELS[v.visibility].color}`}

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, use } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
+import { fmtDateTimeTR } from "@/lib/datetime";
 
 // Monaco bundle is heavy (~1.5 MB). Lazy-load + skip SSR so the rest of the
 // vault browser is interactive instantly.
@@ -216,7 +217,7 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
                     "block w-full truncate rounded-md px-2 py-1 text-left font-mono " +
                     (activePath === f.path ? "bg-neutral-900 text-orange-400" : "text-neutral-300 hover:bg-neutral-900")
                   }
-                  title={`${f.bytes} B · ${new Date(f.modifiedUtc).toLocaleString("tr-TR")}`}
+                  title={`${f.bytes} B · ${fmtDateTimeTR(f.modifiedUtc)}`}
                 >
                   {f.path}
                 </button>

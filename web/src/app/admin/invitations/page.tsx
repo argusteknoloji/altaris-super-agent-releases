@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { fmtDateTimeTR } from "@/lib/datetime";
 
 type Inv = { id: string; email: string; role: string; expiresAt: string; createdAt: string };
 
@@ -71,8 +72,8 @@ export default function InvitationsPage() {
               <tr key={i.id} className="border-t border-neutral-800">
                 <td className="px-4 py-3">{i.email}</td>
                 <td className="px-4 py-3"><span className="rounded bg-neutral-800 px-2 py-0.5 text-xs">{i.role}</span></td>
-                <td className="px-4 py-3 text-xs text-neutral-400">{new Date(i.createdAt).toLocaleString("tr-TR")}</td>
-                <td className="px-4 py-3 text-xs text-neutral-400">{new Date(i.expiresAt).toLocaleString("tr-TR")}</td>
+                <td className="px-4 py-3 text-xs text-neutral-400">{fmtDateTimeTR(i.createdAt)}</td>
+                <td className="px-4 py-3 text-xs text-neutral-400">{fmtDateTimeTR(i.expiresAt)}</td>
                 <td className="px-4 py-3 text-right">
                   <button onClick={() => del(i.id)} className="rounded-md border border-red-500/30 px-3 py-1 text-xs text-red-400 hover:bg-red-500/10">İptal</button>
                 </td>

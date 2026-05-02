@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { fmtDateTimeTR } from "@/lib/datetime";
 
 type Row = {
   id: string;
@@ -111,7 +112,7 @@ export default function RemoteControlPage() {
                 <td className="px-3 py-2 text-xs text-neutral-300">{r.title ?? <span className="text-neutral-500">—</span>}</td>
                 <td className="px-3 py-2 font-mono text-xs">{r.provider}/{r.model}</td>
                 <td className="px-3 py-2 text-xs text-neutral-400 font-mono">
-                  {r.remoteAccessAt ? new Date(r.remoteAccessAt).toLocaleString("tr-TR") : "—"}
+                  {r.remoteAccessAt ? fmtDateTimeTR(r.remoteAccessAt) : "—"}
                 </td>
                 <td className="px-3 py-2 text-xs">{r.viewers}</td>
                 <td className="px-3 py-2 text-right">

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { fmtDateTimeTR } from "@/lib/datetime";
 
 type Row = { id: number; actor: string; action: string; resourceType: string | null; resourceId: string | null; ip: string | null; occurredAt: string };
 
@@ -30,7 +31,7 @@ export default function AuditPage() {
             {!loading && rows.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-neutral-500">Henüz kayıt yok.</td></tr>}
             {rows.map(a => (
               <tr key={a.id} className="border-t border-neutral-800 hover:bg-neutral-900/40">
-                <td className="px-4 py-2 text-xs text-neutral-400 font-mono">{new Date(a.occurredAt).toLocaleString("tr-TR")}</td>
+                <td className="px-4 py-2 text-xs text-neutral-400 font-mono">{fmtDateTimeTR(a.occurredAt)}</td>
                 <td className="px-4 py-2 text-xs">{a.actor}</td>
                 <td className="px-4 py-2"><span className="rounded bg-neutral-800 px-2 py-0.5 text-xs">{a.action}</span></td>
                 <td className="px-4 py-2 text-xs text-neutral-400">{a.resourceType ? `${a.resourceType}:${a.resourceId?.slice(0,8) ?? ""}` : "—"}</td>

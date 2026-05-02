@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
+import { fmtDateTimeTR, fmtTimeTR } from "@/lib/datetime";
 
 type Detail = {
   id: string; source: string; provider: string; model: string; title: string | null;
@@ -52,8 +53,8 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
               Canlı izle / Takeover →
             </Link>
           )}
-          <p className="mt-2 text-xs text-neutral-500">başlangıç {new Date(detail.startedAt).toLocaleString("tr-TR")}</p>
-          {detail.endedAt && <p className="text-xs text-neutral-500">bitiş {new Date(detail.endedAt).toLocaleString("tr-TR")}</p>}
+          <p className="mt-2 text-xs text-neutral-500">başlangıç {fmtDateTimeTR(detail.startedAt)}</p>
+          {detail.endedAt && <p className="text-xs text-neutral-500">bitiş {fmtDateTimeTR(detail.endedAt)}</p>}
         </div>
       </div>
 
@@ -75,7 +76,7 @@ export default function SessionDetailPage({ params }: { params: Promise<{ id: st
                   : m.role === "tool" ? "text-xs uppercase tracking-wide text-blue-400"
                   : "text-xs uppercase tracking-wide text-neutral-500"
                 }>{m.role}</span>
-                <span className="text-[10px] text-neutral-600 font-mono">{new Date(m.createdAt).toLocaleTimeString("tr-TR")}</span>
+                <span className="text-[10px] text-neutral-600 font-mono">{fmtTimeTR(m.createdAt)}</span>
               </div>
               <pre className="mt-1 whitespace-pre-wrap break-all font-mono text-xs text-neutral-200">{content}</pre>
             </div>

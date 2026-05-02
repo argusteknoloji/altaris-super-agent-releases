@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { fmtDateTimeTR } from "@/lib/datetime";
 
 type SessionRow = {
   id: string;
@@ -98,7 +99,7 @@ export default function AdminSessionsPage() {
                 <td className="px-3 py-2 font-mono text-xs">{s.provider}/{s.model}</td>
                 <td className="px-3 py-2 text-xs text-neutral-300">{s.title ?? "—"}</td>
                 <td className="px-3 py-2 text-xs">{s.status}</td>
-                <td className="px-3 py-2 text-xs text-neutral-400 font-mono">{new Date(s.startedAt).toLocaleString("tr-TR")}</td>
+                <td className="px-3 py-2 text-xs text-neutral-400 font-mono">{fmtDateTimeTR(s.startedAt)}</td>
                 <td className="px-3 py-2 text-right">
                   <Link href={`/admin/sessions/${s.id}`} className="text-xs text-orange-400 hover:underline">Görüntüle →</Link>
                 </td>

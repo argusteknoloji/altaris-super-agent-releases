@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { fmtDateTimeTR } from "@/lib/datetime";
 
 type Row = { id: string; email: string; displayName: string | null; role: string; keycloakSub: string; createdAt: string };
 
@@ -90,7 +91,7 @@ export default function UsersPage() {
                 <td className="px-4 py-3">{u.email}</td>
                 <td className="px-4 py-3">{u.displayName || <span className="text-neutral-500">—</span>}</td>
                 <td className="px-4 py-3"><span className="rounded bg-neutral-800 px-2 py-0.5 text-xs">{u.role}</span></td>
-                <td className="px-4 py-3 text-xs text-neutral-400">{new Date(u.createdAt).toLocaleString("tr-TR")}</td>
+                <td className="px-4 py-3 text-xs text-neutral-400">{fmtDateTimeTR(u.createdAt)}</td>
                 <td className="px-4 py-3 text-right">
                   <button onClick={() => del(u.id)} className="rounded-md border border-red-500/30 px-3 py-1 text-xs text-red-400 hover:bg-red-500/10">Sil</button>
                 </td>
