@@ -89,6 +89,7 @@ export default function App() {
         </div>
         <nav className="space-y-1 text-sm">
           {has("chat.use")         && <NavItem to="/chat"     label="Chat" />}
+          {has("vault.read")       && <NavItem to="/vaults"   label="Vaults" />}
           {true                    && <NavItem to="/code"     label="Code" />}
           {true                    && <NavItem to="/terminal" label="Terminal" />}
         </nav>
