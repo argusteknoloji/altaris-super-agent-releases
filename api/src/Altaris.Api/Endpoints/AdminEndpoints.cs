@@ -46,6 +46,10 @@ public static class AdminEndpoints
         grp.MapPut ("/users/{userId:guid}/capabilities",      ReplaceUserCapabilities);
         // Catalogue (registry + role defaults) for the admin UI matrix
         grp.MapGet ("/capabilities/catalog",                  GetCapabilityCatalog);
+        // Active Keycloak SSO sessions (list / kill one / kill all)
+        grp.MapGet    ("/users/{userId:guid}/sso-sessions",                  ListUserSessions);
+        grp.MapDelete ("/users/{userId:guid}/sso-sessions/{sessionId}",      KillUserSession);
+        grp.MapPost   ("/users/{userId:guid}/sso-sessions/logout-all",       LogoutAllSessions);
 
         // ===== INVITATIONS =====
         grp.MapGet("/invitations", ListInvitations);
@@ -285,6 +289,31 @@ public static class AdminEndpoints
         return Results.Ok(new { count = entries.Count });
     }
 
+    // ---- SSO SESSIONS (Keycloak) ----
+    private static async Task<IResult> ListUserSessions(Guid userId, AltarisDbContext db, ITenantContext tc, KeycloakAdminClient kc)
+    {
+        var u = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == userId && x.TenantId == tc.TenantId);
+        if (u is null) return Results.NotFound();
+        var rows = await kc.ListSessionsAsync(u.KeycloakSub);
+        return Results.Ok(rows);
+    }
+
+    private static async Task<IResult> KillUserSession(Guid userId, string sessionId, AltarisDbContext db, ITenantContext tc, KeycloakAdminClient kc)
+    {
+        var u = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == userId && x.TenantId == tc.TenantId);
+        if (u is null) return Results.NotFound();
+        await kc.DeleteSessionAsync(sessionId);
+        return Results.NoContent();
+    }
+
+    private static async Task<IResult> LogoutAllSessions(Guid userId, AltarisDbContext db, ITenantContext tc, KeycloakAdminClient kc)
+    {
+        var u = await db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == userId && x.TenantId == tc.TenantId);
+        if (u is null) return Results.NotFound();
+        await kc.LogoutAllAsync(u.KeycloakSub);
+        return Results.NoContent();
+    }
+
     // ---- INVITATIONS ----
     private static async Task<IResult> ListInvitations(AltarisDbContext db, ITenantContext tc) =>
         Results.Ok(await db.Invitations
@@ -387,13 +416,37 @@ public static class AdminEndpoints
     }
 
     // ---- AUDIT ----
-    private static async Task<IResult> ListAudit(AltarisDbContext db, ITenantContext tc, int take = 200) =>
-        Results.Ok(await db.AuditEvents
-            .Where(a => a.TenantId == tc.TenantId)
+    private static async Task<IResult> ListAudit(
+        AltarisDbContext db, ITenantContext tc,
+        string? actor, string? action, string? resourceType, string? from, string? to, string? q,
+        int take = 200, int skip = 0)
+    {
+        var query = db.AuditEvents.Where(a => a.TenantId == tc.TenantId);
+        if (!string.IsNullOrEmpty(actor))        query = query.Where(a => EF.Functions.ILike(a.Actor, $"%{actor}%"));
+        if (!string.IsNullOrEmpty(action))       query = query.Where(a => EF.Functions.ILike(a.Action, $"%{action}%"));
+        if (!string.IsNullOrEmpty(resourceType)) query = query.Where(a => a.ResourceType == resourceType);
+        if (DateTimeOffset.TryParse(from, out var dFrom)) query = query.Where(a => a.OccurredAt >= dFrom);
+        if (DateTimeOffset.TryParse(to,   out var dTo))   query = query.Where(a => a.OccurredAt <= dTo);
+        if (!string.IsNullOrEmpty(q))
+        {
+            var like = $"%{q}%";
+            query = query.Where(a =>
+                EF.Functions.ILike(a.Actor, like) ||
+                EF.Functions.ILike(a.Action, like) ||
+                EF.Functions.ILike(a.ResourceType ?? "", like) ||
+                EF.Functions.ILike(a.ResourceId ?? "", like) ||
+                EF.Functions.ILike(a.Ip ?? "", like));
+        }
+
+        var total = await query.CountAsync();
+        var rows = await query
             .OrderByDescending(a => a.OccurredAt)
-            .Take(Math.Min(take, 1000))
+            .Skip(Math.Max(skip, 0))
+            .Take(Math.Clamp(take, 1, 1000))
             .Select(a => new { a.Id, a.Actor, a.Action, a.ResourceType, a.ResourceId, a.Ip, a.OccurredAt })
-            .ToListAsync());
+            .ToListAsync();
+        return Results.Ok(new { items = rows, total });
+    }
 
     // ---- API KEYS ----
     private static async Task<IResult> ListApiKeys(AltarisDbContext db, ITenantContext tc) =>

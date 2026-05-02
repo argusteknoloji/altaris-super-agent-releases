@@ -316,6 +316,7 @@ try
     app.MapRemoteControlEndpoints();
     app.MapVaultEndpoints();
     app.MapSetupEndpoints();
+    app.MapInviteEndpoints();
     app.MapCodexProviderEndpoints();
 
     Log.Information("Altaris API starting in {Env}", app.Environment.EnvironmentName);

@@ -202,6 +202,43 @@ public class KeycloakAdminClient
         resp.EnsureSuccessStatusCode();
     }
 
+    public record KeycloakSession(string Id, string Username, string IpAddress, long Start, long LastAccess, Dictionary<string, string>? Clients);
+
+    public async Task<List<KeycloakSession>> ListSessionsAsync(string keycloakUserId, CancellationToken ct = default)
+    {
+        var req = await AuthedAsync(HttpMethod.Get, $"/users/{keycloakUserId}/sessions", null, ct);
+        using var resp = await _http.SendAsync(req, ct);
+        if (!resp.IsSuccessStatusCode) return new();
+        var arr = await resp.Content.ReadFromJsonAsync<List<JsonElement>>(cancellationToken: ct) ?? new();
+        return arr.Select(j => new KeycloakSession(
+            Id: j.GetProperty("id").GetString() ?? "",
+            Username: j.TryGetProperty("username", out var u) ? u.GetString() ?? "" : "",
+            IpAddress: j.TryGetProperty("ipAddress", out var ip) ? ip.GetString() ?? "" : "",
+            Start: j.TryGetProperty("start", out var s) ? s.GetInt64() : 0,
+            LastAccess: j.TryGetProperty("lastAccess", out var la) ? la.GetInt64() : 0,
+            Clients: j.TryGetProperty("clients", out var cl) && cl.ValueKind == JsonValueKind.Object
+                ? cl.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetString() ?? "")
+                : null
+        )).ToList();
+    }
+
+    public async Task DeleteSessionAsync(string sessionId, CancellationToken ct = default)
+    {
+        var req = await AuthedAsync(HttpMethod.Delete, $"/sessions/{sessionId}", null, ct);
+        using var resp = await _http.SendAsync(req, ct);
+        // Keycloak 204 NoContent veya 404 (session zaten yok) — ikisi de OK.
+        if (!resp.IsSuccessStatusCode && resp.StatusCode != System.Net.HttpStatusCode.NotFound)
+            resp.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>Bütün aktif oturumları sonlandır (yeni login zorunlu).</summary>
+    public async Task LogoutAllAsync(string keycloakUserId, CancellationToken ct = default)
+    {
+        var req = await AuthedAsync(HttpMethod.Post, $"/users/{keycloakUserId}/logout", null, ct);
+        using var resp = await _http.SendAsync(req, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
     public async Task<List<string>> GetRealmRolesAsync(string keycloakUserId, CancellationToken ct = default)
     {
         var req = await AuthedAsync(HttpMethod.Get, $"/users/{keycloakUserId}/role-mappings/realm", null, ct);

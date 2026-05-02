@@ -34,6 +34,22 @@ public class TenantResolutionMiddleware
             return;
         }
 
+        // Tenant override (X-Tenant-Override header) — sadece platform_admin
+        // role'üne sahip kullanıcılar başka tenant olarak görüntüleyebilir.
+        // Audit log kayıt yine kullanıcının kendi user row'una yazılır;
+        // RLS context override edilen tenant'a göre kurulur.
+        var overrideSlug = context.Request.Headers["X-Tenant-Override"].ToString();
+        if (!string.IsNullOrEmpty(overrideSlug) && overrideSlug != tenantSlug)
+        {
+            var raClaim = context.User.FindFirst("realm_access")?.Value ?? "";
+            if (raClaim.Contains("platform_admin"))
+            {
+                tenantSlug = overrideSlug;
+            }
+            // değilse override sessizce yok sayılır (header üreten kötü niyetli
+            // istemci normal tenant'ında çalışmaya devam eder).
+        }
+
         var tenant = await db.Tenants.AsNoTracking().FirstOrDefaultAsync(t => t.Slug == tenantSlug);
         if (tenant is null)
         {

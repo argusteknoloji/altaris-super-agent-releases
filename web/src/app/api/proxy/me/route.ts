@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { cookies } from "next/headers";
 
 export const dynamic = "force-dynamic";
 export const runtime  = "nodejs";
@@ -9,8 +10,9 @@ export async function GET() {
   const session = await auth();
   const token = session?.accessToken;
   if (!token) return new Response("Unauthorized", { status: 401 });
-  const r = await fetch(`${API_BASE}/api/v1/me`, {
-    headers: { Authorization: `Bearer ${token}` }, cache: "no-store",
-  });
+  const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+  const override = (await cookies()).get("altaris_tenant_override")?.value;
+  if (override) headers["X-Tenant-Override"] = override;
+  const r = await fetch(`${API_BASE}/api/v1/me`, { headers, cache: "no-store" });
   return new Response(await r.text(), { status: r.status, headers: { "Content-Type": "application/json" } });
 }

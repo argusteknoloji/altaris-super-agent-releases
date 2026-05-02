@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import PresenceBadge from "./PresenceBadge";
+import TenantSwitcher from "./TenantSwitcher";
 
 type Props = {
   email?: string | null;
@@ -54,6 +55,7 @@ export default function TopNav({ email, tenantSlug }: Props) {
         </nav>
       </div>
       <div className="flex items-center gap-3 text-xs">
+        <TenantSwitcher />
         <PresenceBadge />
         {email && <span className="text-neutral-400">{email}</span>}
         <a

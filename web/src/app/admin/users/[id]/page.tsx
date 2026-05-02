@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, use } from "react";
 import Link from "next/link";
+import { fmtDateTimeTR } from "@/lib/datetime";
 
 type Catalog = {
   all: string[];
@@ -14,6 +15,15 @@ type UserCaps = {
   defaults: string[];
   overrides: { capability: string; effect: "allow" | "deny"; grantedAt: string }[];
   effective: string[];
+};
+
+type SsoSession = {
+  id: string;
+  username: string;
+  ipAddress: string;
+  start: number;
+  lastAccess: number;
+  clients: Record<string, string> | null;
 };
 
 type Effect = "default" | "allow" | "deny";
@@ -50,23 +60,37 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
   const [busy, setBusy]       = useState(false);
   const [err, setErr]         = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
+  const [sessions, setSessions] = useState<SsoSession[]>([]);
 
   async function load() {
     setErr(null);
     try {
-      const [c, u] = await Promise.all([
+      const [c, u, s] = await Promise.all([
         fetch("/api/proxy/admin/capabilities/catalog", { cache: "no-store" }).then(r => r.json()),
         fetch(`/api/proxy/admin/users/${id}/capabilities`, { cache: "no-store" }).then(r => {
           if (!r.ok) throw new Error(`HTTP ${r.status}`);
           return r.json();
         }),
+        fetch(`/api/proxy/admin/users/${id}/sso-sessions`, { cache: "no-store" })
+          .then(r => r.ok ? r.json() : []),
       ]);
-      setCatalog(c); setData(u);
+      setCatalog(c); setData(u); setSessions(s);
       const m = new Map<string, Effect>();
       for (const cap of c.all) m.set(cap, "default");
       for (const o of u.overrides ?? []) m.set(o.capability, o.effect);
       setMatrix(m);
     } catch (e) { setErr((e as Error).message); }
+  }
+
+  async function killSession(sid: string) {
+    if (!confirm("Bu SSO oturumunu sonlandır?")) return;
+    const r = await fetch(`/api/proxy/admin/users/${id}/sso-sessions/${sid}`, { method: "DELETE" });
+    if (r.ok) load(); else setErr(`HTTP ${r.status}`);
+  }
+  async function logoutAll() {
+    if (!confirm("Bu kullanıcının TÜM SSO oturumları sonlandırılsın? Tekrar login gerekir.")) return;
+    const r = await fetch(`/api/proxy/admin/users/${id}/sso-sessions/logout-all`, { method: "POST" });
+    if (r.ok) load(); else setErr(`HTTP ${r.status}`);
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
 
@@ -158,6 +182,37 @@ export default function UserDetailPage({ params }: { params: Promise<{ id: strin
         <strong className="text-red-400"> Deny</strong> (rol verse bile elle).
         Effective = Default ∪ Allow ∖ Deny.
       </p>
+
+      <section className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900/30 p-4">
+        <div className="flex items-baseline justify-between">
+          <h3 className="text-sm font-semibold text-neutral-200">Aktif SSO oturumları ({sessions.length})</h3>
+          {sessions.length > 0 && (
+            <button onClick={logoutAll} className="rounded-md border border-red-500/30 px-3 py-1 text-xs text-red-400 hover:bg-red-500/10">Hepsini sonlandır</button>
+          )}
+        </div>
+        {sessions.length === 0 ? (
+          <p className="mt-3 text-xs text-neutral-500">Aktif oturum yok.</p>
+        ) : (
+          <table className="mt-3 w-full text-sm">
+            <thead className="text-left text-xs uppercase tracking-wide text-neutral-500">
+              <tr><th className="pb-2">IP</th><th className="pb-2">Başlangıç</th><th className="pb-2">Son erişim</th><th className="pb-2">Client</th><th className="pb-2 text-right">İşlem</th></tr>
+            </thead>
+            <tbody>
+              {sessions.map(s => (
+                <tr key={s.id} className="border-t border-neutral-800">
+                  <td className="py-2 font-mono text-xs text-neutral-300">{s.ipAddress || "—"}</td>
+                  <td className="py-2 text-xs text-neutral-400">{fmtDateTimeTR(new Date(s.start))}</td>
+                  <td className="py-2 text-xs text-neutral-400">{fmtDateTimeTR(new Date(s.lastAccess))}</td>
+                  <td className="py-2 text-xs text-neutral-500">{s.clients ? Object.values(s.clients).join(", ") : "—"}</td>
+                  <td className="py-2 text-right">
+                    <button onClick={() => killSession(s.id)} className="rounded-md border border-red-500/30 px-3 py-1 text-xs text-red-400 hover:bg-red-500/10">Sonlandır</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
 
       <div className="mt-6 space-y-6">
         {groups.map(g => (

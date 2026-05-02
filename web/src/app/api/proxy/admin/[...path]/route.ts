@@ -16,6 +16,13 @@ async function forward(req: NextRequest, ctx: { params: Promise<{ path: string[]
   };
   const ct = req.headers.get("content-type");
   if (ct) headers["Content-Type"] = ct;
+  // Tenant override (platform_admin'in başka tenant'ı görüntülemesi için)
+  // — frontend cookie veya header ile yollar; backend yalnız platform_admin
+  // role'üne sahip kullanıcılar için uygular.
+  const overrideHeader = req.headers.get("x-tenant-override");
+  const overrideCookie = req.cookies.get("altaris_tenant_override")?.value;
+  const override = overrideHeader || overrideCookie;
+  if (override) headers["X-Tenant-Override"] = override;
 
   const body = req.method === "GET" || req.method === "HEAD" ? undefined : await req.text();
   const upstream = await fetch(target, { method: req.method, headers, body });
