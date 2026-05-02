@@ -88,8 +88,13 @@ export default function RemoteControlViewerPage({ params }: { params: Promise<{ 
         if (ws.readyState !== WebSocket.OPEN) return;
         ws.send(JSON.stringify({ type: "in", data: d }));
         setDebugCount(c => c + 1);
-        // eslint-disable-next-line no-console
-        console.log("[remote-control] sent in", JSON.stringify(d));
+        // Per-keystroke console.log kaldırıldı — yüksek frekansta
+        // DevTools console queue'sunu doldurup görsel takılmaya yol açıyordu.
+        // Debug isteyen ?debug=1 query param ile aktif edebilir.
+        if (typeof window !== "undefined" && window.location.search.includes("debug=1")) {
+          // eslint-disable-next-line no-console
+          console.debug("[remote-control] sent in", JSON.stringify(d));
+        }
       });
 
       // Window resize → refit xterm cells. Send the new dimensions to the
