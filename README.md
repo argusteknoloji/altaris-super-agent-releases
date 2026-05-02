@@ -33,7 +33,7 @@ her sonucu denetlenebilir bir biçimde kaydeder.
   davetleri.
 - 🔌 **Çoklu sağlayıcı** — Anthropic, OpenAI, Azure, AWS Bedrock, ya da
   kendi makinenizdeki LM Studio / Ollama. Tek arayüz, esnek altyapı.
-- 🛡️ **Çok-kiracılı** — bir kurum içinde birden fazla ekip, her birinin
+- 🛡️ **Multi-tenant** — bir kurum içinde birden fazla ekip, her birinin
   verisi izole; bir takım başkasının verisini *kazara bile* göremez.
 
 ---
