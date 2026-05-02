@@ -138,6 +138,9 @@ services:
       AUTH_KEYCLOAK_SECRET: ${WEB_KEYCLOAK_SECRET:-}
       AUTH_KEYCLOAK_ISSUER: "https://${PRIMARY_KC_HOSTNAME}/realms/${KC_REALM:-altaris}"
       ALTARIS_API_BASE:     "http://api:5000"
+      # Browser-reachable API URL (WebSocket/SSE için). Internal api:5000
+      # tarayıcıdan çözülemez; public hostname kullan.
+      ALTARIS_PUBLIC_API_BASE: "https://${PRIMARY_API_HOSTNAME}"
       # Tek canonical host — altaris.run brand alias'ı Caddy 301 ile bu domain'e
       # düşürür, NextAuth tek redirect_uri yönetir (multi-host = OAuth karmaşası).
       AUTH_TRUST_HOST:      "true"
