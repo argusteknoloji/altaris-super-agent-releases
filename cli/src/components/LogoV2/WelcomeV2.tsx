@@ -20,20 +20,20 @@ export function WelcomeV2() {
         {"┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄"}
       </Text>
 
-      {/* ArgusMark — watchful-eye sentinel monogram */}
-      <Box flexDirection="column" alignItems="center" marginY={1}>
-        <Text color="clawd_body">{'    ▗▄▄▄▄▄▖    '}</Text>
-        <Text color="clawd_body">{'   ▐  ▣ ▣  ▌   '}</Text>
-        <Text color="clawd_body">{'    ▝▀▀▀▀▀▘    '}</Text>
-        <Text dimColor>{' Kurumsal Agentic AI Terminal '}</Text>
+      {/* ArgusMark — watchful-eye sentinel monogram (left-aligned) */}
+      <Box flexDirection="column" alignItems="flex-start" marginY={1}>
+        <Text color="clawd_body">{' ▗▄▄▄▄▄▖'}</Text>
+        <Text color="clawd_body">{'▐  ▣ ▣  ▌'}</Text>
+        <Text color="clawd_body">{' ▝▀▀▀▀▀▘'}</Text>
+        <Text dimColor>{' Enterprise Agentic AI Terminal'}</Text>
       </Box>
 
       <Text dimColor>
         {"┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄"}
       </Text>
       <Text>
-        <Text color="claude">{"Hadi başlayalım."}</Text>
-        <Text dimColor>{"  /help · komutlar"}</Text>
+        <Text color="claude">{"Let's get started."}</Text>
+        <Text dimColor>{"  /help · commands"}</Text>
       </Text>
     </Box>
   );
@@ -50,13 +50,13 @@ export function AppleTerminalWelcomeV2({ welcomeMessage }: { theme: string; welc
         <Text color="claude" bold>{welcomeMessage}</Text>
         <Text dimColor>{"  v"}{MACRO.DISPLAY_VERSION ?? MACRO.VERSION}</Text>
       </Text>
-      <Box flexDirection="column" alignItems="center" marginY={1}>
-        <Text>{'  ▗▄▄▄▄▄▖  '}</Text>
-        <Text>{' ▐  ▣ ▣  ▌ '}</Text>
-        <Text>{'  ▝▀▀▀▀▀▘  '}</Text>
-        <Text dimColor>{' Argus · Altaris '}</Text>
+      <Box flexDirection="column" alignItems="flex-start" marginY={1}>
+        <Text>{' ▗▄▄▄▄▄▖'}</Text>
+        <Text>{'▐  ▣ ▣  ▌'}</Text>
+        <Text>{' ▝▀▀▀▀▀▘'}</Text>
+        <Text dimColor>{' Enterprise Agentic AI Terminal'}</Text>
       </Box>
-      <Text dimColor>{"Hadi başlayalım. /help — komutlar"}</Text>
+      <Text dimColor>{"Let's get started. /help — commands"}</Text>
     </Box>
   );
 }
