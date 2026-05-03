@@ -124,6 +124,9 @@ services:
       - /usr/local/bin/altaris:/usr/local/bin/altaris:ro
       # .altaris home (credentials, plugin'ler, skill'ler, MCP config) — read-only
       - /srv/altaris/.altaris:/srv/altaris/.altaris:ro
+      # CLI'in legacy claude config dosyası — .altaris dizini DIŞINDA olduğundan
+      # ayrı mount lazım. CLI yoksa "Claude configuration file not found" diyor.
+      - /srv/altaris/.altaris.json:/srv/altaris/.altaris.json:ro
       # Vault dizinleri — read+write (CLI dosya yazabilmeli, agent'lar not düşebilmeli)
       - /srv/altaris/vaults:/srv/altaris/vaults
     depends_on:
