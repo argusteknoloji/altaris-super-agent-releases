@@ -56,6 +56,13 @@ public static class CliJobRunner
         // çağrılarına otomatik onay (Bash/Edit/Write/Grep/...). Sandbox: vault
         // cwd zaten izolasyon sağlıyor, /srv/altaris/.altaris read-only mount.
         psi.ArgumentList.Add("--dangerously-skip-permissions");
+        // Model'i flag olarak da geç — env var (ANTHROPIC_MODEL/OPENAI_MODEL)
+        // OAuth path'inde dikkate alınmayabiliyor, --model authoritative.
+        if (!string.IsNullOrEmpty(llmModel))
+        {
+            psi.ArgumentList.Add("--model");
+            psi.ArgumentList.Add(llmModel);
+        }
 
         // HOME'u her invocation için izole bir tmp dizine yönlendir — provider
         // OAuth dosyalarını (codex auth.json, vb.) güvenli yazıp okusun. /srv/altaris
