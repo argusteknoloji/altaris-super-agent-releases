@@ -112,6 +112,20 @@ services:
       # Multi-host CORS — her web hostname için ayrı origin.
       Cors__AllowedOrigins__0:     "https://${PRIMARY_WEB_HOSTNAME:?required}"
       Cors__AllowedOrigins__1:     "https://${WEB_HOSTNAME_2:-altaris.run}"
+      # Executive Brain Worker artık CLI subprocess'i ile çalışıyor.
+      # Vault'lar her tenant için ayrı dizin (proje ortamı). CLI vault'a cd
+      # eder, kendi MCP/plugin/skill ekosisteminde job'u execute eder.
+      ALTARIS_VAULTS_ROOT:         "/srv/altaris/vaults"
+      ALTARIS_HOME:                "/srv/altaris/.altaris"
+      Vaults__RootDir:             "/srv/altaris/vaults"
+    volumes:
+      # CLI binary host'tan bind mount (bağımsız update için — `altaris` self-update
+      # çalıştığında container restart gerekmez).
+      - /usr/local/bin/altaris:/usr/local/bin/altaris:ro
+      # .altaris home (credentials, plugin'ler, skill'ler, MCP config) — read-only
+      - /srv/altaris/.altaris:/srv/altaris/.altaris:ro
+      # Vault dizinleri — read+write (CLI dosya yazabilmeli, agent'lar not düşebilmeli)
+      - /srv/altaris/vaults:/srv/altaris/vaults
     depends_on:
       postgres:    { condition: service_healthy }
       keycloak-db: { condition: service_healthy }

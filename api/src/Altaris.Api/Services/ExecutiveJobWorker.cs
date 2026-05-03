@@ -115,10 +115,6 @@ public class ExecutiveJobWorker : BackgroundService
     private async Task ExecuteJobAsync(IServiceScope scope, AltarisDbContext db, ExecutiveJob job,
         List<object> trace, CancellationToken ct)
     {
-        var http = scope.ServiceProvider.GetRequiredService<IHttpClientFactory>();
-        var embed = scope.ServiceProvider.GetRequiredService<EmbeddingClient>();
-        var indexer = scope.ServiceProvider.GetRequiredService<EmbeddingIndexer>();
-
         // 1. Agent + provider çöz
         ExecutiveAgent? agent = null;
         if (job.AgentId is { } aid)
@@ -141,17 +137,17 @@ public class ExecutiveJobWorker : BackgroundService
             .FirstOrDefaultAsync(ct);
         if (prov is null) throw new InvalidOperationException("no_provider_configured");
 
-        var embeddingModel = agent?.EmbeddingModel
-            ?? ((prov.DefaultModel ?? "").Contains("embed", StringComparison.OrdinalIgnoreCase)
-                ? prov.DefaultModel!
-                : "text-embedding-3-small");
-        var llmModel = agent?.Model ?? prov.DefaultModel ?? "claude-sonnet-4-6";
-        if (llmModel.Contains("embed", StringComparison.OrdinalIgnoreCase)) llmModel = "claude-sonnet-4-6";
+        var llmModel = agent?.Model ?? prov.DefaultModel ?? "claude-opus-4-7";
+        trace.Add(new { step = "resolve_agent_provider", ms = 0, agent = agent?.Slug, model = llmModel });
 
-        trace.Add(new { step = "resolve_agent_provider", ms = 0, agent = agent?.Slug, model = llmModel, embedModel = embeddingModel });
-
-        // 2. Vault filter
+        // 2. Tenant + Vault path resolve. CLI vault'a `cd` edip oradan çalışır;
+        //    her vault projedir (ALTARIS.md, .altaris/agents, skills, MCP, vault dosyaları).
         var sw = System.Diagnostics.Stopwatch.StartNew();
+        var tenant = await db.Tenants.AsNoTracking()
+            .Where(t => t.Id == job.TenantId)
+            .Select(t => new { t.Slug }).FirstOrDefaultAsync(ct);
+        if (tenant is null) throw new InvalidOperationException("tenant_not_found");
+
         IQueryable<Vault> vq = db.Vaults.AsNoTracking().Where(v => v.TenantId == job.TenantId);
         string[]? filter = null;
         if (agent?.VaultFilter is not null)
@@ -168,207 +164,61 @@ public class ExecutiveJobWorker : BackgroundService
         if (vaults.Count == 0)
         {
             await SaveAnswerAsync(db, job.Id,
-                "Bu sorguya erişimli vault bulunamadı. Önce admin panelinden bir vault'a 'executive' veya 'tenant' visibility ver.",
+                "Bu ajana erişimli vault bulunamadı. Web admin'den vault yarat veya agent'ın vault_filter'ını güncelle.",
                 Array.Empty<object>(), trace, ct);
             return;
         }
 
-        // 3. Question embedding
-        sw.Restart();
-        EmbeddingClient.EmbedResult queryEmb;
-        try
-        {
-            queryEmb = await embed.EmbedAsync(new EmbeddingClient.EmbedRequest(
-                prov.BaseUrl ?? "", prov.ApiKeyEnc ?? "", embeddingModel, new[] { job.Question }), ct);
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException($"Embedding üretilemedi: {ex.Message}", ex);
-        }
-        trace.Add(new { step = "question_embed", ms = sw.ElapsedMilliseconds, model = embeddingModel });
+        // İlk vault'u proje root olarak seç (CLI burada çalışır). Birden fazla
+        // vault gerekirse CLI Read tool ile diğer path'lerden de okuyabilir.
+        var vaultsRoot = Environment.GetEnvironmentVariable("ALTARIS_VAULTS_ROOT") ?? "/srv/altaris/vaults";
+        var vaultPath  = Path.Combine(vaultsRoot, tenant.Slug, vaults[0].Slug);
+        var altarisHome = Environment.GetEnvironmentVariable("ALTARIS_HOME") ?? "/srv/altaris/.altaris";
+        trace.Add(new { step = "vault_path", path = vaultPath, home = altarisHome });
 
-        // 4. Cross-vault search
-        sw.Restart();
-        var allHits = new List<(string slug, EmbeddingIndexer.SearchHit hit)>();
-        foreach (var v in vaults)
-        {
-            try
-            {
-                var hits = await indexer.SearchAsync(v.Id, embeddingModel, queryEmb.Vectors[0], 6, ct);
-                foreach (var h in hits) allHits.Add((v.Slug, h));
-            }
-            catch (Exception ex)
-            {
-                _log.LogWarning(ex, "Vault {VaultId} search failed", v.Id);
-            }
-        }
-        allHits.Sort((a, b) => a.hit.Distance.CompareTo(b.hit.Distance));
-        var top = allHits.Take(8).ToList();
-        trace.Add(new { step = "semantic_search", ms = sw.ElapsedMilliseconds, hits = top.Count });
-
-        if (top.Count == 0)
-        {
-            await SaveAnswerAsync(db, job.Id,
-                "İlgili belge bulamadım. Vault embedding index'i eksik olabilir — admin panelinden 'Reindex' çalıştır.",
-                Array.Empty<object>(), trace, ct);
-            return;
-        }
-
-        // 5. LLM context
-        sw.Restart();
-        var contextParts = new List<string>();
-        var citations = new List<object>();
-        for (int i = 0; i < top.Count; i++)
-        {
-            var label = $"[{i + 1}]";
-            contextParts.Add($"{label} Kaynak: {top[i].slug}/{top[i].hit.FilePath} (chunk {top[i].hit.ChunkIndex})\n{top[i].hit.Snippet}\n");
-            citations.Add(new {
-                vault = top[i].slug, path = top[i].hit.FilePath,
-                chunkIndex = top[i].hit.ChunkIndex, snippet = top[i].hit.Snippet,
-                distance = top[i].hit.Distance,
-            });
-        }
-
-        var systemPrompt = agent?.SystemPrompt ?? """
-            Sen Altaris Executive Brain'sin. SADECE verilen context'i kullan,
-            tahmin etme. Her cümlede [n] citation ver. Türkçe, kısa, doğrudan.
-            """;
-        var userPrompt = $"Soru: {job.Question}\n\nİlgili belgeler:\n\n" +
-                         string.Join("\n", contextParts) +
-                         "\nKurallara uyarak cevap ver.";
-
-        // Multi-turn: thread'in önceki turn'lerini kısaca context'e ekle
+        // 3. Multi-turn memory (önceki 3 turn özeti prompt'a inject)
         var prior = await db.ExecutiveJobs.AsNoTracking()
-            .Where(p => p.ThreadId == job.ThreadId
-                     && p.Id != job.Id
-                     && p.Status == "completed"
-                     && p.CompletedAt < job.CreatedAt)
-            .OrderByDescending(p => p.CreatedAt)
-            .Take(3)
+            .Where(p => p.ThreadId == job.ThreadId && p.Id != job.Id && p.Status == "completed")
+            .OrderByDescending(p => p.CreatedAt).Take(3)
             .Select(p => new { p.Question, p.Answer })
             .ToListAsync(ct);
+
+        var systemPrompt = agent?.SystemPrompt ?? "Sen yardımcı bir ajansın. Türkçe, kısa, doğrudan cevap ver. Vault'taki belgelerden faydalan.";
+        var promptParts = new List<string> { "[Sistem talimatı]\n" + systemPrompt };
         if (prior.Count > 0)
         {
-            var memory = string.Join("\n",
-                prior.AsEnumerable().Reverse().Select((p, i) =>
-                    $"Önceki tur {i + 1}: Soru → {p.Question}\nCevap → {p.Answer?[..Math.Min(p.Answer.Length, 600)]}"));
-            userPrompt = "Önceki konuşma:\n" + memory + "\n\n---\n" + userPrompt;
+            var memory = string.Join("\n", prior.AsEnumerable().Reverse().Select((p, i) =>
+                $"Tur {i + 1}: Soru → {p.Question}\nCevap → {(p.Answer ?? "").Substring(0, Math.Min((p.Answer ?? "").Length, 600))}"));
+            promptParts.Add("[Önceki konuşma]\n" + memory);
+        }
+        promptParts.Add("[Yeni soru]\n" + job.Question);
+        var fullPrompt = string.Join("\n\n", promptParts);
+
+        // 4. CLI subprocess (asıl iş burada — MCP, plugin, skill, vault dosyaları)
+        sw.Restart();
+        var run = await Altaris.Api.Services.CliJobRunner.RunAsync(
+            vaultPath:    vaultPath,
+            altarisHome:  altarisHome,
+            prompt:       fullPrompt,
+            provider:     prov,
+            llmModel:     llmModel,
+            timeout:      TimeSpan.FromMinutes(5),
+            ct:           ct);
+        trace.Add(new { step = "cli_run", ms = sw.ElapsedMilliseconds, success = run.Success, durationMs = run.DurationMs });
+
+        if (!run.Success)
+        {
+            throw new InvalidOperationException(run.Error ?? "cli execution failed");
         }
 
-        // Agent tools resolve
-        string[] enabledTools = Array.Empty<string>();
-        if (agent is not null)
-        {
-            try { enabledTools = JsonSerializer.Deserialize<string[]>(agent.Tools) ?? Array.Empty<string>(); }
-            catch { }
-        }
-        var toolSpecs = Altaris.Infrastructure.ExecutiveBrain.ToolRegistry.ForAgent(enabledTools);
-        var openAiTools = toolSpecs.Select(s => new
-        {
-            type = "function",
-            function = new { name = s.Name, description = s.Description, parameters = s.Parameters }
-        }).ToArray();
-
-        var conversation = new List<object>
-        {
-            new { role = "system", content = systemPrompt },
-            new { role = "user",   content = userPrompt   },
-        };
-
-        // Multi-step tool-use loop. Max 5 round trip — sonsuz döngü koruması.
-        var llm = http.CreateClient();
-        llm.Timeout = TimeSpan.FromMinutes(3);
-        var llmEndpoint = (prov.BaseUrl ?? "").TrimEnd('/') + "/v1/chat/completions";
-        string? finalAnswer = null;
-        for (int round = 0; round < 5; round++)
-        {
-            var sw2 = System.Diagnostics.Stopwatch.StartNew();
-            var requestBody = openAiTools.Length > 0
-                ? new {
-                    model = llmModel, messages = conversation,
-                    tools = openAiTools, tool_choice = "auto",
-                    max_tokens = 2048, temperature = 0.2,
-                }
-                : (object)new {
-                    model = llmModel, messages = conversation,
-                    max_tokens = 2048, temperature = 0.2,
-                };
-            using var msg = new HttpRequestMessage(HttpMethod.Post, llmEndpoint)
-            {
-                Content = System.Net.Http.Json.JsonContent.Create(requestBody),
-            };
-            if (!string.IsNullOrEmpty(prov.ApiKeyEnc))
-                msg.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", prov.ApiKeyEnc);
-
-            using var resp = await llm.SendAsync(msg, ct);
-            var bodyText = await resp.Content.ReadAsStringAsync(ct);
-            if (!resp.IsSuccessStatusCode)
-                throw new InvalidOperationException($"LLM HTTP {resp.StatusCode}: {bodyText}");
-
-            var json = JsonDocument.Parse(bodyText);
-            var choice = json.RootElement.GetProperty("choices")[0];
-            var assistantMsg = choice.GetProperty("message");
-            var content = assistantMsg.TryGetProperty("content", out var c) ? c.GetString() : null;
-
-            // Tool call?
-            if (assistantMsg.TryGetProperty("tool_calls", out var tcs) && tcs.ValueKind == JsonValueKind.Array && tcs.GetArrayLength() > 0)
-            {
-                // Push assistant message (with tool_calls) ve sonra her tool için result.
-                var toolCallList = new List<object>();
-                foreach (var t in tcs.EnumerateArray())
-                {
-                    toolCallList.Add(new
-                    {
-                        id = t.GetProperty("id").GetString(),
-                        type = "function",
-                        function = new
-                        {
-                            name = t.GetProperty("function").GetProperty("name").GetString(),
-                            arguments = t.GetProperty("function").GetProperty("arguments").GetString(),
-                        }
-                    });
-                }
-                conversation.Add(new { role = "assistant", content = content ?? "", tool_calls = toolCallList });
-
-                int toolCount = 0;
-                foreach (var t in tcs.EnumerateArray())
-                {
-                    var toolName = t.GetProperty("function").GetProperty("name").GetString() ?? "";
-                    var argsStr  = t.GetProperty("function").GetProperty("arguments").GetString() ?? "{}";
-                    JsonElement argsEl;
-                    try { argsEl = JsonDocument.Parse(argsStr).RootElement; }
-                    catch { argsEl = JsonDocument.Parse("{}").RootElement; }
-
-                    var result = await Altaris.Infrastructure.ExecutiveBrain.ToolRegistry.ExecuteAsync(
-                        toolName, argsEl, db, job.TenantId, ct);
-                    conversation.Add(new
-                    {
-                        role = "tool",
-                        tool_call_id = t.GetProperty("id").GetString(),
-                        name = toolName,
-                        content = result,
-                    });
-                    toolCount++;
-                }
-                trace.Add(new { step = $"tool_round_{round}", ms = sw2.ElapsedMilliseconds, tools_called = toolCount });
-                continue;   // Sonraki round LLM'in son cevabını üretsin
-            }
-
-            // Tool yok → bu son cevap
-            finalAnswer = content ?? "";
-            trace.Add(new { step = "llm_call", ms = sw2.ElapsedMilliseconds, model = llmModel, chars = finalAnswer.Length, rounds = round + 1 });
-            break;
-        }
-
-        if (finalAnswer is null)
-        {
-            // 5 round'da bitmedi, conversation'daki son içeriği al
-            finalAnswer = "(tool döngüsü 5 round limitini aştı, kısmi cevap)";
-            trace.Add(new { step = "tool_loop_truncated", ms = 0 });
-        }
-
-        await SaveAnswerAsync(db, job.Id, finalAnswer, citations, trace, ct);
+        await SaveAnswerAsync(db, job.Id, run.Answer, Array.Empty<object>(), trace, ct);
     }
+
+    // ─── LEGACY: Eski inline LLM loop kaldırıldı (CliJobRunner'a devredildi).
+    //     Vault embedding + cross-vault cosine search + multi-step tool loop
+    //     hepsi CLI'da `altaris -p` subprocess'i içinde — MCP/plugin/skill/
+    //     subagent ekosistemiyle birlikte. Eski kodu git history'den geri
+    //     getirebilirsin (commit: önceki ExecutiveJobWorker.cs).
 
     private static async Task SaveAnswerAsync(AltarisDbContext db, Guid jobId, string answer, IEnumerable<object> citations,
         List<object> trace, CancellationToken ct)
