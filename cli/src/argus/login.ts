@@ -151,6 +151,16 @@ export async function altarisLogin(opts: { issuer?: string; clientId?: string; a
       const token = await tokRes.json() as TokenResponse;
       await persistToken(token, issuer, apiBase);
       process.stdout.write(`\n✓ Giriş başarılı. Token ${tokenStorePath()} altında.\n`);
+      // Auto-sync: tenant'ın provider tokenlarını lokale çek (best-effort,
+      // başarısız olursa kullanıcı 'altaris provider sync' ile manuel çağırır)
+      try {
+        process.stdout.write(`→ Provider'lar senkronize ediliyor…\n`);
+        const { altarisProviderSync } = await import("./providerSync.js");
+        await altarisProviderSync();
+      } catch (e) {
+        process.stdout.write(`  ⚠ Provider sync atlandı: ${(e as Error).message}\n`);
+        process.stdout.write(`  Manuel: altaris provider sync\n`);
+      }
       return 0;
     }
 

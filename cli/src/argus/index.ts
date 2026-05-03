@@ -97,5 +97,17 @@ export function registerArgusCommands(program: Command): void {
       process.exit(2);
     });
 
+  // 'altaris provider sync' — backend'den tenant'ın OAuth/API key tokenlarını
+  // çek ve lokal credentials store'a yaz. Web'den OAuth bağladiktan sonra
+  // bu komutla CLI senkronize olur (yoksa lokalde token yok → "Provider
+  // yetkilendirmesi yok" hatası).
+  provider
+    .command("sync")
+    .description("Backend'deki provider tokenlarını lokale çek (web'den OAuth bağladıktan sonra)")
+    .action(async () => {
+      const { altarisProviderSync } = await import("./providerSync.js");
+      process.exit(await altarisProviderSync());
+    });
+
   registerVaultCommands(program);
 }

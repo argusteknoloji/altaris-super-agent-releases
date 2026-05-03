@@ -27,7 +27,44 @@ public static class MeEndpoints
         app.MapGet ("/api/v1/me/recovery-codes/status",   GetRecoveryStatus ).RequireAuthorization();
         app.MapPost("/api/v1/me/recovery-codes/generate", GenerateRecoveryCodes).RequireAuthorization();
 
+        // Provider credentials sync — CLI'nin lokal credentials store'una yazması
+        // için tenant'ın OAuth/static provider config'lerini OAUTH TOKENLARLA
+        // birlikte döner. Sensitive endpoint, RequireAuthorization zorunlu.
+        app.MapGet ("/api/v1/me/providers/credentials",   GetProviderCredentials).RequireAuthorization();
+
         return app;
+    }
+
+    /// <summary>
+    ///   CLI 'altaris provider sync' bunu çağırır → tenant'ın aktif provider
+    ///   config'lerini access_token + refresh_token + account_id ile birlikte döner.
+    ///   CLI bu yanıtı lokal credentials.json'a yazar; sonraki çağrılarda OAuth
+    ///   provider'lar (claude, codex) lokal token ile çalışır.
+    ///   Static API key provider'lar (ollama, lmstudio) için key dahil.
+    /// </summary>
+    private static async Task<IResult> GetProviderCredentials(AltarisDbContext db, ITenantContext tc)
+    {
+        if (tc.TenantId is null) return Results.Forbid();
+        var rows = await db.ProviderConfigs
+            .Where(p => p.TenantId == tc.TenantId && p.Enabled)
+            .OrderByDescending(p => p.IsDefault)
+            .Select(p => new
+            {
+                id           = p.Id,
+                provider     = p.Provider,
+                name         = p.Name,
+                authKind     = p.AuthKind,
+                baseUrl      = p.BaseUrl,
+                defaultModel = p.DefaultModel,
+                isDefault    = p.IsDefault,
+                accountId    = p.AccountId,
+                accessToken  = p.ApiKeyEnc,        // OAuth access_token VEYA static API key
+                refreshToken = p.RefreshTokenEnc,
+                idToken      = p.IdTokenEnc,
+                expiresAt    = p.AccessTokenExpiresAt
+            })
+            .ToListAsync();
+        return Results.Ok(rows);
     }
 
     private static async Task<IResult> GetRecoveryStatus(AltarisDbContext db, ITenantContext tc)
