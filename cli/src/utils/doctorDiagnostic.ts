@@ -94,8 +94,23 @@ function getNormalizedPaths(): [invokedPath: string, execPath: string] {
   return [invokedPath, execPath]
 }
 
+/**
+ *  True iff this process is `bun src/main.ts` (or similar) — i.e., running from
+ *  source, not the compiled standalone binary. NODE_ENV is unreliable
+ *  (user shells often export it) so we check process.execPath: when running
+ *  the compiled binary, execPath IS the binary path; when running via `bun`,
+ *  execPath is the bun runtime and argv[1] is a .ts/.mjs source file.
+ */
+function isDevelopmentExecution(): boolean {
+  const exec = (process.execPath || '').toLowerCase()
+  const arg1 = (process.argv[1] || '').toLowerCase()
+  const execIsBun = exec.endsWith('/bun') || exec.endsWith('\\bun.exe') || exec.endsWith('/bun.exe')
+  const argIsSource = /\.(ts|tsx|mjs|js)$/.test(arg1)
+  return execIsBun && argIsSource
+}
+
 export async function getCurrentInstallationType(): Promise<InstallationType> {
-  if (process.env.NODE_ENV === 'development') {
+  if (isDevelopmentExecution()) {
     return 'development'
   }
 
@@ -159,7 +174,7 @@ export async function getCurrentInstallationType(): Promise<InstallationType> {
 }
 
 async function getInstallationPath(): Promise<string> {
-  if (process.env.NODE_ENV === 'development') {
+  if (isDevelopmentExecution()) {
     return getCwd()
   }
 

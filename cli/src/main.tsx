@@ -102,6 +102,7 @@ import { getActiveAgentsFromList, getAgentDefinitionsWithOverrides, isBuiltInAge
 import type { LogOption } from './types/logs.js';
 import type { Message as MessageType } from './types/message.js';
 import { assertMinVersion } from './utils/autoUpdater.js';
+import { maybeAutoUpdate, showAutoUpdateBanner } from './argus/autoUpdate.js';
 import { CLAUDE_IN_CHROME_SKILL_HINT, CLAUDE_IN_CHROME_SKILL_HINT_WITH_WEBBROWSER } from './utils/altarisInChrome/prompt.js';
 import { setupClaudeInChrome, shouldAutoEnableClaudeInChrome, shouldEnableClaudeInChrome } from './utils/altarisInChrome/setup.js';
 import { getContextWindowForModel } from './utils/context.js';
@@ -1770,6 +1771,9 @@ async function run(): Promise<CommanderCommand> {
       console.error(warning);
     });
     void assertMinVersion();
+    // Background auto-update check (24h debounce, fire-and-forget)
+    showAutoUpdateBanner();
+    maybeAutoUpdate(MACRO.DISPLAY_VERSION ?? MACRO.VERSION);
 
     // altaris.ai config fetch: -p mode only (interactive uses useManageMCPConnections
     // two-phase loading). Kicked off here to overlap with setup(); awaited
