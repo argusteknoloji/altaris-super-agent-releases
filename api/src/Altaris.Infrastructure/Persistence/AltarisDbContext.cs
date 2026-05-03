@@ -209,6 +209,7 @@ public class AltarisDbContext : DbContext
             e.Property(x => x.SystemPrompt).HasColumnName("system_prompt");
             e.Property(x => x.Model).HasColumnName("model");
             e.Property(x => x.EmbeddingModel).HasColumnName("embedding_model");
+            e.Property(x => x.ProviderConfigId).HasColumnName("provider_config_id");
             e.Property(x => x.VaultFilter).HasColumnName("vault_filter").HasColumnType("jsonb");
             e.Property(x => x.Tools).HasColumnName("tools").HasColumnType("jsonb");
             e.Property(x => x.ScheduleCron).HasColumnName("schedule_cron");

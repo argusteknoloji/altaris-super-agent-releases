@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import ScheduleBuilder from "./_ScheduleBuilder";
 import Link from "next/link";
 import { fmtDateTimeTR } from "@/lib/datetime";
 
@@ -8,6 +9,7 @@ type Agent = {
   id: string; slug: string; name: string; description: string | null;
   systemPrompt: string;
   model: string | null; embeddingModel: string | null;
+  providerConfigId: string | null;
   vaultFilter: string[] | null;
   tools: string[];
   scheduleCron: string | null;
@@ -17,6 +19,7 @@ type Agent = {
 };
 type Template = { slug: string; name: string; description: string; tools: string[]; cron: string | null; cronPrompt: string | null };
 type Vault = { slug: string; name: string };
+type Provider = { id: string; provider: string; name: string; defaultModel: string | null; isDefault: boolean; enabled: boolean };
 
 const TOOL_LABELS: Record<string, string> = {
   calc:      "🧮 Hesap makinesi",
@@ -29,6 +32,7 @@ export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [vaults, setVaults] = useState<Vault[]>([]);
+  const [providers, setProviders] = useState<Provider[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [editing, setEditing] = useState<Agent | null>(null);
   const [creating, setCreating] = useState(false);
@@ -36,12 +40,14 @@ export default function AgentsPage() {
 
   async function load() {
     try {
-      const [a, t, v] = await Promise.all([
+      const [a, t, v, p] = await Promise.all([
         fetch("/api/proxy/executive-brain/agents", { cache: "no-store" }).then(r => r.ok ? r.json() : []),
         fetch("/api/proxy/executive-brain/templates", { cache: "no-store" }).then(r => r.ok ? r.json() : []),
         fetch("/api/proxy/vaults-root", { cache: "no-store" }).then(r => r.ok ? r.json() : []),
+        fetch("/api/proxy/providers", { cache: "no-store" }).then(r => r.ok ? r.json() : []),
       ]);
       setAgents(a); setTemplates(t); setVaults(v);
+      setProviders((p as Provider[]).filter(x => x.enabled));
     } catch (e) { setErr((e as Error).message); }
   }
   useEffect(() => { load(); }, []);
@@ -174,6 +180,7 @@ export default function AgentsPage() {
         <AgentEditor
           agent={editing}
           vaults={vaults}
+          providers={providers}
           onClose={() => { setEditing(null); setCreating(false); }}
           onSaved={async () => { setEditing(null); setCreating(false); await load(); }}
         />
@@ -182,7 +189,7 @@ export default function AgentsPage() {
   );
 }
 
-function AgentEditor({ agent, vaults, onClose, onSaved }: { agent: Agent | null; vaults: Vault[]; onClose: () => void; onSaved: () => void }) {
+function AgentEditor({ agent, vaults, providers, onClose, onSaved }: { agent: Agent | null; vaults: Vault[]; providers: Provider[]; onClose: () => void; onSaved: () => void }) {
   const isNew = agent === null;
   const [form, setForm] = useState({
     slug: agent?.slug ?? "",
@@ -191,6 +198,7 @@ function AgentEditor({ agent, vaults, onClose, onSaved }: { agent: Agent | null;
     systemPrompt: agent?.systemPrompt ?? "Sen yardımcı bir ajansın. Vault'taki belgelerden kaynaklı cevap ver.",
     model: agent?.model ?? "",
     embeddingModel: agent?.embeddingModel ?? "",
+    providerConfigId: agent?.providerConfigId ?? "",
     vaultFilter: agent?.vaultFilter ?? [],
     tools: agent?.tools ?? [],
     scheduleCron: agent?.scheduleCron ?? "",
@@ -211,6 +219,9 @@ function AgentEditor({ agent, vaults, onClose, onSaved }: { agent: Agent | null;
         schedulePrompt: form.schedulePrompt || null,
         model: form.model || null,
         embeddingModel: form.embeddingModel || null,
+        providerConfigId: form.providerConfigId || null,
+        // PATCH için: provider seçimi temizlendiyse backend'e açık sinyal
+        clearProvider: !isNew && form.providerConfigId === "",
       };
       const url = isNew
         ? "/api/proxy/executive-brain/agents"
@@ -262,10 +273,31 @@ function AgentEditor({ agent, vaults, onClose, onSaved }: { agent: Agent | null;
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <input placeholder="Model override (opsiyonel — boşsa tenant default)" value={form.model} onChange={e => setForm({...form, model: e.target.value})}
-            className="rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs font-mono" />
-          <input placeholder="Embedding model override" value={form.embeddingModel} onChange={e => setForm({...form, embeddingModel: e.target.value})}
-            className="rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs font-mono" />
+          <label className="text-xs text-neutral-400">
+            <span className="block mb-1">Provider (boş = tenant default)</span>
+            <select
+              value={form.providerConfigId}
+              onChange={e => setForm({...form, providerConfigId: e.target.value})}
+              className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs"
+            >
+              <option value="">— Tenant default ({providers.find(p => p.isDefault)?.name ?? "yok"}) —</option>
+              {providers.map(p => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.provider}{p.isDefault ? " ★" : ""})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-xs text-neutral-400">
+            <span className="block mb-1">Model override (opsiyonel — boşsa provider default)</span>
+            <input value={form.model} onChange={e => setForm({...form, model: e.target.value})}
+              placeholder="örn. claude-opus-4-7, gpt-5.5, qwen/qwen3.6-27b"
+              className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs font-mono" />
+          </label>
+        </div>
+        <div>
+          <input placeholder="Embedding model override (opsiyonel)" value={form.embeddingModel} onChange={e => setForm({...form, embeddingModel: e.target.value})}
+            className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs font-mono" />
         </div>
 
         <div>
@@ -304,11 +336,18 @@ function AgentEditor({ agent, vaults, onClose, onSaved }: { agent: Agent | null;
           <p className="mt-1 text-[10px] text-neutral-500">Tool'lar EB-3.5'de tam destek alacak; şu an UI placeholder.</p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <input placeholder="Cron (örn: 0 0 6 * * *)" value={form.scheduleCron} onChange={e => setForm({...form, scheduleCron: e.target.value})}
-            className="rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs font-mono" />
-          <input placeholder="Cron prompt (otomatik soru)" value={form.schedulePrompt} onChange={e => setForm({...form, schedulePrompt: e.target.value})}
-            className="rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs" />
+        <div className="space-y-2">
+          <label className="block text-xs font-semibold text-neutral-400">Zamanlama</label>
+          <ScheduleBuilder
+            value={form.scheduleCron}
+            onChange={cron => setForm({ ...form, scheduleCron: cron })}
+          />
+          <input
+            placeholder="Otomatik tetiklendiğinde sorulacak soru (boş = ajanın default davranışı)"
+            value={form.schedulePrompt}
+            onChange={e => setForm({ ...form, schedulePrompt: e.target.value })}
+            className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs"
+          />
         </div>
 
         <label className="flex items-center gap-2 text-xs text-neutral-400">

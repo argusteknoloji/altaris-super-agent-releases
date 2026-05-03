@@ -20,6 +20,12 @@ public class ExecutiveAgent
     public string SystemPrompt { get; set; } = default!;
     public string? Model { get; set; }
     public string? EmbeddingModel { get; set; }
+    /// <summary>
+    ///   Bu ajanın kullanacağı provider config. NULL ise tenant'ın
+    ///   IsDefault=true provider'ı kullanılır. Set edildiyse spesifik
+    ///   provider — örn. CFO ajanı Codex, Risk ajanı Claude, vb.
+    /// </summary>
+    public Guid? ProviderConfigId { get; set; }
     /// <summary>JSON array of vault slugs; NULL = tüm executive/tenant vault.</summary>
     public string? VaultFilter { get; set; }
     /// <summary>JSON array of allowed tool names: 'calc','code_exec','sql','chart'.</summary>

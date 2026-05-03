@@ -267,6 +267,9 @@ try
                     UNIQUE (tenant_id, slug)
                 );
                 CREATE INDEX IF NOT EXISTS executive_agents_tenant_idx ON executive_agents(tenant_id);
+                -- Sprint #75: per-agent provider override
+                ALTER TABLE executive_agents
+                  ADD COLUMN IF NOT EXISTS provider_config_id UUID REFERENCES provider_configs(id) ON DELETE SET NULL;
                 ALTER TABLE executive_agents ENABLE ROW LEVEL SECURITY;
                 DROP POLICY IF EXISTS tenant_isolation_exec_agents ON executive_agents;
                 CREATE POLICY tenant_isolation_exec_agents ON executive_agents

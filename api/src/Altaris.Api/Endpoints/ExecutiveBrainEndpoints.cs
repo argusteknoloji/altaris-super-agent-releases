@@ -60,12 +60,14 @@ public static class ExecutiveBrainEndpoints
 
     public record AgentDto(Guid Id, string Slug, string Name, string? Description,
                           string SystemPrompt, string? Model, string? EmbeddingModel,
+                          Guid? ProviderConfigId,
                           string[]? VaultFilter, string[] Tools,
                           string? ScheduleCron, string? SchedulePrompt,
                           bool Enabled, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
 
     private static AgentDto ToDto(Domain.Entities.ExecutiveAgent a) => new(
         a.Id, a.Slug, a.Name, a.Description, a.SystemPrompt, a.Model, a.EmbeddingModel,
+        a.ProviderConfigId,
         a.VaultFilter is null ? null : System.Text.Json.JsonSerializer.Deserialize<string[]>(a.VaultFilter),
         System.Text.Json.JsonSerializer.Deserialize<string[]>(a.Tools) ?? Array.Empty<string>(),
         a.ScheduleCron, a.SchedulePrompt, a.Enabled, a.CreatedAt, a.UpdatedAt
@@ -100,6 +102,7 @@ public static class ExecutiveBrainEndpoints
 
     public record CreateAgentRequest(string Slug, string Name, string? Description, string SystemPrompt,
                                      string? Model, string? EmbeddingModel,
+                                     Guid? ProviderConfigId,
                                      string[]? VaultFilter, string[]? Tools,
                                      string? ScheduleCron, string? SchedulePrompt,
                                      bool Enabled = true);
@@ -132,6 +135,7 @@ public static class ExecutiveBrainEndpoints
             SystemPrompt = req.SystemPrompt,
             Model = req.Model,
             EmbeddingModel = req.EmbeddingModel,
+            ProviderConfigId = req.ProviderConfigId,
             VaultFilter = req.VaultFilter is null ? null : System.Text.Json.JsonSerializer.Serialize(req.VaultFilter),
             Tools = System.Text.Json.JsonSerializer.Serialize(req.Tools ?? Array.Empty<string>()),
             ScheduleCron = req.ScheduleCron,
@@ -148,6 +152,7 @@ public static class ExecutiveBrainEndpoints
 
     public record UpdateAgentRequest(string? Name, string? Description, string? SystemPrompt,
                                      string? Model, string? EmbeddingModel,
+                                     Guid? ProviderConfigId, bool? ClearProvider,
                                      string[]? VaultFilter, string[]? Tools,
                                      string? ScheduleCron, string? SchedulePrompt,
                                      bool? Enabled);
@@ -168,6 +173,8 @@ public static class ExecutiveBrainEndpoints
         if (!string.IsNullOrWhiteSpace(req.SystemPrompt)) a.SystemPrompt = req.SystemPrompt;
         if (req.Model is not null)                        a.Model = string.IsNullOrEmpty(req.Model) ? null : req.Model;
         if (req.EmbeddingModel is not null)               a.EmbeddingModel = string.IsNullOrEmpty(req.EmbeddingModel) ? null : req.EmbeddingModel;
+        if (req.ClearProvider == true)                    a.ProviderConfigId = null;
+        else if (req.ProviderConfigId is not null)        a.ProviderConfigId = req.ProviderConfigId;
         if (req.VaultFilter is not null)                  a.VaultFilter = req.VaultFilter.Length == 0 ? null : System.Text.Json.JsonSerializer.Serialize(req.VaultFilter);
         if (req.Tools is not null)                        a.Tools = System.Text.Json.JsonSerializer.Serialize(req.Tools);
         if (req.ScheduleCron is not null)                 a.ScheduleCron = string.IsNullOrEmpty(req.ScheduleCron) ? null : req.ScheduleCron;
