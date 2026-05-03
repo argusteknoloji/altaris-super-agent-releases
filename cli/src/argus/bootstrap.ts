@@ -151,7 +151,14 @@ export function applyProvider(p: ActiveProvider, opts?: { force?: boolean }): st
       break;
     }
     case "anthropic": {
-      if (set("ANTHROPIC_API_KEY",  p.apiKey))     applied.push("ANTHROPIC_API_KEY");
+      // OAuth (claude_code scope) tokenları Bearer + system prelude bekliyor;
+      // ANTHROPIC_API_KEY x-api-key header olarak gider, OAuth ile uyumsuz.
+      // CLI getClaudeAIOAuthTokens() helper'ı ALTARIS_OAUTH_TOKEN env'i okur.
+      if (p.authKind === "oauth") {
+        if (set("ALTARIS_OAUTH_TOKEN", p.apiKey)) applied.push("ALTARIS_OAUTH_TOKEN");
+      } else {
+        if (set("ANTHROPIC_API_KEY",  p.apiKey)) applied.push("ANTHROPIC_API_KEY");
+      }
       if (set("ANTHROPIC_BASE_URL", p.baseUrl))    applied.push("ANTHROPIC_BASE_URL");
       if (set("ANTHROPIC_MODEL",    resolvedModel)) applied.push("ANTHROPIC_MODEL");
       break;
