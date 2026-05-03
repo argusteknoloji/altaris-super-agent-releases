@@ -64,3 +64,7 @@ desktop/src-tauri/Cargo.lock
 desktop/src-tauri/icons/android/
 desktop/src-tauri/icons/ios/
 desktop/icon-source.png
+
+# Tauri updater signing keys (private — never commit)
+.tauri-keys/
+*.key
