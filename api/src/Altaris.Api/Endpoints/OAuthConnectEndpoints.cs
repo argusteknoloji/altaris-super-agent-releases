@@ -27,8 +27,9 @@ namespace Altaris.Api.Endpoints;
 /// </summary>
 public static class OAuthConnectEndpoints
 {
-    private const string AnthropicTokenUrl     = "https://platform.claude.com/v1/oauth/token";
-    private const string AnthropicAuthorizeUrl = "https://claude.com/cai/oauth/authorize";
+    private const string AnthropicTokenUrl            = "https://platform.claude.com/v1/oauth/token";
+    private const string AnthropicAuthorizeUrl        = "https://claude.com/cai/oauth/authorize";       // claude.ai (Pro/Max/Free)
+    private const string AnthropicConsoleAuthorizeUrl = "https://platform.claude.com/oauth/authorize";  // Console (API kullanıcıları)
     private const string AnthropicProfileUrl   = "https://api.anthropic.com/api/oauth/profile";
     private const string AnthropicClientId     = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
     private const string AnthropicRedirectUri  = "https://platform.claude.com/oauth/code/callback";
@@ -41,16 +42,19 @@ public static class OAuthConnectEndpoints
         return app;
     }
 
+    private record StartRequest(string? Source);  // "claude_ai" (default) | "console"
     private record StartResponse(string AuthorizeUrl, string State, string RedirectUri);
     private record ExchangeRequest(string Code, string State, bool MakeDefault, string? Model);
 
     private static async Task<IResult> StartClaude(
-        IConnectionMultiplexer redis, ITenantContext tc)
+        StartRequest? req, IConnectionMultiplexer redis, ITenantContext tc)
     {
         if (tc.TenantId is null) return Results.Forbid();
+        // CLI src/services/oauth/crypto.ts ile aynı: verifier=randomBytes(32),
+        // challenge=SHA256(verifier), state=randomBytes(32) — hepsi base64url
         var verifier  = Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
         var challenge = Base64UrlEncode(SHA256.HashData(Encoding.UTF8.GetBytes(verifier)));
-        var state     = Base64UrlEncode(RandomNumberGenerator.GetBytes(16));
+        var state     = Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
 
         // Redis'e state → {verifier, tenantId, userId} 10dk TTL
         var db = redis.GetDatabase();
@@ -62,15 +66,29 @@ public static class OAuthConnectEndpoints
         });
         await db.StringSetAsync($"oauth:claude:{state}", stateData, TimeSpan.FromMinutes(10));
 
-        var authorizeUrl = $"{AnthropicAuthorizeUrl}"
-            + $"?code=true"
-            + $"&client_id={Uri.EscapeDataString(AnthropicClientId)}"
-            + $"&response_type=code"
-            + $"&redirect_uri={Uri.EscapeDataString(AnthropicRedirectUri)}"
-            + $"&scope={Uri.EscapeDataString(AnthropicScopes)}"
-            + $"&code_challenge={challenge}"
-            + $"&code_challenge_method=S256"
-            + $"&state={state}";
+        // Source seçimi: claude_ai (Pro/Max kullanıcıları) veya console (API kullanıcıları)
+        var source = (req?.Source ?? "claude_ai").ToLowerInvariant();
+        var authBase = source == "console" ? AnthropicConsoleAuthorizeUrl : AnthropicAuthorizeUrl;
+
+        // CLI buildAuthUrl param sırası birebir (URLSearchParams.append order):
+        //   code=true (Altaris upsell flag, claude.ai authorize için)
+        //   client_id, response_type=code, redirect_uri, scope, code_challenge,
+        //   code_challenge_method=S256, state
+        // URLSearchParams form-urlencoded yapar (boşluk → +). EscapeDataString %20
+        // verir; UrlEncode + verir → CLI ile aynı hash'lenmiş encoded string.
+        var qs = new[]
+        {
+            ("code", "true"),
+            ("client_id", AnthropicClientId),
+            ("response_type", "code"),
+            ("redirect_uri", AnthropicRedirectUri),
+            ("scope", AnthropicScopes),
+            ("code_challenge", challenge),
+            ("code_challenge_method", "S256"),
+            ("state", state),
+        };
+        var authorizeUrl = authBase + "?" + string.Join("&",
+            qs.Select(p => $"{System.Net.WebUtility.UrlEncode(p.Item1)}={System.Net.WebUtility.UrlEncode(p.Item2)}"));
 
         return Results.Ok(new StartResponse(authorizeUrl, state, AnthropicRedirectUri));
     }
@@ -128,10 +146,10 @@ public static class OAuthConnectEndpoints
         var refreshToken = root.TryGetProperty("refresh_token", out var rt) ? rt.GetString() : null;
         var expiresIn    = root.TryGetProperty("expires_in", out var e) ? e.GetInt32() : 3600;
 
-        // Profile lookup → account_uuid + email
+        // Profile lookup → account_uuid + email (CLI getOauthProfile.ts ile aynı)
+        // CLI sadece Authorization + Content-Type yolluyor; anthropic-beta YOK
         using var profileReq = new HttpRequestMessage(HttpMethod.Get, AnthropicProfileUrl);
         profileReq.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
-        profileReq.Headers.Add("anthropic-beta", "claude-code-20250219,oauth-2025-04-20");
         using var profRes = await http.SendAsync(profileReq);
         string? accountUuid = null, email = null;
         if (profRes.IsSuccessStatusCode)
@@ -141,8 +159,10 @@ public static class OAuthConnectEndpoints
             var pr = pd.RootElement;
             if (pr.TryGetProperty("account", out var acct))
             {
-                if (acct.TryGetProperty("uuid", out var u))   accountUuid = u.GetString();
-                if (acct.TryGetProperty("email", out var em)) email       = em.GetString();
+                if (acct.TryGetProperty("uuid", out var u))    accountUuid = u.GetString();
+                // CLI iki farklı field kullanıyor — email_address (client.ts) ve email (claudeConnect)
+                if (acct.TryGetProperty("email_address", out var em1) && !string.IsNullOrEmpty(em1.GetString())) email = em1.GetString();
+                else if (acct.TryGetProperty("email", out var em2)) email = em2.GetString();
             }
             else
             {
@@ -150,8 +170,13 @@ public static class OAuthConnectEndpoints
                 if (pr.TryGetProperty("email", out var em)) email       = em.GetString();
             }
         }
+        else
+        {
+            var profErr = await profRes.Content.ReadAsStringAsync();
+            return Results.Problem(detail: $"profile fetch HTTP {(int)profRes.StatusCode}: {profErr[..Math.Min(200, profErr.Length)]}");
+        }
         if (string.IsNullOrEmpty(accountUuid))
-            return Results.Problem(detail: "profile fetch failed — accountUuid yok");
+            return Results.Problem(detail: "profile response'da account.uuid yok");
 
         // ConnectClaude logic'iyle aynı upsert
         var name = $"Claude · {email ?? accountUuid[..Math.Min(8, accountUuid.Length)]}";

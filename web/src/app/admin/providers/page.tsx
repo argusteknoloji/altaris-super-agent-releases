@@ -178,6 +178,7 @@ function OAuthConnectCards({ onConnected }: { onConnected: () => void }) {
 
 function ClaudeConnectModal({ onClose, onConnected }: { onClose: () => void; onConnected: () => void }) {
   const [step, setStep] = useState<"start" | "paste" | "done">("start");
+  const [source, setSource] = useState<"claude_ai" | "console">("claude_ai");
   const [authorizeUrl, setAuthorizeUrl] = useState("");
   const [state, setState] = useState("");
   const [code, setCode] = useState("");
@@ -189,7 +190,11 @@ function ClaudeConnectModal({ onClose, onConnected }: { onClose: () => void; onC
   async function start() {
     setBusy(true); setErr(null);
     try {
-      const r = await fetch("/api/proxy/admin/oauth-start-claude", { method: "POST" });
+      const r = await fetch("/api/proxy/admin/oauth-start-claude", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source }),
+      });
       if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
       const j = await r.json();
       setAuthorizeUrl(j.authorizeUrl);
@@ -228,15 +233,39 @@ function ClaudeConnectModal({ onClose, onConnected }: { onClose: () => void; onC
 
         {step === "start" && (
           <>
+            <div className="mb-4 rounded border border-neutral-800 bg-neutral-900 p-3">
+              <div className="text-xs text-neutral-400 mb-2">Hangi hesapla bağlanacaksın?</div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setSource("claude_ai")}
+                  className={`rounded border px-3 py-2 text-xs text-left ${
+                    source === "claude_ai" ? "border-purple-500 bg-purple-500/10 text-purple-200" : "border-neutral-700 text-neutral-400 hover:bg-neutral-800"
+                  }`}
+                >
+                  <div className="font-medium">Claude.ai</div>
+                  <div className="opacity-70">Pro / Max / Free abonesi</div>
+                </button>
+                <button
+                  onClick={() => setSource("console")}
+                  className={`rounded border px-3 py-2 text-xs text-left ${
+                    source === "console" ? "border-purple-500 bg-purple-500/10 text-purple-200" : "border-neutral-700 text-neutral-400 hover:bg-neutral-800"
+                  }`}
+                >
+                  <div className="font-medium">Anthropic Console</div>
+                  <div className="opacity-70">API kullanıcısı</div>
+                </button>
+              </div>
+            </div>
+
             <ol className="text-sm text-neutral-300 space-y-2 mb-5 ml-5 list-decimal">
               <li>Aşağıdaki butona tıkla → Anthropic OAuth sayfası yeni sekmede açılır</li>
-              <li>claude.com hesabınla giriş yap, "Authorize"a bas</li>
+              <li>{source === "claude_ai" ? "claude.com" : "console.anthropic.com"} hesabınla giriş yap, "Authorize"a bas</li>
               <li>Anthropic seni <code className="bg-neutral-800 px-1 rounded">platform.claude.com/oauth/code/callback</code>'e yönlendirir, ekranda kod gösterilir</li>
               <li>O kodu kopyala, bu modal'a yapıştır → Bağla</li>
             </ol>
             {err && <div className="mb-3 rounded border border-red-700 bg-red-950/40 px-3 py-2 text-xs text-red-300">{err}</div>}
             <button onClick={start} disabled={busy} className="w-full rounded bg-purple-500 hover:bg-purple-400 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
-              {busy ? "Hazırlanıyor…" : "Anthropic OAuth'u aç →"}
+              {busy ? "Hazırlanıyor…" : `${source === "claude_ai" ? "Claude.ai" : "Console"} OAuth'u aç →`}
             </button>
           </>
         )}
