@@ -162,4 +162,22 @@ jobs:
 
             Tek-satır kurulum komutları için: Altaris web portal → **CLI Kurulum** (`/setup`).
 
+      # Prod sunucuda CLI binary host'tan API container'a bind mount;
+      # release sonrası prod CLI'i de update et + container restart
+      # (yeni inode bind mount'a yansın). Otherwise container eski binary'i tutuyor.
+      - name: Update prod host CLI + restart api container
+        uses: appleboy/ssh-action@v1.2.0
+        continue-on-error: true   # release başarılı olsun, prod update best-effort
+        with:
+          host:     ${{ secrets.PROD_SSH_HOST }}
+          port:     ${{ secrets.PROD_SSH_PORT }}
+          username: ${{ secrets.PROD_SSH_USER }}
+          password: ${{ secrets.PROD_SSH_PASSWORD }}
+          script: |
+            set -e
+            curl -fsSL https://altaris.run/install | sh
+            docker restart altaris-api
+            sleep 4
+            docker exec altaris-api /usr/local/bin/altaris --version || true
+
             Bütünlük: `SHA256SUMS`
