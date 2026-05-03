@@ -115,7 +115,7 @@ jobs:
   deploy:
     name: Deploy to prod
     needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main'   # hem push hem workflow_dispatch için deploy
     runs-on: ubuntu-latest
     steps:
       - name: SSH pull + atomic restart
