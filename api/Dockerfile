@@ -23,8 +23,28 @@ RUN dotnet publish src/Altaris.Api/Altaris.Api.csproj \
 # /usr/local/bin/altaris'a geliyor; bun-compiled binary glibc'e bağımlı.
 # Alpine musl libc'de "not found" veriyordu (CLI subprocess pattern).
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
+# Sistem araçları:
+#  - curl, ca-certificates  → healthcheck + HTTPS root
+#  - ripgrep (rg)           → CLI Grep tool (Executive Brain agent search)
+#  - git                    → CLI git ops (log/diff/blame)
+#  - python3, python3-pip   → Python script execution
+#  - jq                     → JSON parsing in shell
+#  - tree                   → directory listing
+#  - unzip, tar, gzip       → archive ops (skill ZIP, vb.)
+#  - nodejs, npm            → bazı npm package'lar shell out eder (mcp servers)
+#  - openssh-client         → ssh/scp tool
+#  - less                   → man/pager (CLI bazen invoke ediyor)
 RUN groupadd -r altaris && useradd -r -g altaris altaris \
-    && apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        curl ca-certificates \
+        ripgrep git \
+        python3 python3-pip \
+        jq tree \
+        unzip tar gzip \
+        nodejs npm \
+        openssh-client \
+        less \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /app/out .

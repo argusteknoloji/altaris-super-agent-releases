@@ -52,6 +52,10 @@ public static class CliJobRunner
         psi.ArgumentList.Add("-p");
         psi.ArgumentList.Add(prompt);
         psi.ArgumentList.Add("--output-format=json");
+        // Server-side subprocess: kullanıcı interaktif onay veremez. Tüm tool
+        // çağrılarına otomatik onay (Bash/Edit/Write/Grep/...). Sandbox: vault
+        // cwd zaten izolasyon sağlıyor, /srv/altaris/.altaris read-only mount.
+        psi.ArgumentList.Add("--dangerously-skip-permissions");
 
         // HOME'u her invocation için izole bir tmp dizine yönlendir — provider
         // OAuth dosyalarını (codex auth.json, vb.) güvenli yazıp okusun. /srv/altaris
