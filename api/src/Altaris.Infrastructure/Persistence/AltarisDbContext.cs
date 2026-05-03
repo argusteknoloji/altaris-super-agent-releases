@@ -228,6 +228,7 @@ public class AltarisDbContext : DbContext
             e.Property(x => x.TenantId).HasColumnName("tenant_id");
             e.Property(x => x.UserId).HasColumnName("user_id");
             e.Property(x => x.AgentId).HasColumnName("agent_id");
+            e.Property(x => x.ProviderConfigId).HasColumnName("provider_config_id");
             e.Property(x => x.ThreadId).HasColumnName("thread_id");
             e.Property(x => x.Question).HasColumnName("question");
             e.Property(x => x.Status).HasColumnName("status");

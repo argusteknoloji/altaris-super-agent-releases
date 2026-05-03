@@ -124,11 +124,13 @@ public class ExecutiveJobWorker : BackgroundService
         if (job.AgentId is { } aid)
             agent = await db.ExecutiveAgents.AsNoTracking().FirstOrDefaultAsync(a => a.Id == aid, ct);
 
-        // Provider seçimi:
-        //   1) Agent'ta ProviderConfigId set ise spesifik provider (per-agent override)
-        //   2) Yoksa tenant'ın IsDefault=true enabled provider'ı
+        // Provider seçimi (öncelik sırası):
+        //   1) Job'a yapıştırılmış ProviderConfigId (web landing ad-hoc override)
+        //   2) Agent'a yapıştırılmış ProviderConfigId (per-agent default)
+        //   3) Tenant'ın IsDefault=true enabled provider'ı (eski davranış)
         Domain.Entities.ProviderConfig? prov = null;
-        if (agent?.ProviderConfigId is { } pid)
+        var pickId = job.ProviderConfigId ?? agent?.ProviderConfigId;
+        if (pickId is { } pid)
         {
             prov = await db.ProviderConfigs.AsNoTracking()
                 .FirstOrDefaultAsync(p => p.Id == pid && p.TenantId == job.TenantId && p.Enabled, ct);

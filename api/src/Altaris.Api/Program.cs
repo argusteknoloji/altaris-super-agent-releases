@@ -295,6 +295,9 @@ try
                     claimed_at      TIMESTAMPTZ
                 );
                 CREATE INDEX IF NOT EXISTS executive_jobs_tenant_idx ON executive_jobs(tenant_id, created_at DESC);
+                -- Sprint #76: per-job provider override (web landing ad-hoc soru)
+                ALTER TABLE executive_jobs
+                  ADD COLUMN IF NOT EXISTS provider_config_id UUID REFERENCES provider_configs(id) ON DELETE SET NULL;
                 CREATE INDEX IF NOT EXISTS executive_jobs_status_idx ON executive_jobs(status) WHERE status IN ('pending','running');
                 CREATE INDEX IF NOT EXISTS executive_jobs_thread_idx ON executive_jobs(thread_id) WHERE thread_id IS NOT NULL;
                 ALTER TABLE executive_jobs ENABLE ROW LEVEL SECURITY;

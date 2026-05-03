@@ -292,7 +292,7 @@ public static class ExecutiveBrainEndpoints
 
     // ═════════════════════════ JOBS ═════════════════════════════════════
 
-    public record SubmitJobRequest(string Question, Guid? AgentId, Guid? ThreadId, DateTimeOffset? ScheduledFor);
+    public record SubmitJobRequest(string Question, Guid? AgentId, Guid? ProviderConfigId, Guid? ThreadId, DateTimeOffset? ScheduledFor);
 
     private static async Task<IResult> SubmitJob(
         SubmitJobRequest req, AltarisDbContext db, ITenantContext tc,
@@ -311,6 +311,7 @@ public static class ExecutiveBrainEndpoints
             TenantId = tc.TenantId.Value,
             UserId = tc.UserId,
             AgentId = req.AgentId,
+            ProviderConfigId = req.ProviderConfigId,
             ThreadId = req.ThreadId ?? Guid.NewGuid(),
             Question = req.Question,
             Status = "pending",

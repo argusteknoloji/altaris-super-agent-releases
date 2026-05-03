@@ -12,6 +12,11 @@ public class ExecutiveJob
     public Guid TenantId { get; set; }
     public Guid? UserId { get; set; }
     public Guid? AgentId { get; set; }
+    /// <summary>
+    ///   İsteğe bağlı per-job provider override. Set ise agent.ProviderConfigId
+    ///   ve tenant default'ı geçer. Web landing'den ad-hoc soru için kullanılır.
+    /// </summary>
+    public Guid? ProviderConfigId { get; set; }
     public Guid? ThreadId { get; set; }
     public string Question { get; set; } = default!;
     /// <summary>pending | running | completed | failed | cancelled</summary>

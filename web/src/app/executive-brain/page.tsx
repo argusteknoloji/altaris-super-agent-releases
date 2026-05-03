@@ -5,6 +5,7 @@ import Link from "next/link";
 
 type Citation = { vault: string; path: string; chunkIndex: number; snippet: string; distance: number };
 type Agent = { id: string; slug: string; name: string; description: string | null; enabled: boolean };
+type Provider = { id: string; provider: string; name: string; defaultModel: string | null; isDefault: boolean; enabled: boolean };
 type JobStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 // Streaming-aware turn — answer chunk-by-chunk SSE delta'ları ile büyür
 type Turn = {
@@ -26,6 +27,8 @@ export default function ExecutiveBrainPage() {
   const [input, setInput] = useState("");
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agentId, setAgentId] = useState<string>("");
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [providerId, setProviderId] = useState<string>("");
   const [threadId, setThreadId] = useState<string | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [busy, setBusy] = useState(false);
@@ -35,6 +38,9 @@ export default function ExecutiveBrainPage() {
     fetch("/api/proxy/executive-brain/agents", { cache: "no-store" })
       .then(r => r.ok ? r.json() : [])
       .then((list: Agent[]) => setAgents(list.filter(a => a.enabled)));
+    fetch("/api/proxy/providers", { cache: "no-store" })
+      .then(r => r.ok ? r.json() : [])
+      .then((list: Provider[]) => setProviders(list.filter(p => p.enabled)));
   }, []);
 
   useEffect(() => {
@@ -112,6 +118,7 @@ export default function ExecutiveBrainPage() {
         body: JSON.stringify({
           question,
           agentId: agentId || null,
+          providerConfigId: providerId || null,
           threadId: threadId,
         }),
       });
@@ -171,9 +178,20 @@ export default function ExecutiveBrainPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <select value={agentId} onChange={e => setAgentId(e.target.value)}
-              className="rounded-md border border-neutral-800 bg-neutral-950 px-3 py-1.5 text-xs">
+              className="rounded-md border border-neutral-800 bg-neutral-950 px-3 py-1.5 text-xs"
+              title="Hangi ajan cevap versin">
               <option value="">— Default ajan —</option>
-              {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              {agents.map(a => <option key={a.id} value={a.id}>🤖 {a.name}</option>)}
+            </select>
+            <select value={providerId} onChange={e => setProviderId(e.target.value)}
+              className="rounded-md border border-neutral-800 bg-neutral-950 px-3 py-1.5 text-xs"
+              title="Hangi LLM provider'ı kullansın (boş = ajanın/tenant'ın default'u)">
+              <option value="">— Default provider —</option>
+              {providers.map(p => (
+                <option key={p.id} value={p.id}>
+                  ⚡ {p.name}{p.isDefault ? " ★" : ""}
+                </option>
+              ))}
             </select>
             <button onClick={newThread} className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-900" title="Yeni konuşma">
               + Yeni
