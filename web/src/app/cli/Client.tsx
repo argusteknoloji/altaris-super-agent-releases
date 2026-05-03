@@ -18,13 +18,9 @@ import type { CliDict, CliLine, CliLineKind } from "@/lib/cli-content";
 // reuses the shared form component.
 // ──────────────────────────────────────────────────────────────────────────
 
-const ALTARIS_CLI_ASCII = `       _ _                _
-      | | |              (_)
-  __ _| | |_ __ _ _ __ _ ___
- / _\` | | __/ _\` | '__| / __|
-| (_| | | || (_| | |  | \\__ \\
- \\__,_|_|\\__\\__,_|_|  |_|___/
-                   c · l · i`;
+const ALTARIS_ASCII = `█▀█   █    ▀█▀   █▀█   █▀▄   █   █▀▀
+█▀█   █     █    █▀█   █▀▄   █   ▀▀█
+▀ ▀   ▀▀▀   ▀    ▀ ▀   ▀ ▀   ▀   ▀▀▀`;
 
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -306,15 +302,20 @@ export default function CliClient({
             <span>{d.hero.eyebrow}</span>
           </div>
 
-          <div className="mt-8 grid items-end gap-8 md:grid-cols-[auto_1fr]">
+          <div className="mt-10 flex flex-col gap-3">
             <pre
-              aria-label="altaris cli"
-              className="a-reveal a-shimmer select-none whitespace-pre font-bold leading-[1.05] tracking-[0.0em] text-[clamp(9px,1.05vw,13px)]"
+              aria-label="Altaris"
+              className="a-reveal a-shimmer select-none overflow-x-auto whitespace-pre font-bold leading-[1.05] tracking-[0.02em] text-[clamp(11px,1.7vw,18px)] md:text-[clamp(13px,1.9vw,22px)]"
               style={{ animationDelay: "120ms" }}
             >
-{ALTARIS_CLI_ASCII}
+{ALTARIS_ASCII}
             </pre>
-            <div aria-hidden className="hidden h-px bg-[rgba(120,80,50,0.32)] md:block" />
+            <div className="a-reveal flex items-center gap-3 text-[10px] uppercase tracking-[0.32em] text-[#6b6358]" style={{ animationDelay: "200ms" }}>
+              <span aria-hidden className="h-px w-10 bg-[#3a342d]" />
+              <span className="text-[#9bd07e]">cli</span>
+              <span className="text-[#3a342d]">·</span>
+              <span>command line interface</span>
+            </div>
           </div>
 
           <h1
