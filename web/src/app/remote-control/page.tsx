@@ -71,17 +71,17 @@ export default function RemoteControlPage() {
 
       {error && <p className="mt-4 text-xs text-red-400">Hata: {error}</p>}
 
-      <div className="mt-6 overflow-hidden rounded-lg border border-neutral-800">
-        <table className="w-full text-sm">
+      <div className="mt-6 overflow-x-auto rounded-lg border border-neutral-800">
+        <table className="w-full min-w-[800px] text-sm">
           <thead className="bg-neutral-900 text-left text-xs uppercase tracking-wide text-neutral-400">
             <tr>
-              <th className="px-3 py-2">Durum</th>
-              <th className="px-3 py-2">Sahibi</th>
-              <th className="px-3 py-2">Başlık</th>
-              <th className="px-3 py-2">Provider/Model</th>
-              <th className="px-3 py-2">Yayın açıldı</th>
-              <th className="px-3 py-2">İzleyici</th>
-              <th className="px-3 py-2 text-right">İşlem</th>
+              <th className="px-3 py-2 whitespace-nowrap">Durum</th>
+              <th className="px-3 py-2 whitespace-nowrap">Sahibi</th>
+              <th className="px-3 py-2 whitespace-nowrap">Başlık</th>
+              <th className="px-3 py-2 whitespace-nowrap">Provider/Model</th>
+              <th className="px-3 py-2 whitespace-nowrap">Yayın açıldı</th>
+              <th className="px-3 py-2 whitespace-nowrap">İzleyici</th>
+              <th className="px-3 py-2 whitespace-nowrap text-right">İşlem</th>
             </tr>
           </thead>
           <tbody>

@@ -214,18 +214,18 @@ export default function ChatPage() {
 
   return (
     <main
-      className="mx-auto flex h-[calc(100vh-3rem)] max-w-4xl flex-col px-6 py-6"
+      className="mx-auto flex h-[calc(100vh-3rem)] max-w-4xl flex-col px-4 py-4 sm:px-6 sm:py-6"
       onDragOver={e => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={() => setDragOver(false)}
       onDrop={onDrop}
     >
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-xl font-semibold">Altaris Web Chat</h1>
-        <div className="flex items-center gap-2 text-sm">
+        <div className="flex flex-wrap items-center gap-2 text-sm">
           <select
             value={providerId}
             onChange={e => pickProvider(e.target.value)}
-            className="rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs"
+            className="min-w-0 max-w-full rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs"
             disabled={providers.length === 0}
           >
             {providers.length === 0 && <option value="">Provider yok — admin'den ekle</option>}
@@ -239,7 +239,7 @@ export default function ChatPage() {
             value={model}
             onChange={e => setModel(e.target.value)}
             placeholder="model"
-            className="w-64 rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs font-mono"
+            className="w-full sm:w-64 rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs font-mono"
           />
         </div>
       </div>
