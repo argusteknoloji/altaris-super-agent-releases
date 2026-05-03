@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using Altaris.Domain.Entities;
 using Altaris.Infrastructure.MultiTenancy;
@@ -241,6 +242,55 @@ public static class CodexTokenRefresher
             p.ApiKeyEnc = access;
             p.RefreshTokenEnc = newRefresh;
             p.IdTokenEnc = newId;
+            p.AccessTokenExpiresAt = DateTimeOffset.UtcNow.AddSeconds(Math.Max(60, expires));
+            p.LastRefreshedAt = DateTimeOffset.UtcNow;
+            p.UpdatedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+}
+
+/// <summary>
+///   Anthropic Claude OAuth refresher. claude_code CLI public client.
+///   Aynı RefreshOneAsync sözleşmesi — token endpoint platform.claude.com.
+/// </summary>
+public static class AnthropicTokenRefresher
+{
+    private const string TokenUrl = "https://platform.claude.com/v1/oauth/token";
+    private const string ClientId = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+
+    public static async Task<bool> RefreshOneAsync(
+        ProviderConfig p, AltarisDbContext db, IHttpClientFactory httpFactory)
+    {
+        if (string.IsNullOrEmpty(p.RefreshTokenEnc)) return false;
+        try
+        {
+            using var client = httpFactory.CreateClient();
+            // Anthropic JSON body bekliyor (form-encoded değil)
+            var body = JsonSerializer.Serialize(new
+            {
+                grant_type    = "refresh_token",
+                refresh_token = p.RefreshTokenEnc,
+                client_id     = ClientId,
+            });
+            using var content = new StringContent(body, Encoding.UTF8, "application/json");
+            using var res = await client.PostAsync(TokenUrl, content);
+            if (!res.IsSuccessStatusCode) return false;
+            var json = await res.Content.ReadAsStringAsync();
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var access = root.GetProperty("access_token").GetString();
+            var expires = root.TryGetProperty("expires_in", out var e) ? e.GetInt32() : 3600;
+            var newRefresh = root.TryGetProperty("refresh_token", out var r) ? r.GetString() : p.RefreshTokenEnc;
+            if (string.IsNullOrEmpty(access)) return false;
+
+            p.ApiKeyEnc = access;
+            p.RefreshTokenEnc = newRefresh;
             p.AccessTokenExpiresAt = DateTimeOffset.UtcNow.AddSeconds(Math.Max(60, expires));
             p.LastRefreshedAt = DateTimeOffset.UtcNow;
             p.UpdatedAt = DateTimeOffset.UtcNow;

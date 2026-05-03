@@ -113,6 +113,27 @@ public static class ChatEndpoints
             .OrderByDescending(p => p.IsDefault)
             .FirstOrDefaultAsync(cancel);
 
+        // JIT OAuth refresh — eğer token expire olmuş veya 5 dakika içinde
+        // expire ediyorsa, request'ten ÖNCE refresh et. Worker 5dk'da bir
+        // çalışır; kullanıcı arada chat atarsa expired token ile gitmesin.
+        if (cfg is not null && cfg.AuthKind == "oauth"
+            && cfg.AccessTokenExpiresAt is not null
+            && cfg.AccessTokenExpiresAt < DateTimeOffset.UtcNow.AddMinutes(5))
+        {
+            // Tracked entity ile çalışmamız lazım — refresher SaveChangesAsync çağırıyor
+            var tracked = await db.ProviderConfigs.FirstOrDefaultAsync(p => p.Id == cfg.Id, cancel);
+            if (tracked is not null)
+            {
+                var refreshed = cfg.Provider.ToLowerInvariant() switch
+                {
+                    "anthropic" => await AnthropicTokenRefresher.RefreshOneAsync(tracked, db, httpFactory),
+                    "codex"     => await CodexTokenRefresher.RefreshOneAsync(tracked, db, httpFactory),
+                    _           => false,
+                };
+                if (refreshed) cfg = tracked; // tazelenmiş token chat'te kullanılacak
+            }
+        }
+
         try
         {
             switch (req.Provider.ToLowerInvariant())
@@ -349,23 +370,36 @@ public static class ChatEndpoints
             return;
         }
 
-        var client = hf.CreateClient();
-        var payload = new
+        // Codex /responses (OpenAI Responses API) — chat/completions değil!
+        // Body: { model, input: [{type:"message", role, content:[{type:"input_text", text}]}], stream }
+        // System prompt → "instructions" field
+        var input = req.Messages.Select(m => new
         {
-            model = req.Model,
-            stream = true,
-            max_tokens = req.MaxTokens,
-            messages = req.Messages.Select(m => new { role = m.Role, content = (object)m.Content }).ToArray()
+            type = "message",
+            role = m.Role,
+            content = new[] { new { type = m.Role == "assistant" ? "output_text" : "input_text", text = ContentToText(m.Content) } }
+        }).ToArray();
+        var payload = new Dictionary<string, object?>
+        {
+            ["model"]  = req.Model,
+            ["input"]  = input.Length > 0 ? (object)input : new[] {
+                new { type = "message", role = "user", content = new[] { new { type = "input_text", text = "" } } }
+            },
+            ["stream"] = true,
+            ["store"]  = false,
         };
+        if (!string.IsNullOrWhiteSpace(req.SystemPrompt))
+            payload["instructions"] = req.SystemPrompt;
 
-        var hreq = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/chat/completions")
+        var client = hf.CreateClient();
+        var hreq = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/responses")
         {
             Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
         };
         hreq.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
         hreq.Headers.Add("chatgpt-account-id", accountId);
-        // Codex backend OpenAI compat ama session id istiyor — random GUID yeter.
         hreq.Headers.Add("session_id", Guid.NewGuid().ToString());
+        hreq.Headers.Add("originator", "altaris");
 
         using var resp = await client.SendAsync(hreq, HttpCompletionOption.ResponseHeadersRead, cancel);
         if (!resp.IsSuccessStatusCode)
@@ -377,24 +411,28 @@ public static class ChatEndpoints
             return;
         }
 
+        // Responses API SSE format — events: response.output_text.delta + response.completed
         using var stream = await resp.Content.ReadAsStreamAsync(cancel);
         using var reader = new StreamReader(stream);
-
+        string? currentEvent = null;
         string? line;
         while ((line = await reader.ReadLineAsync(cancel)) != null)
         {
+            if (line.StartsWith("event: "))
+            {
+                currentEvent = line[7..].Trim();
+                continue;
+            }
             if (!line.StartsWith("data: ")) continue;
             var data = line[6..];
-            if (data == "[DONE]") break;
-            try
+            if (currentEvent == "response.output_text.delta")
             {
-                using var doc = JsonDocument.Parse(data);
-                if (doc.RootElement.TryGetProperty("choices", out var ch) && ch.GetArrayLength() > 0)
+                try
                 {
-                    var delta = ch[0].GetProperty("delta");
-                    if (delta.TryGetProperty("content", out var c))
+                    using var doc = JsonDocument.Parse(data);
+                    if (doc.RootElement.TryGetProperty("delta", out var d))
                     {
-                        var text = c.GetString() ?? "";
+                        var text = d.GetString() ?? "";
                         if (text.Length > 0)
                         {
                             collected.Append(text);
@@ -402,9 +440,35 @@ public static class ChatEndpoints
                         }
                     }
                 }
+                catch (JsonException) { /* skip */ }
             }
-            catch (JsonException) { /* skip malformed */ }
+            else if (currentEvent == "response.completed" || currentEvent == "response.failed")
+            {
+                break;
+            }
         }
+    }
+
+    private static string ContentToText(object content)
+    {
+        if (content is string s) return s;
+        // ChatRequest.Message.Content JsonElement olabilir (resim/dosya parts) — text'leri birleştir
+        if (content is JsonElement el)
+        {
+            if (el.ValueKind == JsonValueKind.String) return el.GetString() ?? "";
+            if (el.ValueKind == JsonValueKind.Array)
+            {
+                var sb = new StringBuilder();
+                foreach (var p in el.EnumerateArray())
+                {
+                    if (p.ValueKind == JsonValueKind.Object && p.TryGetProperty("type", out var t)
+                        && t.GetString() == "text" && p.TryGetProperty("text", out var txt))
+                        sb.Append(txt.GetString());
+                }
+                return sb.ToString();
+            }
+        }
+        return content?.ToString() ?? "";
     }
 
     /// <summary>Pull a short title out of a content JsonElement (string or array of parts).</summary>

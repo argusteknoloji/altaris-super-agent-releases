@@ -70,9 +70,15 @@ public class CodexTokenRefreshWorker : BackgroundService
         foreach (var p in due)
         {
             ct.ThrowIfCancellationRequested();
-            var ok = await CodexTokenRefresher.RefreshOneAsync(p, db, _http);
-            _log.LogInformation("Codex refresh {Id} ({Name}): {Status}",
-                p.Id, p.Name, ok ? "ok" : "failed");
+            // Provider'a göre doğru refresher seç
+            var ok = p.Provider.ToLowerInvariant() switch
+            {
+                "anthropic" => await AnthropicTokenRefresher.RefreshOneAsync(p, db, _http),
+                "codex"     => await CodexTokenRefresher.RefreshOneAsync(p, db, _http),
+                _           => false,
+            };
+            _log.LogInformation("OAuth refresh {Provider} {Id} ({Name}): {Status}",
+                p.Provider, p.Id, p.Name, ok ? "ok" : "failed");
         }
     }
 }
