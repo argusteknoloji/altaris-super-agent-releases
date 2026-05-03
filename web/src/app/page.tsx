@@ -118,6 +118,14 @@ export default async function HomePage() {
                 <span aria-hidden className="text-[#3a342d] transition-colors group-hover:text-[#f08c50]">·</span>
                 <span className="text-[#6b6358]">{d.nav.chapters}</span>
               </Link>
+              <Link
+                href="/cli"
+                className="group hidden items-center gap-2 text-[10px] uppercase tracking-[0.28em] text-[#9b9285] transition-colors hover:text-[#9bd07e] sm:inline-flex"
+              >
+                <span>cli</span>
+                <span aria-hidden className="text-[#3a342d] transition-colors group-hover:text-[#9bd07e]">·</span>
+                <span className="text-[#6b6358]">iv</span>
+              </Link>
               <LocaleSwitcher current={locale} path="/" />
               {enter}
             </div>
