@@ -41,14 +41,54 @@ public class VaultStorage
     {
         var root = VaultPath(tenantSlug, vaultSlug);
         if (!Directory.Exists(root)) yield break;
-        foreach (var f in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+
+        // Manuel BFS — Directory.EnumerateFiles(.., AllDirectories) bir alt-dizinde
+        // permission-denied alırsa tüm enumeration'ı patlatıyor (UnauthorizedAccessException).
+        // Ayrıca .git, node_modules gibi vault'a ait olmayan dizinler tamamen atlanmalı.
+        var stack = new Stack<string>();
+        stack.Push(root);
+        while (stack.Count > 0)
         {
-            // skip dotfiles per Obsidian convention (.obsidian/, .git/ etc are exposed
-            // via .obsidian listing but not as plain files in the tree).
-            var fi = new FileInfo(f);
-            var rel = Path.GetRelativePath(root, f).Replace('\\', '/');
-            yield return new VaultFile(rel, fi.Length, fi.LastWriteTimeUtc);
+            var dir = stack.Pop();
+            string[] subDirs;
+            string[] files;
+            try
+            {
+                subDirs = Directory.GetDirectories(dir);
+                files   = Directory.GetFiles(dir);
+            }
+            catch (UnauthorizedAccessException) { continue; }   // skip dir we can't read
+            catch (DirectoryNotFoundException)  { continue; }
+            catch (IOException)                 { continue; }
+
+            foreach (var sd in subDirs)
+            {
+                var name = Path.GetFileName(sd);
+                if (IsIgnoredDir(name)) continue;
+                stack.Push(sd);
+            }
+            foreach (var f in files)
+            {
+                FileInfo fi;
+                try { fi = new FileInfo(f); }
+                catch { continue; }
+                var rel = Path.GetRelativePath(root, f).Replace('\\', '/');
+                yield return new VaultFile(rel, fi.Length, fi.LastWriteTimeUtc);
+            }
         }
+    }
+
+    /// <summary>Vault tree'sinde gösterilmemesi gereken dizinler (git/IDE/build artefacts).</summary>
+    private static bool IsIgnoredDir(string name)
+    {
+        // .git ve .git (1), .git.bak gibi backup'lar dahil
+        if (name.StartsWith(".git", StringComparison.OrdinalIgnoreCase)) return true;
+        if (name.Equals("node_modules", StringComparison.OrdinalIgnoreCase)) return true;
+        if (name.Equals(".DS_Store",   StringComparison.OrdinalIgnoreCase)) return true;
+        if (name.Equals(".idea",       StringComparison.OrdinalIgnoreCase)) return true;
+        if (name.Equals(".vscode",     StringComparison.OrdinalIgnoreCase)) return true;
+        if (name.Equals(".cache",      StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
     }
 
     public (int files, long bytes) Stats(string tenantSlug, string vaultSlug)
