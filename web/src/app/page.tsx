@@ -118,6 +118,14 @@ export default async function HomePage() {
                 <span aria-hidden className="text-[#3a342d] transition-colors group-hover:text-[#f08c50]">·</span>
                 <span className="text-[#6b6358]">{d.nav.chapters}</span>
               </Link>
+              <a
+                href="/manifesto"
+                className="group hidden items-center gap-2 text-[10px] uppercase tracking-[0.28em] text-[#9b9285] transition-colors hover:text-[#ffb464] sm:inline-flex"
+              >
+                <span>{d.nav.manifesto}</span>
+                <span aria-hidden className="text-[#3a342d] transition-colors group-hover:text-[#f08c50]">·</span>
+                <span className="text-[#6b6358]">/v</span>
+              </a>
               <Link
                 href="/cli"
                 className="group hidden items-center gap-2 text-[10px] uppercase tracking-[0.28em] text-[#9b9285] transition-colors hover:text-[#9bd07e] sm:inline-flex"
@@ -223,10 +231,61 @@ export default async function HomePage() {
           </div>
         </section>
 
+        {/* ── MANIFESTO TEASER ──────────────────────────────────────── */}
+        <section className="mx-auto max-w-6xl px-6 pb-28">
+          <SectionHead idx="03" tag={d.manifesto.head} hint={d.manifesto.hint} />
+
+          <div className="grid gap-12 md:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] md:items-start md:gap-14">
+            <div>
+              <h3 className="whitespace-pre-line text-[clamp(26px,3.4vw,42px)] font-light leading-[1.1] tracking-tight text-[#ddd8d0]">
+                {d.manifesto.title1}
+                <span className="a-grad font-medium">{d.manifesto.titleGrad}</span>
+                {d.manifesto.title3}
+              </h3>
+              <p className="mt-6 max-w-md text-sm leading-relaxed text-[#9b9285] md:text-[15px]">
+                {d.manifesto.lede}
+              </p>
+
+              <a
+                href="/manifesto"
+                className="group mt-9 inline-flex items-center gap-3 border border-[#f08c50] px-6 py-3 text-[10px] uppercase tracking-[0.3em] text-[#f08c50] transition-all duration-300 hover:bg-[#f08c50] hover:text-[#0a0908]"
+              >
+                <span>{d.manifesto.cta}</span>
+                <span aria-hidden className="transition-transform group-hover:translate-x-1">→</span>
+              </a>
+
+              <div className="mt-7 flex items-center gap-3 text-[9px] uppercase tracking-[0.32em] text-[#3a342d]">
+                <span aria-hidden className="size-1.5 rounded-full bg-[#f08c50] a-blink" />
+                <span>{d.manifesto.tease.head}</span>
+              </div>
+            </div>
+
+            <div className="overflow-hidden rounded-md border border-[rgba(120,80,50,0.22)] bg-[#0d0b0a]">
+              <div className="grid grid-cols-[0.7fr_1.3fr_1.3fr] border-b border-[rgba(120,80,50,0.22)] bg-[#100d0b] text-[10px] uppercase tracking-[0.28em]">
+                <div className="px-5 py-3 text-[#3a342d]">/dim</div>
+                <div className="border-l border-[rgba(120,80,50,0.18)] px-5 py-3 text-[#9b9285]">{d.manifesto.tease.them}</div>
+                <div className="border-l border-[rgba(120,80,50,0.18)] px-5 py-3 text-[#f08c50]">{d.manifesto.tease.us}</div>
+              </div>
+              {d.manifesto.tease.rows.map(([label, them, us]) => (
+                <CmpTeaseRow key={label} label={label} them={them} us={us} />
+              ))}
+              <a
+                href="/manifesto"
+                className="group flex items-center justify-between gap-4 border-t border-[rgba(120,80,50,0.22)] bg-[#0d0b0a] px-5 py-4 transition-colors duration-300 hover:bg-[#14110f]"
+              >
+                <span className="text-[10px] uppercase tracking-[0.32em] text-[#7a7166] transition-colors group-hover:text-[#f08c50]">
+                  /ix · {d.manifesto.cta}
+                </span>
+                <span aria-hidden className="text-[#f08c50] transition-transform duration-300 group-hover:translate-x-1">→</span>
+              </a>
+            </div>
+          </div>
+        </section>
+
         {/* ── ENTERPRISE BACKBONE ───────────────────────────────────── */}
         <section className="border-y border-[rgba(120,80,50,0.22)] bg-[#0d0b0a]">
           <div className="mx-auto max-w-6xl px-6 py-16">
-            <SectionHead idx="03" tag={d.spine.head} hint={d.spine.hint} muted />
+            <SectionHead idx="04" tag={d.spine.head} hint={d.spine.hint} muted />
             <ul className="grid gap-x-10 gap-y-7 md:grid-cols-2 lg:grid-cols-3">
               {d.spine.items.map(([k, v], i) => (
                 <li key={k} className="flex gap-4 border-l border-[rgba(120,80,50,0.32)] pl-4">
@@ -245,7 +304,7 @@ export default async function HomePage() {
 
         {/* ── SCENES TEASE ─────────────────────────────────────────── */}
         <section className="mx-auto max-w-6xl px-6 pb-28">
-          <SectionHead idx="04" tag={d.scenes.head} hint={d.scenes.hint} />
+          <SectionHead idx="05" tag={d.scenes.head} hint={d.scenes.hint} />
 
           <div className="grid gap-12 md:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] md:items-start md:gap-14">
             <div>
@@ -386,6 +445,29 @@ function FeatureCard({
       <h4 className="mb-4 text-xl font-medium tracking-tight text-[#ddd8d0]">{title}</h4>
       <p className="text-[13px] leading-relaxed text-[#9b9285]">{children}</p>
       <span aria-hidden className="a-card-line" />
+    </div>
+  );
+}
+
+function CmpTeaseRow({
+  label,
+  them,
+  us,
+}: {
+  label: string;
+  them: string;
+  us: string;
+}) {
+  return (
+    <div className="grid grid-cols-[0.7fr_1.3fr_1.3fr] border-t border-[rgba(120,80,50,0.18)] transition-colors hover:bg-[rgba(240,140,80,0.025)]">
+      <div className="px-5 py-4 text-[10px] uppercase tracking-[0.22em] text-[#f08c50]">{label}</div>
+      <div className="border-l border-[rgba(120,80,50,0.18)] px-5 py-4 text-[12px] leading-relaxed text-[#9b9285]">
+        {them}
+      </div>
+      <div className="border-l border-[rgba(120,80,50,0.18)] px-5 py-4 text-[12px] leading-relaxed text-[#ddd8d0]">
+        <span aria-hidden className="mr-2 text-[#f08c50]">●</span>
+        {us}
+      </div>
     </div>
   );
 }

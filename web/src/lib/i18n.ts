@@ -49,6 +49,7 @@ type DictShape = {
     chapters: string;
     home: string;
     altaris: string;
+    manifesto: string;
   };
   hero: {
     metaCities: string;
@@ -77,6 +78,21 @@ type DictShape = {
     head: string;
     hint: string;
     items: Array<[string, string]>;
+  };
+  manifesto: {
+    head: string;
+    hint: string;
+    title1: string;
+    titleGrad: string;
+    title3: string;
+    lede: string;
+    cta: string;
+    tease: {
+      head: string;
+      them: string;
+      us: string;
+      rows: Array<[string, string, string]>; // [label, them, us]
+    };
   };
   scenes: {
     head: string;
@@ -133,6 +149,7 @@ export const dict: Record<Locale, DictShape> = {
       panel: "GO TO PANEL", signIn: "SIGN IN",
       scenes: "SCENES", chapters: "XVI",
       home: "HOME", altaris: "ALTARIS",
+      manifesto: "MANIFESTO",
     },
     hero: {
       metaCities: "ISTANBUL · ANKARA · BERLIN",
@@ -212,6 +229,26 @@ export const dict: Record<Locale, DictShape> = {
          "docker compose up · 6 services · auto-start on boot. One command, one panel, zero hand-rolled configuration."],
       ],
     },
+    manifesto: {
+      head: "MANIFESTO",
+      hint: "TYPICAL VS ALTARIS",
+      title1: "Typical code assistants amplify\na developer. ",
+      titleGrad: "Altaris",
+      title3: " is the company's shared mind.",
+      lede:
+        "Three sentences won't do it justice. Read the nine-dimension comparison, the data-sovereignty argument, and why this is not the same category.",
+      cta: "READ THE MANIFESTO",
+      tease: {
+        head: "THREE OF NINE DIMENSIONS",
+        them: "Typical code assistants",
+        us: "Altaris",
+        rows: [
+          ["MEMORY", "Ephemeral · session-bound", "Persistent vault"],
+          ["DEPLOY", "Cloud required", "On-prem · cloud · air-gapped"],
+          ["SCOPE",  "Code only",      "Every company channel"],
+        ],
+      },
+    },
     scenes: {
       head: "SCENES",
       hint: "XVI CHAPTERS · ~22 SEC EACH",
@@ -281,6 +318,7 @@ export const dict: Record<Locale, DictShape> = {
       panel: "panele git", signIn: "giriş yap",
       scenes: "sahneler", chapters: "xvi",
       home: "ana sayfa", altaris: "altaris",
+      manifesto: "manifesto",
     },
     hero: {
       metaCities: "i̇stanbul · ankara · berlin",
@@ -360,6 +398,26 @@ export const dict: Record<Locale, DictShape> = {
          "docker compose up · 6 servis · MacBook açılışında otomatik başlatma. Tek komut, tek panel, sıfır el ile yapılandırma."],
       ],
     },
+    manifesto: {
+      head: "manifesto",
+      hint: "tipik vs altaris",
+      title1: "Tipik kod asistanları geliştiriciyi\ngüçlendirir. ",
+      titleGrad: "Altaris",
+      title3: " kurumun paylaşılan aklıdır.",
+      lede:
+        "Üç cümleyle anlatılmaz. Dokuz boyutlu karşılaştırmayı, veri egemenliği argümanını ve Altaris'in neden aynı kategoride olmadığını manifestoda okuyun.",
+      cta: "manifestoyu oku",
+      tease: {
+        head: "dokuz boyuttan üçü",
+        them: "tipik kod asistanları",
+        us: "altaris",
+        rows: [
+          ["bellek", "geçici · oturum sınırlı",  "kalıcı vault"],
+          ["deploy", "bulut zorunlu",            "on-prem · bulut · air-gapped"],
+          ["kapsam", "sadece kod",               "kurumun her kanalı"],
+        ],
+      },
+    },
     scenes: {
       head: "sahneler",
       hint: "xvi bölüm · ortalama 22 sn",
@@ -429,6 +487,7 @@ export const dict: Record<Locale, DictShape> = {
       panel: "zum panel", signIn: "anmelden",
       scenes: "szenen", chapters: "xvi",
       home: "startseite", altaris: "altaris",
+      manifesto: "manifest",
     },
     hero: {
       metaCities: "i̇stanbul · ankara · berlin",
@@ -507,6 +566,26 @@ export const dict: Record<Locale, DictShape> = {
         ["Container-only Installation",
          "docker compose up · 6 Services · Auto-Start beim Booten. Ein Befehl, ein Panel, null manuelle Konfiguration."],
       ],
+    },
+    manifesto: {
+      head: "manifest",
+      hint: "typisch vs altaris",
+      title1: "Typische Code-Assistenten verstärken\neinen Entwickler. ",
+      titleGrad: "Altaris",
+      title3: " ist der gemeinsame Verstand des Unternehmens.",
+      lede:
+        "Drei Sätze reichen nicht. Lesen Sie den Neun-Dimensionen-Vergleich, die Datensouveränitäts-Argumentation und warum Altaris nicht dieselbe Kategorie ist.",
+      cta: "manifest lesen",
+      tease: {
+        head: "drei von neun dimensionen",
+        them: "typische code-assistenten",
+        us: "altaris",
+        rows: [
+          ["gedächtnis", "flüchtig · sitzungsgebunden", "dauerhafter vault"],
+          ["deployment", "cloud zwingend",              "on-prem · cloud · air-gapped"],
+          ["umfang",     "nur code",                    "jeder kanal des unternehmens"],
+        ],
+      },
     },
     scenes: {
       head: "szenen",

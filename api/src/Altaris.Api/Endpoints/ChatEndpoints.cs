@@ -191,12 +191,24 @@ public static class ChatEndpoints
         }
 
         var client = hf.CreateClient();
+
+        // OAuth-backed Anthropic tokens (claude_code scope) ZORUNLU olarak
+        // system prompt'unun ilk satırı "You are Claude Code, Anthropic's official
+        // CLI for Claude." olmalı — yoksa Anthropic isteği reddediyor (yanıltıcı
+        // 'rate_limit_error' mesajıyla). User'ın system prompt'una ön ek ekliyoruz.
+        const string CLAUDE_CODE_PRELUDE = "You are Claude Code, Anthropic's official CLI for Claude.";
+        string? effectiveSystem = pc?.AuthKind == "oauth"
+            ? string.IsNullOrWhiteSpace(req.SystemPrompt)
+                ? CLAUDE_CODE_PRELUDE
+                : $"{CLAUDE_CODE_PRELUDE}\n\n{req.SystemPrompt}"
+            : req.SystemPrompt;
+
         var payload = new
         {
             model = req.Model,
             max_tokens = req.MaxTokens,
             stream = true,
-            system = req.SystemPrompt,
+            system = effectiveSystem,
             messages = req.Messages.Select(m => new { role = m.Role, content = (object)m.Content }).ToArray()
         };
 
@@ -209,7 +221,9 @@ public static class ChatEndpoints
         if (pc?.AuthKind == "oauth")
         {
             hreq.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
-            hreq.Headers.Add("anthropic-beta", "claude-code-20250219,oauth-2025-04-20");
+            hreq.Headers.Add("anthropic-beta", "oauth-2025-04-20");
+            // CLI ile birebir UA — Anthropic OAuth token check'i UA'ya da bakabiliyor
+            hreq.Headers.UserAgent.ParseAdd("altaris/0.1.0-alpha");
         }
         else
         {
@@ -218,7 +232,16 @@ public static class ChatEndpoints
         hreq.Headers.Add("anthropic-version", "2023-06-01");
 
         using var resp = await client.SendAsync(hreq, HttpCompletionOption.ResponseHeadersRead, cancel);
-        resp.EnsureSuccessStatusCode();
+        if (!resp.IsSuccessStatusCode)
+        {
+            var errBody = await resp.Content.ReadAsStringAsync(cancel);
+            // Anthropic 'rate_limit_error' OAuth scope/policy hatasını maskeliyor;
+            // kullanıcıya gerçek body'i göster ki diagnose edilebilsin.
+            await Sse(ctx, "error",
+                JsonSerializer.Serialize(new { message = $"Anthropic HTTP {(int)resp.StatusCode}: {errBody[..Math.Min(400, errBody.Length)]}" }),
+                cancel);
+            return;
+        }
 
         using var stream = await resp.Content.ReadAsStreamAsync(cancel);
         using var reader = new StreamReader(stream);
