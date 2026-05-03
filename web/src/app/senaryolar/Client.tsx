@@ -64,7 +64,8 @@ const SLUG_BY_NUM: Record<string, string> = {
 function srcFor(num: string, locale: Locale): string {
   const slug = SLUG_BY_NUM[num];
   if (!slug) return "";
-  const dir = locale === "en" ? "/scenarios/en" : "/scenarios";
+  // DE has no own video set; falls back to EN (closer to most German viewers' second language).
+  const dir = locale === "en" || locale === "de" ? "/scenarios/en" : "/scenarios";
   return `${dir}/${slug}.mp4`;
 }
 

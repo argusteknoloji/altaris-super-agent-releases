@@ -9,20 +9,21 @@
 
 import { cookies, headers } from "next/headers";
 
-export type Locale = "en" | "tr";
+export type Locale = "en" | "tr" | "de";
 
 export const LOCALE_COOKIE = "altaris_locale";
 
 export async function detectLocale(): Promise<Locale> {
   const c = await cookies();
   const fromCookie = c.get(LOCALE_COOKIE)?.value;
-  if (fromCookie === "tr" || fromCookie === "en") return fromCookie;
+  if (fromCookie === "tr" || fromCookie === "en" || fromCookie === "de") return fromCookie;
 
   const h = await headers();
   const al = (h.get("accept-language") ?? "").toLowerCase();
   // first preferred lang, e.g. "tr-tr,tr;q=0.9,en;q=0.8"
   const first = al.split(",")[0]?.trim() ?? "";
   if (first.startsWith("tr")) return "tr";
+  if (first.startsWith("de")) return "de";
   return "en";
 }
 
@@ -117,7 +118,7 @@ type DictShape = {
     edition: string;
     copy: string;
   };
-  langSwitch: { tr: string; en: string };
+  langSwitch: { tr: string; en: string; de: string };
 };
 
 export const dict: Record<Locale, DictShape> = {
@@ -266,7 +267,7 @@ export const dict: Record<Locale, DictShape> = {
       edition: "v0.1.0-alpha",
       copy: "© 2026 argus teknoloji · enterprise agentic ai",
     },
-    langSwitch: { tr: "tr", en: "en" },
+    langSwitch: { tr: "tr", en: "en", de: "de" },
   },
 
   // ─── TR ──────────────────────────────────────────────────────────────
@@ -414,7 +415,155 @@ export const dict: Record<Locale, DictShape> = {
       edition: "v0.1.0-alpha",
       copy: "© 2026 argus teknoloji · kurumsal agentic ai",
     },
-    langSwitch: { tr: "tr", en: "en" },
+    langSwitch: { tr: "tr", en: "en", de: "de" },
+  },
+
+  // ─── DE ──────────────────────────────────────────────────────────────
+  de: {
+    nav: {
+      cloud: "cloud", live: "live",
+      panel: "zum panel", signIn: "anmelden",
+      scenes: "szenen", chapters: "xvi",
+      home: "startseite", altaris: "altaris",
+    },
+    hero: {
+      metaCities: "i̇stanbul · ankara · berlin",
+      metaYear: "2026",
+      taglinePre: "Das ",
+      taglineGrad: "agentic-AI",
+      taglinePost: "-Terminal für Unternehmensteams.",
+      description:
+        "Ein lokaler altaris-Befehl, ein einziges web-basiertes Bedienfeld, On-Prem oder Cloud-Deployment. DSGVO-konformer Audit-Trail, mandantenisolierte Daten, vault-basiertes Unternehmensgedächtnis — eine Binary, eine Steuerebene, das gemeinsame Gedächtnis Ihres Teams.",
+      cmdHint: "altaris",
+    },
+    surfaces: {
+      head: "vier oberflächen",
+      hint: "terminal · desktop · web · remote",
+      terminal: {
+        title: "Terminal",
+        body:
+          "Eine agentische Shell, angetrieben vom altaris-Befehl und einem lokalen LLM. Eine Binary für macOS, Linux und Windows. Cloud- und On-Prem-Provider — alle hinter einer einzigen Mandanteneinstellung.",
+      },
+      desktop: {
+        title: "Desktop",
+        body:
+          "Native macOS- und Windows-App für Nutzer, die mit dem Terminal nicht vertraut sind. Tauri-basiert, ~10 MB Binary. Auto-Update, code-signiert, geeignet für Air-Gapped-USB-Lieferung.",
+      },
+      web: {
+        title: "Web Chat",
+        body:
+          "Im Browser anmelden, über das gemeinsame Unternehmensgedächtnis Ihres Teams kommunizieren. Vault-basierter Kontext, vollständiges Transkript, Sitzungsverlauf — jede Konversation ist über das Admin-Panel auditierbar.",
+      },
+      remote: {
+        title: "Remote Control",
+        body:
+          "Lokale altaris-Sitzungen vom Web aus beobachten und übernehmen. Multi-Viewer-Aufsicht, autorisierte Übernahme, ein Audit-Eintrag für jeden Tastenanschlag.",
+      },
+    },
+    whoFor: {
+      head: "für wen",
+      hint: "cloud · on-prem",
+      cloud: {
+        title: "Cloud",
+        subtitle: "Schneller Start, Top-Modelle",
+        tag: "cloud",
+        points: [
+          "Top-Cloud-Modellauswahl",
+          "Mandantenisolation auf Datenbankebene",
+          "Enterprise-SSO einsatzbereit",
+          "Eigene Modellkonten direkt im Browser anbinden",
+        ],
+      },
+      onprem: {
+        title: "On-Prem",
+        subtitle: "Kein einziges Byte verlässt Ihr Haus",
+        tag: "on-prem",
+        points: [
+          "Anbindung an firmeneigene Modellinfrastruktur",
+          "On-Premises-Datenbank und Identitätsverwaltung",
+          "Air-Gapped-Installation, versiegelte Update-Pakete",
+          "Ausgerichtet auf DSGVO + ISO 27001 für Behörden, Verteidigung, Finanzen",
+        ],
+      },
+    },
+    spine: {
+      head: "unternehmens-rückgrat",
+      hint: "6 säulen",
+      items: [
+        ["Mandantendaten-Isolation",
+         "Mandantenebene-Partitionierung in einer einzigen physischen Datenbank mit strengen Zugriffsrichtlinien."],
+        ["DSGVO-konformes Audit",
+         "Jede Aktion, jeder privilegierte Zugriff und jeder Modellwechsel wird zentral protokolliert. Ein vollständig nachverfolgbarer Unternehmens-Trail."],
+        ["Enterprise SSO",
+         "CLI, Web und Admin-Panel melden sich über denselben Enterprise-Identity-Provider an."],
+        ["Modell-Abstraktionsschicht",
+         "Cloud- und On-Prem-Provider werden unter einer einzigen Mandanteneinstellung verwaltet; das Umschalten erfolgt kontrolliert in der Sitzung."],
+        ["Vault-basiertes Gedächtnis",
+         "Obsidian-kompatible Enterprise-Wissensdatenbank mit leistungsstarker Suche und gemeinsamem Kontext."],
+        ["Container-only Installation",
+         "docker compose up · 6 Services · Auto-Start beim Booten. Ein Befehl, ein Panel, null manuelle Konfiguration."],
+      ],
+    },
+    scenes: {
+      head: "szenen",
+      hint: "xvi kapitel · ~22 sek pro stück",
+      title1: "Sechzehn Momente,\nin denen Entscheidungen ",
+      titleGrad: "nicht warten können",
+      title3: ".",
+      lede:
+        "Zwischen sechs Uhr morgens und zwei Uhr nachts, zwischen Briefing und Unterschrift, zwischen Audit und Verordnung — Altaris ist da. Liste überfahren: der Moment beginnt. Klicken: Ton und Aufmerksamkeit gehören Ihnen.",
+      cta: "alle szenen öffnen",
+      livePreview: "live-vorschau",
+      keyboardHint: "über tastatur navigierbar",
+      seeAll: "alle ansehen",
+      chapter: "xvi kapitel",
+      list: [
+        { num: "I",    title: "Morgen der Geschäftsleitung", line: "Der Kaffee war noch nicht leer. Das Briefing schon — alles aus der letzten Nacht in zwölf Zeilen.", meta: ["06:14", "İstanbul", "briefing"],   tag: "briefing" },
+        { num: "II",   title: "Nächtliche Krise",            line: "Als das System fiel, schlief das Unternehmen nicht. Ausgelöst, eingedämmt, gemeldet.",              meta: ["02:47", "Berlin", "incident"],     tag: "incident" },
+        { num: "III",  title: "Boardroom",                   line: "Elf Folien. Jede einzelne haltbar — jede Zahl bis zur Quelle nachvollziehbar.",                    meta: ["09:00", "vorstand", "entscheidung"], tag: "decision" },
+        { num: "IV",   title: "Erster Tag",                  line: "Die neue Kraft fand die Antwort, bevor sie fragte. Richtlinie, Prozess, Historie — in einem Chat.", meta: ["08:30", "onboarding", "HR"],       tag: "HR" },
+        { num: "V",    title: "Zehn Minuten Vorher",          line: "Der letzte Zweifel vor einer Präsentation. Gefragt, in drei Absätzen beantwortet.",                meta: ["13:50", "präsentation", "vorbereitung"], tag: "prep" },
+        { num: "VI",   title: "Vor der Unterschrift",         line: "Artikel siebenundvierzig sprach leise. Die riskante Klausel, Seite an Seite mit Vergleichbarem.",  meta: ["16:22", "recht", "vertrag"],       tag: "contract" },
+        { num: "VII",  title: "Stiller Abgang",               line: "Eine Mitarbeiterin ging. Zugriff in vierzehn Systemen geschlossen, Zertifikate widerrufen — als die Tür zufiel.", meta: ["18:04", "offboarding", "sicherheit"], tag: "security" },
+        { num: "VIII", title: "Q4-Ziel",                      line: "Die Zahl stimmte nicht. Drei Gründe wurden sichtbar; zwei waren behebbar — und welche, benannt.", meta: ["Q4", "CFO", "finanzen"],           tag: "finance" },
+        { num: "IX",   title: "Investitionsentscheidung",     line: "Vier Szenarien, zwei Zeithorizonte, eine Entscheidung. Cashflow, Vertragslast, Churn — nebeneinander.", meta: ["what-if", "strategie", "sim"],     tag: "simulation" },
+        { num: "X",    title: "Audit-Bereit",                 line: "Als der Prüfer kam, war der Ordner bereit. Logs, Aufbewahrung, RBAC — bereits abgelegt.",          meta: ["audit", "ISO 27001", "compliance"],tag: "compliance" },
+        { num: "XI",   title: "Grüne Grenze",                 line: "Der Nachhaltigkeitsbericht schrieb sich selbst — Zahlen drin, Quellen in den Fußnoten.",          meta: ["ESG", "nachhaltigkeit", "bericht"],tag: "ESG" },
+        { num: "XII",  title: "Abendschicht",                 line: "Dritter Patient an der Notaufnahme. Vorgeschichte, Allergien, Wechselwirkungen — auf einen Blick.", meta: ["19:42", "notaufnahme", "klinisch"],tag: "health" },
+        { num: "XIII", title: "Linie Steht",                  line: "OEE auf 72% gefallen. Ursache in neunzig Sekunden — Schicht, Charge, Temperatur.",                meta: ["OEE", "fabrik", "ursache"],        tag: "manufacturing" },
+        { num: "XIV",  title: "Vierundzwanzig Stunden",       line: "Dreitausend Seiten Aussagen. Rechtsprechung, Präzedenz, Risiko — bis zum Morgen aktenkundig.",     meta: ["prozess", "rechtsprechung", "risiko"], tag: "legal" },
+        { num: "XV",   title: "Ausschuss-Morgen",             line: "KYC vollständig, AML sauber. Risikoscore und Entscheidung — bis halb neun.",                      meta: ["KYC", "AML", "kredit"],            tag: "banking" },
+        { num: "XVI",  title: "Container-Verspätung",          line: "Ladung wartet in Hamburg. ETA neu berechnet, zwei Kunden informiert — bevor die E-Mail eintraf.", meta: ["ETA", "fracht", "anomalie"],       tag: "logistics" },
+      ],
+      pageTitleA: "Sechzehn Momente — in denen Entscheidungen ",
+      pageTitleGrad: "nicht warten können",
+      pageTitleC: ".",
+      pageLede:
+        "Zwischen sechs Uhr morgens und zwei Uhr nachts, zwischen Briefing und Verhandlung, zwischen Werkhalle und Kreditausschuss — Altaris ist da. Über die Liste fahren: der Moment erscheint rechts. Klicken: Ton und Aufmerksamkeit gehören Ihnen.",
+      sectionHead: "sechzehn szenen",
+      nowPlaying: "läuft jetzt",
+      watch: "ansehen",
+      playing: "▸ läuft",
+      fallbackPause: "abspielen / pause",
+      keyNav: "navigieren",
+      keyPlay: "abspielen",
+      keySound: "ton",
+      keyFs: "vollbild",
+      fullscreen: "Vollbild",
+      backHome: "startseite",
+    },
+    start: {
+      head: "/ loslegen",
+      line1: "Bereit, ",
+      lineGrad: "agentische KI zu betreiben, ohne dass ein einziges Byte das Haus verlässt",
+      cta: " — sprechen wir über die Demo.",
+      requestDemo: "demo anfragen",
+    },
+    footer: {
+      edition: "v0.1.0-alpha",
+      copy: "© 2026 argus teknoloji · enterprise agentic ai",
+    },
+    langSwitch: { tr: "tr", en: "en", de: "de" },
   },
 };
 

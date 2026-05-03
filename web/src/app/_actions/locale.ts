@@ -9,7 +9,7 @@ const ONE_YEAR = 60 * 60 * 24 * 365;
 export async function setLocaleAction(formData: FormData): Promise<void> {
   const next = String(formData.get("locale") ?? "");
   const path = String(formData.get("path") ?? "/");
-  if (next !== "tr" && next !== "en") return;
+  if (next !== "tr" && next !== "en" && next !== "de") return;
 
   const c = await cookies();
   c.set(LOCALE_COOKIE, next as Locale, {
