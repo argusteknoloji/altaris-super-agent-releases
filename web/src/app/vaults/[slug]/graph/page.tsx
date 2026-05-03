@@ -47,27 +47,46 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
         if (!canvasNullable) return;
         const ctxNullable = canvasNullable.getContext("2d");
         if (!ctxNullable) { setError("Canvas 2D context alinamadi"); return; }
-        const canvas = canvasNullable;        // narrow non-null
+        const canvas = canvasNullable;
         const ctx = ctxNullable;
         const dpr = window.devicePixelRatio || 1;
-        const fit = () => {
-          const w = canvas.clientWidth, h = canvas.clientHeight;
-          if (w === 0 || h === 0) return;        // layout henuz settle olmadi — skip
-          canvas.width  = w * dpr;
-          canvas.height = h * dpr;
-          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        };
-        // ResizeObserver: parent flex layout ilk renderda 0 verebiliyor; observer
-        // gercek boyut gelince fit'i tekrar eder.
-        const ro = new ResizeObserver(() => fit());
-        ro.observe(canvas);
-        fit();
-        window.addEventListener("resize", fit);
 
-        // Build sim nodes — random initial positions
+        // Layout settle bekle — canvas non-zero size alana kadar rAF poll.
+        // Next.js client-side route transition'da parent flex container
+        // ilk birkaç frame için 0 boyut verebiliyor. Max 30 frame bekle (~500ms).
+        let waitFrames = 0;
+        let rect = canvas.getBoundingClientRect();
+        while ((rect.width === 0 || rect.height === 0) && waitFrames < 30) {
+          await new Promise<void>(r => requestAnimationFrame(() => r()));
+          if (cancelled) return;
+          rect = canvas.getBoundingClientRect();
+          waitFrames++;
+        }
+        if (rect.width === 0 || rect.height === 0) {
+          setError("Canvas boyutu alınamadı (layout 500ms içinde settle olmadı)");
+          return;
+        }
+
+        // Per-tick fit — getBoundingClientRect her zaman gerçek pixel boyut verir.
+        // Sadece boyut değişince canvas.width/height set edilir (DPR re-init).
+        let lastW = 0, lastH = 0;
+        const fit = () => {
+          const r = canvas.getBoundingClientRect();
+          const w = r.width, h = r.height;
+          if (w === 0 || h === 0) return;
+          if (w !== lastW || h !== lastH) {
+            canvas.width  = Math.round(w * dpr);
+            canvas.height = Math.round(h * dpr);
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            lastW = w; lastH = h;
+          }
+        };
+        fit();
+
+        // Build sim nodes — gerçek canvas boyutu ile merkezle
         const nodeMap = new Map<string, Sim>();
-        const cx = canvas.clientWidth / 2;
-        const cy = canvas.clientHeight / 2;
+        const cx = lastW / 2;
+        const cy = lastH / 2;
         for (const n of data.nodes) {
           nodeMap.set(n.id, {
             node: n, degree: 0,
@@ -118,6 +137,7 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
 
         function tick() {
           if (cancelled) return;
+          fit();   // her tick'te canvas size senkronize (resize, layout shift)
           const arr = Array.from(nodeMap.values());
           // Coulomb repulsion
           for (let i = 0; i < arr.length; i++) {
@@ -142,7 +162,7 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
             l.s.vx += fx; l.s.vy += fy;
             l.t.vx -= fx; l.t.vy -= fy;
           }
-          const cx2 = canvas.clientWidth / 2, cy2 = canvas.clientHeight / 2;
+          const cx2 = lastW / 2, cy2 = lastH / 2;
           for (const n of arr) {
             // Centering pull
             n.vx += (cx2 - n.x) * CENTER_K;
@@ -154,7 +174,7 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
 
           // Render
           ctx.fillStyle = "#0a0a0a";
-          ctx.fillRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+          ctx.fillRect(0, 0, lastW, lastH);
           ctx.strokeStyle = "rgba(148,163,184,0.18)";
           ctx.lineWidth = 1;
           for (const l of links) {
@@ -173,14 +193,6 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
           raf = requestAnimationFrame(tick);
         }
         raf = requestAnimationFrame(tick);
-
-        // cleanup — NOT effective: async IIFE'nin return'i useEffect tarafindan
-        // gormezden gelinir. Aslinda asagidaki outer return calisir. ResizeObserver
-        // cleanup'i icin window'a disconnect helper ekliyoruz.
-        (window as unknown as { __graphCleanup?: () => void }).__graphCleanup = () => {
-          ro.disconnect();
-          window.removeEventListener("resize", fit);
-        };
       } catch (e) {
         setError((e as Error).message);
       }
@@ -189,8 +201,6 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
     return () => {
       cancelled = true;
       cancelAnimationFrame(raf);
-      const cleanup = (window as unknown as { __graphCleanup?: () => void }).__graphCleanup;
-      if (cleanup) cleanup();
     };
   }, [slug]);
 
