@@ -70,7 +70,11 @@ public class ExecutiveJobWorker : BackgroundService
         // RLS'i bypass etmek için schema-owner role'üyle çalışıyoruz; init.sql
         // POLICY 'app.tenant_id' set'lemediğinde tüm satırları görür.
         // Worker hiç tenant context set etmediği için bu doğal.
-        var job = await db.ExecutiveJobs
+        // FromSqlRaw + UPDATE...RETURNING non-composable. EF Core'un
+        // FirstOrDefaultAsync/AsNoTracking gibi LINQ operatörleri compose
+        // saydığı için patlıyordu. ToListAsync terminal op olarak izinli;
+        // sonra in-memory FirstOrDefault.
+        var jobs = await db.ExecutiveJobs
             .FromSqlRaw(@"
                 UPDATE executive_jobs SET
                   status = 'running',
@@ -86,8 +90,8 @@ public class ExecutiveJobWorker : BackgroundService
                   LIMIT 1
                 )
                 RETURNING *", _workerId)
-            .AsNoTracking()
-            .FirstOrDefaultAsync(ct);
+            .ToListAsync(ct);
+        var job = jobs.FirstOrDefault();
 
         if (job is null) return false;
 

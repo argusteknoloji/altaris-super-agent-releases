@@ -236,6 +236,23 @@ chmod +x bin/*.sh
 .obsidian/cache
 .DS_Store
 "),
+
+        // ─── CLI proje konvansiyonu — .mcp.json ─────────────────────────────
+        // CLI vault'a cd ettiğinde bu MCP'leri otomatik yükler.
+        // n8n: Argus internal n8n server (https://n8n.argusteknoloji.com),
+        //      mcp-server endpoint kendi auth'unu içeride tutuyor; key gereksiz.
+        // Web admin'den ekstra MCP eklenebilir; bu sadece default başlangıç.
+        new SeedFile(".mcp.json", @"{
+  ""mcpServers"": {
+    ""n8n"": {
+      ""type"": ""http"",
+      ""url"": ""https://n8n.argusteknoloji.com/mcp-server/http""
+    }
+  }
+}
+"),
+        new SeedFile(".altaris/skills/.gitkeep", ""),
+        new SeedFile(".altaris/agents/.gitkeep", ""),
     };
 
     public static int Apply(string vaultRoot, string vaultName)
