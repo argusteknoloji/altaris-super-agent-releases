@@ -12,6 +12,7 @@ import { writeFile, mkdir, readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
+import { openBrowser } from "../utils/browser.js";
 
 // PKCE (RFC 7636) — required by altaris-cli realm client (S256).
 function makePkce(): { verifier: string; challenge: string } {
@@ -119,8 +120,14 @@ export async function altarisLogin(opts: { issuer?: string; clientId?: string; a
   }
   const device = await deviceRes.json() as DeviceCodeResponse;
 
-  process.stdout.write(`  → Tarayıcında aç: ${device.verification_uri_complete ?? device.verification_uri}\n`);
-  process.stdout.write(`  → Kod:           ${device.user_code}\n\n`);
+  const verifyUrl = device.verification_uri_complete ?? device.verification_uri;
+  process.stdout.write(`  → Tarayıcı açılıyor: ${verifyUrl}\n`);
+  process.stdout.write(`  → Kod:               ${device.user_code}\n\n`);
+  // Otomatik browser open — codex/claude connect ile aynı pattern
+  const opened = await openBrowser(verifyUrl);
+  if (!opened) {
+    process.stdout.write(`  ⚠ Tarayıcı otomatik açılmadı. Yukarıdaki URL'yi elle aç.\n`);
+  }
   process.stdout.write(`  ${device.expires_in} sn içinde tamamla. Bekleniyor…\n`);
 
   // 2. Poll token endpoint
