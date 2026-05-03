@@ -21,12 +21,38 @@ type Template = { slug: string; name: string; description: string; tools: string
 type Vault = { slug: string; name: string };
 type Provider = { id: string; provider: string; name: string; defaultModel: string | null; isDefault: boolean; enabled: boolean };
 
-const TOOL_LABELS: Record<string, string> = {
-  calc:      "🧮 Hesap makinesi",
-  code_exec: "💻 Kod çalıştırma (sandbox)",
-  sql:       "🗃 Yapılandırılmış sorgu",
-  chart:     "📊 Grafik üretme",
-};
+/**
+ * Provider başına bilinen model listesi. Kullanıcı text yazmak zorunda kalmasın.
+ * Gerekirse "özel model" için input alternatifi de eklenir; şimdilik dropdown.
+ * defaultModel her zaman listenin başında, sonra alternatifler.
+ */
+function modelsForProvider(providerKind: string, defaultModel: string | null | undefined): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (m: string | null | undefined) => {
+    if (m && !seen.has(m)) { seen.add(m); out.push(m); }
+  };
+  add(defaultModel);
+  switch (providerKind.toLowerCase()) {
+    case "anthropic":
+      add("claude-opus-4-7"); add("claude-sonnet-4-6"); add("claude-haiku-4-5");
+      break;
+    case "codex":
+      add("codexplan"); add("codexspark"); add("gpt-5.5"); add("gpt-5.3");
+      break;
+    case "openai":
+      add("gpt-5.5"); add("gpt-5.3"); add("gpt-4o"); add("o1"); add("o3-mini");
+      break;
+    case "lmstudio":
+      add("qwen/qwen3.6-27b"); add("qwen/qwen3.5-9b"); add("qwen/qwen3.6-35b-a3b");
+      add("nvidia/nemotron-3-nano-omni"); add("google/gemma-4-e4b");
+      break;
+    case "ollama":
+      add("qwen2.5:32b"); add("qwen2.5-coder:7b"); add("llama3.3:70b"); add("mistral-large");
+      break;
+  }
+  return out;
+}
 
 export default function AgentsPage() {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -47,7 +73,9 @@ export default function AgentsPage() {
         fetch("/api/proxy/providers", { cache: "no-store" }).then(r => r.ok ? r.json() : []),
       ]);
       setAgents(a); setTemplates(t); setVaults(v);
-      setProviders((p as Provider[]).filter(x => x.enabled));
+      // Backend zaten enabled filtreliyor (WHERE Enabled clause), `enabled` field
+      // response'da yok — frontend'de .filter koymadık ki tümü düşmesin.
+      setProviders(p as Provider[]);
     } catch (e) { setErr((e as Error).message); }
   }
   useEffect(() => { load(); }, []);
@@ -152,11 +180,6 @@ export default function AgentsPage() {
                 </div>
                 {a.description && <p className="mt-2 text-xs text-neutral-400">{a.description}</p>}
                 <div className="mt-3 flex flex-wrap gap-1 text-[10px]">
-                  {a.tools.map(t => (
-                    <span key={t} className="rounded bg-sky-500/15 px-2 py-0.5 text-sky-300">
-                      {TOOL_LABELS[t] ?? t}
-                    </span>
-                  ))}
                   {a.vaultFilter && a.vaultFilter.length > 0 ? (
                     <span className="rounded bg-purple-500/15 px-2 py-0.5 text-purple-300">📚 {a.vaultFilter.length} vault</span>
                   ) : (
@@ -197,10 +220,8 @@ function AgentEditor({ agent, vaults, providers, onClose, onSaved }: { agent: Ag
     description: agent?.description ?? "",
     systemPrompt: agent?.systemPrompt ?? "Sen yardımcı bir ajansın. Vault'taki belgelerden kaynaklı cevap ver.",
     model: agent?.model ?? "",
-    embeddingModel: agent?.embeddingModel ?? "",
     providerConfigId: agent?.providerConfigId ?? "",
     vaultFilter: agent?.vaultFilter ?? [],
-    tools: agent?.tools ?? [],
     scheduleCron: agent?.scheduleCron ?? "",
     schedulePrompt: agent?.schedulePrompt ?? "",
     enabled: agent?.enabled ?? true,
@@ -218,9 +239,10 @@ function AgentEditor({ agent, vaults, providers, onClose, onSaved }: { agent: Ag
         scheduleCron: form.scheduleCron || null,
         schedulePrompt: form.schedulePrompt || null,
         model: form.model || null,
-        embeddingModel: form.embeddingModel || null,
+        // embeddingModel + tools field'ları kaldırıldı (CLI subprocess pattern'inde gereksiz)
+        embeddingModel: null,
+        tools: [],
         providerConfigId: form.providerConfigId || null,
-        // PATCH için: provider seçimi temizlendiyse backend'e açık sinyal
         clearProvider: !isNew && form.providerConfigId === "",
       };
       const url = isNew
@@ -244,10 +266,6 @@ function AgentEditor({ agent, vaults, providers, onClose, onSaved }: { agent: Ag
         ? f.vaultFilter.filter(s => s !== slug)
         : [...f.vaultFilter, slug],
     }));
-  }
-
-  function toggleTool(t: string) {
-    setForm(f => ({ ...f, tools: f.tools.includes(t) ? f.tools.filter(x => x !== t) : [...f.tools, t] }));
   }
 
   return (
@@ -289,21 +307,30 @@ function AgentEditor({ agent, vaults, providers, onClose, onSaved }: { agent: Ag
             </select>
           </label>
           <label className="text-xs text-neutral-400">
-            <span className="block mb-1">Model override (opsiyonel — boşsa provider default)</span>
-            <input value={form.model} onChange={e => setForm({...form, model: e.target.value})}
-              placeholder="örn. claude-opus-4-7, gpt-5.5, qwen/qwen3.6-27b"
-              className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs font-mono" />
+            <span className="block mb-1">Model</span>
+            {(() => {
+              const sel = providers.find(p => p.id === form.providerConfigId);
+              const defaultModel = sel?.defaultModel ?? providers.find(p => p.isDefault)?.defaultModel;
+              const candidates = modelsForProvider(sel?.provider ?? providers.find(p => p.isDefault)?.provider ?? "", defaultModel);
+              return (
+                <select value={form.model} onChange={e => setForm({...form, model: e.target.value})}
+                  className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs font-mono">
+                  <option value="">— Provider default ({defaultModel ?? "—"}) —</option>
+                  {candidates.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              );
+            })()}
           </label>
-        </div>
-        <div>
-          <input placeholder="Embedding model override (opsiyonel)" value={form.embeddingModel} onChange={e => setForm({...form, embeddingModel: e.target.value})}
-            className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-xs font-mono" />
         </div>
 
         <div>
-          <label className="text-xs text-neutral-400">Vault filtresi (boş = tüm exec+tenant vault)</label>
+          <label className="text-xs text-neutral-400">Vault'lar (proje ortamı)</label>
+          <p className="mb-1 text-[10px] text-neutral-500">
+            Boş bırakırsan executive + tenant visibility'li tüm vault'lar erişilebilir. Birden fazla seçebilirsin —
+            ilk seçilen ajanın çalışma dizini olur (CLI oraya cd eder).
+          </p>
           <div className="mt-1 flex max-h-32 flex-wrap gap-1 overflow-y-auto rounded border border-neutral-800 bg-neutral-900/50 p-2">
-            {vaults.length === 0 && <span className="text-[10px] text-neutral-500">Vault yok</span>}
+            {vaults.length === 0 && <span className="text-[10px] text-neutral-500">Vault yok — admin panelinden ekle</span>}
             {vaults.map(v => (
               <button key={v.slug} type="button" onClick={() => toggleVault(v.slug)}
                 className={
@@ -312,29 +339,16 @@ function AgentEditor({ agent, vaults, providers, onClose, onSaved }: { agent: Ag
                     ? "bg-purple-500/30 text-purple-200"
                     : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700")
                 }>
-                {v.slug}
+                📂 {v.name ?? v.slug}
               </button>
             ))}
           </div>
         </div>
 
-        <div>
-          <label className="text-xs text-neutral-400">Tool'lar</label>
-          <div className="mt-1 flex flex-wrap gap-2">
-            {Object.entries(TOOL_LABELS).map(([k, label]) => (
-              <button key={k} type="button" onClick={() => toggleTool(k)}
-                className={
-                  "rounded px-3 py-1 text-xs " +
-                  (form.tools.includes(k)
-                    ? "bg-sky-500/25 text-sky-200"
-                    : "bg-neutral-800 text-neutral-400 hover:bg-neutral-700")
-                }>
-                {label}
-              </button>
-            ))}
-          </div>
-          <p className="mt-1 text-[10px] text-neutral-500">Tool'lar EB-3.5'de tam destek alacak; şu an UI placeholder.</p>
-        </div>
+        {/* Tool'lar UI'dan kaldırıldı — Worker artık CLI subprocess kullanıyor.
+            CLI vault'taki .altaris/agents, skill'ler, MCP'ler, plugin'leri otomatik
+            yükler. Tool seçimi vault'un kendi config'inden gelmeli (sonra
+            vault detay sayfasında MCP/skill editor). */}
 
         <div className="space-y-2">
           <label className="block text-xs font-semibold text-neutral-400">Zamanlama</label>

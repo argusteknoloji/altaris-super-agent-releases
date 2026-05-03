@@ -40,7 +40,7 @@ export default function ExecutiveBrainPage() {
       .then((list: Agent[]) => setAgents(list.filter(a => a.enabled)));
     fetch("/api/proxy/providers", { cache: "no-store" })
       .then(r => r.ok ? r.json() : [])
-      .then((list: Provider[]) => setProviders(list.filter(p => p.enabled)));
+      .then((list: Provider[]) => setProviders(list));   // backend zaten enabled filtreliyor
   }, []);
 
   useEffect(() => {
