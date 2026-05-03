@@ -109,8 +109,38 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo '${{ steps.meta.outputs.tags }}' >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Deploy:" >> $GITHUB_STEP_SUMMARY
-          echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "bash scripts/deploy-prod.sh --pull" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  # Build başarılı + main push ise prod sunucuya SSH ile pull + restart.
+  # Manuel workflow_dispatch'te de çalışır (acil deploy için).
+  deploy:
+    name: Deploy to prod
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH pull + atomic restart
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host:     ${{ secrets.PROD_SSH_HOST }}
+          port:     ${{ secrets.PROD_SSH_PORT }}
+          username: ${{ secrets.PROD_SSH_USER }}
+          password: ${{ secrets.PROD_SSH_PASSWORD }}
+          script_stop: true
+          script: |
+            set -e
+            cd /opt/altaris/infra
+            echo "→ ghcr.io'dan latest image'ları çekiyor…"
+            docker compose -f docker-compose.prod.yml --env-file .env.production pull web api
+            echo "→ Container'ları yeni image ile restart…"
+            docker compose -f docker-compose.prod.yml --env-file .env.production up -d --no-build web api
+            sleep 4
+            echo "→ Health:"
+            docker compose -f docker-compose.prod.yml --env-file .env.production ps web api
+
+      - name: Smoke test
+        run: |
+          for url in https://altarisplatform.com https://api.altarisplatform.com/health/live; do
+            code=$(curl -sk -o /dev/null -w "%{http_code}" --max-time 10 "$url")
+            echo "  HTTP $code  →  $url"
+            if [[ "$code" != "200" ]]; then exit 1; fi
+          done
