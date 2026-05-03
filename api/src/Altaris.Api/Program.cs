@@ -214,12 +214,68 @@ try
     // Idempotent schema patches for columns added after the initial init.sql.
     // Postgres skips init.sql on subsequent container starts, so existing
     // databases need ALTER TABLE applied at API startup.
+    //
+    // ÖNEMLI: Tek ExecuteSqlRawAsync bloğunda bir statement fail ederse Postgres
+    // tüm transaction'ı abort eder ve sonraki statement'lar SKIP olur (vault
+    // status/file_count/byte_size kolonları bu yüzden prod'a düşmemişti). Her
+    // statement kendi başına çalıştırılıyor + try/catch + WARN log.
     using (var scope = app.Services.CreateScope())
     {
         var db = scope.ServiceProvider.GetRequiredService<AltarisDbContext>();
-        try
-        {
-            await db.Database.ExecuteSqlRawAsync(@"
+        var sqlBlock = @"
+                /* ─── 2026-05-03: yeni patch'ler — vault eksik kolonları ─── */
+                ALTER TABLE vaults ADD COLUMN IF NOT EXISTS status     TEXT    NOT NULL DEFAULT 'active';
+                ALTER TABLE vaults ADD COLUMN IF NOT EXISTS file_count INTEGER NOT NULL DEFAULT 0;
+                ALTER TABLE vaults ADD COLUMN IF NOT EXISTS byte_size  BIGINT  NOT NULL DEFAULT 0;
+
+                /* ─── webhooks (Sprint #77) ─── */
+                CREATE TABLE IF NOT EXISTS webhooks (
+                    id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                    tenant_id    UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                    slug         TEXT NOT NULL,
+                    name         TEXT NOT NULL,
+                    secret       TEXT NOT NULL,
+                    target_kind  TEXT NOT NULL CHECK (target_kind IN ('agent','terminal')),
+                    target_id    UUID,
+                    enabled      BOOLEAN NOT NULL DEFAULT true,
+                    last_fired_at TIMESTAMPTZ,
+                    fire_count   INTEGER NOT NULL DEFAULT 0,
+                    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    UNIQUE (tenant_id, slug)
+                );
+                CREATE INDEX IF NOT EXISTS webhooks_tenant_idx ON webhooks(tenant_id);
+                ALTER TABLE webhooks ENABLE ROW LEVEL SECURITY;
+                DROP POLICY IF EXISTS tenant_isolation_webhooks ON webhooks;
+                CREATE POLICY tenant_isolation_webhooks ON webhooks
+                    USING (tenant_id::text = current_setting('app.tenant_id', true));
+
+                CREATE TABLE IF NOT EXISTS webhook_invocations (
+                    id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                    webhook_id   UUID NOT NULL REFERENCES webhooks(id) ON DELETE CASCADE,
+                    tenant_id    UUID NOT NULL,
+                    payload      JSONB,
+                    status       TEXT NOT NULL,
+                    error_text   TEXT,
+                    job_id       UUID,
+                    received_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+                CREATE INDEX IF NOT EXISTS webhook_inv_webhook_idx ON webhook_invocations(webhook_id, received_at DESC);
+
+                /* ─── recovery codes (Sprint #80) ─── */
+                CREATE TABLE IF NOT EXISTS user_recovery_codes (
+                    id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                    user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    tenant_id    UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                    code_hash    TEXT NOT NULL,
+                    used_at      TIMESTAMPTZ,
+                    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+                CREATE INDEX IF NOT EXISTS user_rec_user_idx ON user_recovery_codes(user_id);
+
+                /* ─── tenant_settings 2fa flag ─── */
+                ALTER TABLE tenants ADD COLUMN IF NOT EXISTS require_2fa BOOLEAN NOT NULL DEFAULT false;
+
+                /* ─── eski patch'ler ─── */
                 ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS auth_kind                TEXT NOT NULL DEFAULT 'static';
                 ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS refresh_token_enc        TEXT;
                 ALTER TABLE provider_configs ADD COLUMN IF NOT EXISTS id_token_enc             TEXT;
@@ -344,12 +400,33 @@ try
                 DROP POLICY IF EXISTS tenant_isolation_user_caps ON user_capabilities;
                 CREATE POLICY tenant_isolation_user_caps ON user_capabilities
                     USING (tenant_id::text = current_setting('app.tenant_id', true));
-            ");
-        }
-        catch (Exception ex)
+            ";
+
+        // Statement'ları noktalı virgülle ayır + her birini kendi tx'inde çalıştır.
+        // Yorum satırlarını ve boşları atla. Postgres'te DDL TX-safe olduğundan
+        // tek tek çalıştırmak güvenli; bir fail ederse sonrakiler etkilenmiyor.
+        var statements = sqlBlock
+            .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(s => System.Text.RegularExpressions.Regex.Replace(s, @"/\*.*?\*/", "", System.Text.RegularExpressions.RegexOptions.Singleline).Trim())
+            .Where(s => s.Length > 0 && !s.StartsWith("--"))
+            .ToArray();
+
+        var ok = 0; var failed = 0;
+        foreach (var stmt in statements)
         {
-            Log.Warning(ex, "Schema patch failed (continuing — likely first-run before tables exist)");
+            try
+            {
+                await db.Database.ExecuteSqlRawAsync(stmt);
+                ok++;
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                var preview = stmt.Length > 80 ? stmt[..80] + "…" : stmt;
+                Log.Warning(ex, "Schema patch statement failed (continuing): {Sql}", preview);
+            }
         }
+        Log.Information("Schema patch: {Ok} ok / {Failed} failed", ok, failed);
     }
 
     app.UseForwardedHeaders();
