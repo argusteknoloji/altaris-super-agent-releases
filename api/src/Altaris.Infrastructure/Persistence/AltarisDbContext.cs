@@ -24,6 +24,7 @@ public class AltarisDbContext : DbContext
     public DbSet<DataSource> DataSources => Set<DataSource>();
     public DbSet<Webhook> Webhooks => Set<Webhook>();
     public DbSet<WebhookInvocation> WebhookInvocations => Set<WebhookInvocation>();
+    public DbSet<UserRecoveryCode> UserRecoveryCodes => Set<UserRecoveryCode>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -298,6 +299,18 @@ public class AltarisDbContext : DbContext
             e.Property(x => x.FireCount).HasColumnName("fire_count");
             e.Property(x => x.CreatedAt).HasColumnName("created_at");
             e.HasIndex(x => new { x.TenantId, x.Slug }).IsUnique();
+        });
+
+        modelBuilder.Entity<UserRecoveryCode>(e =>
+        {
+            e.ToTable("user_recovery_codes");
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.UserId).HasColumnName("user_id");
+            e.Property(x => x.TenantId).HasColumnName("tenant_id");
+            e.Property(x => x.CodeHash).HasColumnName("code_hash");
+            e.Property(x => x.UsedAt).HasColumnName("used_at");
+            e.Property(x => x.CreatedAt).HasColumnName("created_at");
+            e.HasIndex(x => x.UserId);
         });
 
         modelBuilder.Entity<WebhookInvocation>(e =>

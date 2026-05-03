@@ -126,6 +126,9 @@ export default function SecurityPage() {
         </p>
       </section>
 
+      {/* Recovery codes kartı */}
+      <RecoveryCodesCard totpEnabled={!!status?.enabled} />
+
       {/* Şifre kartı */}
       <section className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900/40 p-6">
         <h2 className="text-lg font-semibold">Şifre</h2>
@@ -149,5 +152,113 @@ export default function SecurityPage() {
         </a>
       </section>
     </main>
+  );
+}
+
+function RecoveryCodesCard({ totpEnabled }: { totpEnabled: boolean }) {
+  const [status, setStatus] = useState<{ unused: number; total: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [generated, setGenerated] = useState<string[] | null>(null);
+
+  async function loadStatus() {
+    try {
+      const r = await fetch("/api/proxy/me/recovery-codes/status", { cache: "no-store" });
+      if (r.ok) setStatus(await r.json());
+    } catch { /* ignore */ }
+  }
+  useEffect(() => { void loadStatus(); }, []);
+
+  async function generate() {
+    if (status && status.total > 0 && !confirm("Mevcut recovery codes geçersiz olacak ve yenileri üretilecek. Devam edilsin mi?")) return;
+    setBusy(true); setErr(null);
+    try {
+      const r = await fetch("/api/proxy/me/recovery-codes/generate", { method: "POST" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = await r.json();
+      setGenerated(j.codes);
+      void loadStatus();
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  function copyAll() {
+    if (generated) navigator.clipboard.writeText(generated.join("\n"));
+  }
+
+  function downloadTxt() {
+    if (!generated) return;
+    const blob = new Blob([
+      "Altaris Recovery Codes\n",
+      `Generated: ${new Date().toISOString()}\n`,
+      "Each code can be used only ONCE. Store offline (password manager).\n\n",
+      ...generated.map(c => c + "\n"),
+    ], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "altaris-recovery-codes.txt";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  return (
+    <section className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900/40 p-6">
+      <div className="flex items-start justify-between gap-6">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-lg font-semibold">Recovery codes</h2>
+          <p className="mt-2 text-sm text-neutral-400">
+            TOTP cihazını kaybedersen (telefon kırıldı, çalındı), bu kodlardan birini girerek
+            erişimi geri kazanabilirsin. Her kod <strong>tek kullanımlık</strong> — kullandığın
+            silinir. 10 kod üretilir; tükenince yenisini üretebilirsin (eskiler iptal olur).
+          </p>
+          {status && (
+            <p className="mt-3 text-xs">
+              <span className={status.unused > 0 ? "text-emerald-400" : "text-neutral-500"}>
+                {status.unused} / {status.total} kullanılabilir
+              </span>
+              {status.unused === 0 && status.total > 0 && (
+                <span className="ml-2 text-amber-400">⚠ Tüm kodlar tükendi — yenilerini üret</span>
+              )}
+              {status.total === 0 && totpEnabled && (
+                <span className="ml-2 text-amber-400">⚠ Henüz recovery code üretmedin</span>
+              )}
+            </p>
+          )}
+        </div>
+        <div className="shrink-0 rounded-md border border-neutral-800 bg-neutral-950 p-3 text-3xl">🔑</div>
+      </div>
+
+      {generated && (
+        <div className="mt-5 rounded border border-amber-600 bg-amber-950/30 p-4">
+          <div className="text-sm text-amber-200 font-medium mb-2">⚠ Bu kodlar sadece şimdi gösteriliyor — kaydet:</div>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 font-mono text-xs">
+            {generated.map(c => (
+              <code key={c} className="rounded bg-neutral-950 px-2 py-1.5 text-center text-amber-100">{c}</code>
+            ))}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button onClick={copyAll} className="rounded bg-neutral-800 hover:bg-neutral-700 px-3 py-1 text-xs">📋 Hepsini kopyala</button>
+            <button onClick={downloadTxt} className="rounded bg-neutral-800 hover:bg-neutral-700 px-3 py-1 text-xs">⬇ .txt indir</button>
+            <button onClick={() => setGenerated(null)} className="rounded bg-amber-700 hover:bg-amber-600 px-3 py-1 text-xs ml-auto">Kaydettim, kapat</button>
+          </div>
+        </div>
+      )}
+
+      <div className="mt-5 flex items-center gap-3">
+        <button
+          onClick={generate}
+          disabled={busy || !totpEnabled}
+          className="rounded-md bg-orange-500 px-5 py-2 text-sm font-medium text-white hover:bg-orange-600 disabled:opacity-40"
+          title={!totpEnabled ? "Önce 2FA'yı aktive et" : ""}
+        >
+          {busy ? "Üretiliyor…" : status && status.total > 0 ? "Yeni set üret (eski iptal olur)" : "10 recovery code üret"}
+        </button>
+        {!totpEnabled && (
+          <span className="text-xs text-neutral-500">Önce yukarıdan 2FA'yı kur</span>
+        )}
+      </div>
+
+      {err && <p className="mt-3 text-xs text-red-400">Hata: {err}</p>}
+    </section>
   );
 }
