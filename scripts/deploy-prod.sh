@@ -388,13 +388,42 @@ health_check() {
 # ═══════════════════════════════════════════════════════════════════════════
 # COMMAND DISPATCH
 # ═══════════════════════════════════════════════════════════════════════════
+# Sunucuda build yapmadan ghcr.io'dan pre-built image'ları çek + restart.
+# Bu mod GitHub Actions build-images.yml workflow'u çalıştıktan sonra kullanılır:
+#   .github/workflows/build-images.yml main push'da web + api image'larını
+#   ghcr.io'ya push eder, --pull burada onları indirip atomic swap yapar.
+# Avantaj: 2 GB droplet'a build yükü binmez, deploy 30 sn (5 dk yerine).
+pull_and_up() {
+  step "→ ghcr.io'dan latest image'ları çek + atomic restart"
+  ssh_remote bash -s <<'EOF'
+set -e
+cd /opt/altaris/infra
+# ghcr.io'ya login (GitHub Actions push'lar için ghcr token GITHUB_TOKEN scope=packages:write
+# ile çalışır; sunucu pull için sadece public veya kendi PAT'i ile login).
+# Public package ise login gerek yok; private ise GHCR_PULL_TOKEN env'i set edilmiş olmalı.
+if [[ -n "${GHCR_PULL_TOKEN:-}" ]]; then
+  echo "$GHCR_PULL_TOKEN" | docker login ghcr.io -u argusteknoloji --password-stdin >/dev/null
+fi
+docker compose -f docker-compose.prod.yml --env-file .env.production pull web api 2>&1 | tail -10
+docker compose -f docker-compose.prod.yml --env-file .env.production up -d --no-build web api 2>&1 | tail -5
+echo "—"
+docker compose -f docker-compose.prod.yml --env-file .env.production ps web api
+EOF
+  ok "Pull + restart tamam"
+}
+
 case "${1:-}" in
   --logs)
     preflight
     ssh_remote "cd $REMOTE_DIR/infra && docker compose -f docker-compose.prod.yml logs -f --tail=100"
     ;;
   --update)
+    # Eski mod: source rsync + sunucuda build (RAM ağır). Yeni deploy'larda --pull tercih et.
     preflight; test_ssh; sync_source; build_and_up; health_check
+    ;;
+  --pull)
+    # Yeni mod: GitHub Actions image'larını ghcr.io'dan pull + restart (build yok).
+    preflight; test_ssh; pull_and_up; health_check
     ;;
   --reseed-provider)
     preflight; test_ssh; seed_db
@@ -417,7 +446,7 @@ case "${1:-}" in
     health_check
     ;;
   *)
-    echo "Usage: $0 [--full|--update|--logs|--status|--reseed-provider]"
+    echo "Usage: $0 [--full|--update|--pull|--logs|--status|--reseed-provider]"
     exit 1
     ;;
 esac
