@@ -58,7 +58,7 @@ export function getWebFetchUserAgent(): string {
   const supportUrl =
     getAPIProvider() === 'firstParty'
       ? 'https://support.anthropic.com/'
-      : 'https://github.com/Gitlawb/altaris'
+      : 'https://github.com/argusteknoloji/altaris-super-agent-releases'
   return `Altaris-User (${getClaudeCodeUserAgent()}; +${supportUrl})`
 }
 

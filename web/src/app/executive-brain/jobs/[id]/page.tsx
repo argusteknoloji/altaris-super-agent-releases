@@ -2,7 +2,11 @@
 
 import { useEffect, useState, use } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { fmtDateTimeTR } from "@/lib/datetime";
+
+// xterm.js bundle ~80KB — client-only, lazy import
+const JobLiveTerminal = dynamic(() => import("./JobLiveTerminal"), { ssr: false });
 
 type Citation = { vault: string; path: string; chunkIndex: number; snippet: string; distance: number };
 type TraceStep = { step: string; ms: number; [k: string]: unknown };
@@ -20,6 +24,8 @@ type Job = {
   startedAt: string | null;
   completedAt: string | null;
   createdAt: string;
+  /** Live PTY preview session id — pending/running iken xterm.js viewer bağlanır */
+  remoteSessionId: string | null;
 };
 type ThreadJob = { id: string; question: string; status: string; createdAt: string };
 
@@ -96,6 +102,18 @@ export default function JobDetailPage({ params }: { params: Promise<{ id: string
       <p className="mt-2 text-xs text-neutral-500 font-mono">
         Job {job.id.slice(0, 8)} · Thread {job.threadId?.slice(0, 8) ?? "—"} · {fmtDateTimeTR(job.createdAt)}
       </p>
+
+      {/* Live PTY preview — running iken xterm.js ile CLI subprocess'in canlı stdout'u */}
+      {job.remoteSessionId && (job.status === "pending" || job.status === "running") && (
+        <section className="mt-6 rounded-lg border border-sky-500/30 bg-neutral-950 p-4">
+          <div className="mb-2 flex items-center gap-2 text-xs font-mono text-sky-400">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-sky-400" />
+            CANLI · CLI çalışıyor
+            <span className="ml-auto text-neutral-500">session {job.remoteSessionId.slice(0, 8)}</span>
+          </div>
+          <JobLiveTerminal sessionId={job.remoteSessionId} />
+        </section>
+      )}
 
       {/* Thread (multi-turn previous Q&A) */}
       {thread.length > 1 && (

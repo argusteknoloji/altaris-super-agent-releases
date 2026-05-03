@@ -25,6 +25,9 @@ public static class CliJobRunner
 
     /// <summary>
     ///   CLI'yi vault context'inde subprocess olarak çağırır, JSON çıktıyı parse eder.
+    ///   <paramref name="ptyMgr"/> + <paramref name="liveSessionId"/> verilirse
+    ///   process spawn edilir edilmez PtySessionManager'a register edilir, stdout
+    ///   chunk'ları paralel olarak broadcast edilir → frontend xterm.js viewer canlı izler.
     /// </summary>
     public static async Task<RunResult> RunAsync(
         string vaultPath,
@@ -33,7 +36,11 @@ public static class CliJobRunner
         ProviderConfig provider,
         string llmModel,
         TimeSpan timeout,
-        CancellationToken ct)
+        CancellationToken ct,
+        Altaris.Infrastructure.Pty.PtySessionManager? ptyMgr = null,
+        Guid? liveSessionId = null,
+        Guid? liveTenantId = null,
+        Guid? liveUserId = null)
     {
         if (!Directory.Exists(vaultPath))
             return new RunResult(false, "", $"vault path bulunamadı: {vaultPath}", "", 0);
@@ -117,14 +124,40 @@ public static class CliJobRunner
             using var proc = new Process { StartInfo = psi };
             var stdoutSb = new StringBuilder();
             var stderrSb = new StringBuilder();
-            proc.OutputDataReceived += (_, e) => { if (e.Data is not null) stdoutSb.AppendLine(e.Data); };
-            proc.ErrorDataReceived  += (_, e) => { if (e.Data is not null) stderrSb.AppendLine(e.Data); };
+            Altaris.Infrastructure.Pty.PtySession? ptySession = null;
+            // Stdout: collect for JSON parse + (eğer pty subscribers varsa) broadcast et
+            proc.OutputDataReceived += (_, e) =>
+            {
+                if (e.Data is null) return;
+                stdoutSb.AppendLine(e.Data);
+                if (ptySession is not null)
+                {
+                    // Fire-and-forget — ws subscribers yoksa sessizce no-op
+                    _ = ptySession.BroadcastAsync("out", e.Data + "\r\n", CancellationToken.None);
+                }
+            };
+            proc.ErrorDataReceived += (_, e) =>
+            {
+                if (e.Data is null) return;
+                stderrSb.AppendLine(e.Data);
+                if (ptySession is not null)
+                {
+                    _ = ptySession.BroadcastAsync("out", "[31m" + e.Data + "[0m\r\n", CancellationToken.None);
+                }
+            };
 
             try
             {
                 proc.Start();
                 proc.BeginOutputReadLine();
                 proc.BeginErrorReadLine();
+
+                // PTY register — process spawn olduktan sonra. Manager Process referansı tutar.
+                if (ptyMgr is not null && liveSessionId.HasValue && liveTenantId.HasValue && liveUserId.HasValue)
+                {
+                    try { ptySession = ptyMgr.Open(liveSessionId.Value, liveTenantId.Value, liveUserId.Value, proc); }
+                    catch { /* register fail — broadcast olmaz, job devam eder */ }
+                }
 
                 using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 timeoutCts.CancelAfter(timeout);
@@ -168,6 +201,8 @@ public static class CliJobRunner
         finally
         {
             try { Directory.Delete(sessionHome, recursive: true); } catch { /* best effort */ }
+            // PTY session'ı registry'den çıkar (subscriber ws connection'ları kapanır)
+            if (ptyMgr is not null && liveSessionId.HasValue) ptyMgr.Remove(liveSessionId.Value);
         }
     }
 

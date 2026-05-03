@@ -198,17 +198,57 @@ public class ExecutiveJobWorker : BackgroundService
         promptParts.Add("[Yeni soru]\n" + job.Question);
         var fullPrompt = string.Join("\n\n", promptParts);
 
-        // 4. CLI subprocess (asıl iş burada — MCP, plugin, skill, vault dosyaları)
+        // 4. Live PTY preview için AgentSession kaydı yarat — frontend bu ID'yle
+        //    /ws/pty/watch?session=... kanalına xterm.js ile bağlanır.
+        var ptyMgr = scope.ServiceProvider.GetService<Altaris.Infrastructure.Pty.PtySessionManager>();
+        var sessionId = Guid.NewGuid();
+        try
+        {
+            db.Sessions.Add(new AgentSession
+            {
+                Id = sessionId,
+                TenantId = job.TenantId,
+                UserId = job.UserId ?? Guid.Empty,
+                Source = "executive-brain-job",
+                Provider = prov.Provider,
+                Model = llmModel,
+                Title = $"Job {job.Id.ToString()[..8]} · {job.Question[..Math.Min(40, job.Question.Length)]}",
+                Status = "active",
+                StartedAt = DateTimeOffset.UtcNow,
+                Metadata = "{\"jobId\":\"" + job.Id + "\"}",
+            });
+            // RemoteSessionId'yi job'a yaz ki frontend hemen yakalayabilsin
+            await db.ExecutiveJobs.Where(j => j.Id == job.Id)
+                .ExecuteUpdateAsync(s => s.SetProperty(j => j.RemoteSessionId, sessionId), ct);
+            await db.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) { _log.LogWarning(ex, "Failed to create live preview session for job {JobId}", job.Id); }
+
+        // 5. CLI subprocess (asıl iş — runner içinde PtySession aç + broadcast)
         sw.Restart();
         var run = await Altaris.Api.Services.CliJobRunner.RunAsync(
-            vaultPath:    vaultPath,
-            altarisHome:  altarisHome,
-            prompt:       fullPrompt,
-            provider:     prov,
-            llmModel:     llmModel,
-            timeout:      TimeSpan.FromMinutes(5),
-            ct:           ct);
+            vaultPath:     vaultPath,
+            altarisHome:   altarisHome,
+            prompt:        fullPrompt,
+            provider:      prov,
+            llmModel:      llmModel,
+            timeout:       TimeSpan.FromMinutes(5),
+            ct:            ct,
+            ptyMgr:        ptyMgr,
+            liveSessionId: sessionId,
+            liveTenantId:  job.TenantId,
+            liveUserId:    job.UserId ?? Guid.Empty);
         trace.Add(new { step = "cli_run", ms = sw.ElapsedMilliseconds, success = run.Success, durationMs = run.DurationMs });
+
+        // Session'i completed olarak işaretle (live preview'i kapat)
+        try
+        {
+            await db.Sessions.Where(s => s.Id == sessionId)
+                .ExecuteUpdateAsync(s => s
+                    .SetProperty(x => x.Status, "completed")
+                    .SetProperty(x => x.EndedAt, (DateTimeOffset?)DateTimeOffset.UtcNow), ct);
+        }
+        catch { /* cleanup failure ok */ }
 
         if (!run.Success)
         {

@@ -147,7 +147,7 @@ export function MCPSettings(t0) {
         return;
       }
       if (servers.length === 0 && agentMcpServers.length === 0) {
-        onComplete("No MCP servers configured. Please run /doctor if this is unexpected. Otherwise, run `altaris mcp --help` or visit https://github.com/Gitlawb/altaris to learn more.");
+        onComplete("No MCP servers configured. Please run /doctor if this is unexpected. Otherwise, run `altaris mcp --help` or visit https://github.com/argusteknoloji/altaris-super-agent-releases to learn more.");
       }
     };
     t8 = [servers.length, filteredClients.length, agentMcpServers.length, onComplete];

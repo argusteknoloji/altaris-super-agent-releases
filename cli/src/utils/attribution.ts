@@ -75,7 +75,7 @@ export function getAttributionTexts(): AttributionTexts {
       ? getPublicModelName(model)
       : 'Altaris Opus 4.6'
   const defaultAttribution =
-    '🤖 Generated with [Altaris](https://github.com/Gitlawb/altaris)'
+    '🤖 Generated with [Altaris](https://github.com/argusteknoloji/altaris-super-agent-releases)'
   const coAuthorDomain =
     getAPIProvider() === 'firstParty' ? 'anthropic.com' : 'altaris.dev'
   const defaultCommit = isEnvTruthy(
@@ -331,7 +331,7 @@ export async function getEnhancedPRAttribution(
   }
 
   const defaultAttribution =
-    '🤖 Generated with [Altaris](https://github.com/Gitlawb/altaris)'
+    '🤖 Generated with [Altaris](https://github.com/argusteknoloji/altaris-super-agent-releases)'
 
   // Get AppState first
   const appState = getAppState()
@@ -377,7 +377,7 @@ export async function getEnhancedPRAttribution(
     memoryAccessCount > 0
       ? `, ${memoryAccessCount} ${memoryAccessCount === 1 ? 'memory' : 'memories'} recalled`
       : ''
-  const summary = `🤖 Generated with [Altaris](https://github.com/Gitlawb/altaris) (${claudePercent}% ${promptCount}-shotted by ${shortModelName}${memSuffix})`
+  const summary = `🤖 Generated with [Altaris](https://github.com/argusteknoloji/altaris-super-agent-releases) (${claudePercent}% ${promptCount}-shotted by ${shortModelName}${memSuffix})`
 
   // Append trailer lines for squash-merge survival. Only for allowlisted repos
   // (INTERNAL_MODEL_REPOS) and only in builds with COMMIT_ATTRIBUTION enabled —

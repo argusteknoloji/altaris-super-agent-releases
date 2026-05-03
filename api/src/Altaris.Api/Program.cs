@@ -229,6 +229,10 @@ try
                 ALTER TABLE vaults ADD COLUMN IF NOT EXISTS file_count INTEGER NOT NULL DEFAULT 0;
                 ALTER TABLE vaults ADD COLUMN IF NOT EXISTS byte_size  BIGINT  NOT NULL DEFAULT 0;
 
+                /* Job live PTY preview — running job CLI subprocess'i bir AgentSession
+                   altinda yayin yapiyor; frontend bu ID'yi xterm.js viewer'da kullanir */
+                ALTER TABLE executive_jobs ADD COLUMN IF NOT EXISTS remote_session_id UUID;
+
                 /* ─── vault_files (init.sql'den geri ekleme — eksikti) ─── */
                 CREATE EXTENSION IF NOT EXISTS pg_trgm;
                 CREATE TABLE IF NOT EXISTS vault_files (

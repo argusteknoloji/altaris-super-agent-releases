@@ -245,6 +245,7 @@ public class AltarisDbContext : DbContext
             e.Property(x => x.CreatedAt).HasColumnName("created_at");
             e.Property(x => x.ClaimedBy).HasColumnName("claimed_by");
             e.Property(x => x.ClaimedAt).HasColumnName("claimed_at");
+            e.Property(x => x.RemoteSessionId).HasColumnName("remote_session_id");
             e.HasIndex(x => new { x.TenantId, x.CreatedAt });
         });
 

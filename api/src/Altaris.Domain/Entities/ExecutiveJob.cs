@@ -33,4 +33,11 @@ public class ExecutiveJob
     public DateTimeOffset CreatedAt { get; set; }
     public string? ClaimedBy { get; set; }
     public DateTimeOffset? ClaimedAt { get; set; }
+    /// <summary>
+    ///   Live PTY session id — running job CLI subprocess'inin stdout'una bağlanan
+    ///   AgentSession.Id. Frontend bu ID ile /ws/pty/watch?session=... endpoint'inden
+    ///   canlı terminal preview izler (xterm.js). Job tamamlandıktan sonra
+    ///   session kapanır ama transcript session_messages tablosunda kalır.
+    /// </summary>
+    public Guid? RemoteSessionId { get; set; }
 }
