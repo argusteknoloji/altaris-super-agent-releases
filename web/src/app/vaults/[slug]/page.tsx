@@ -12,6 +12,16 @@ const MonacoEditor = dynamic(() => import("@monaco-editor/react").then(m => m.de
   loading: () => <div className="flex flex-1 items-center justify-center text-xs text-neutral-500">Editor yükleniyor…</div>
 });
 
+type McpEnvRow = { key: string; value: string };
+type McpFormState = {
+  name: string;
+  transport: "stdio" | "http";
+  command: string;
+  args: string;
+  url: string;
+  envs: McpEnvRow[];
+};
+
 /** Tek-pass markdown → HTML çevirici. Tam CommonMark değil; vault preview için yeterli. */
 function renderMarkdown(src: string): string {
   const esc = (s: string) => s
@@ -79,6 +89,7 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
   const [searchHits, setSearchHits] = useState<Array<{ path: string; snippet: string; lineHint: number }>>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [mcpModalOpen, setMcpModalOpen] = useState(false);
   const [showPreview, setShowPreview] = useState(true);
   const isMd = activePath?.toLowerCase().endsWith(".md") ?? false;
   const langOf = (path: string | null) => {
@@ -144,19 +155,52 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
    *   .altaris/agents/{name}.md          Sub-agent (frontmatter + body)
    *   ALTARIS.md veya CLAUDE.md          Proje instruction (root)
    */
-  async function quickCreateMcp() {
-    const exists = tree.some(t => t.path === ".mcp.json");
-    if (exists) { openFile(".mcp.json"); return; }
-    const tmpl = JSON.stringify({
-      mcpServers: {
-        "example-gmail": {
-          command: "npx",
-          args: ["-y", "@modelcontextprotocol/server-gmail"],
-          env: { GMAIL_CREDENTIALS_PATH: "~/.altaris/gmail.json" }
+  function quickCreateMcp() {
+    setMcpModalOpen(true);
+  }
+
+  /**
+   *  Visual MCP form sonucu mevcut .mcp.json'a server ekler (yoksa yaratır).
+   *  Stdio: command + args, HTTP: url. Env vars opsiyonel.
+   */
+  async function saveMcpServer(form: McpFormState) {
+    const existing = tree.some(t => t.path === ".mcp.json");
+    let parsed: { mcpServers: Record<string, unknown> } = { mcpServers: {} };
+    if (existing) {
+      try {
+        const r = await fetch(`/api/proxy/vaults/${slug}/file?path=${encodeURIComponent(".mcp.json")}`);
+        if (r.ok) {
+          const data = await r.json();
+          const cur = JSON.parse(data.content || "{}");
+          if (cur && typeof cur === "object" && cur.mcpServers) parsed = cur;
         }
-      }
-    }, null, 2);
-    await writeFile(".mcp.json", tmpl);
+      } catch { /* ignore — boş başla */ }
+    }
+    const slugName = form.name.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-");
+    if (!slugName) { setError("MCP server adı zorunlu"); return; }
+
+    const envObj: Record<string, string> = {};
+    for (const e of form.envs) {
+      if (e.key.trim() && e.value.trim()) envObj[e.key.trim()] = e.value.trim();
+    }
+
+    let serverDef: Record<string, unknown>;
+    if (form.transport === "http") {
+      if (!form.url.trim()) { setError("HTTP MCP için URL zorunlu"); return; }
+      serverDef = { type: "http", url: form.url.trim() };
+      if (Object.keys(envObj).length) (serverDef as { headers?: Record<string,string> }).headers = envObj;
+    } else {
+      if (!form.command.trim()) { setError("Stdio MCP için komut zorunlu"); return; }
+      const argsArr = form.args.split(/\s+/).filter(Boolean);
+      serverDef = { command: form.command.trim() };
+      if (argsArr.length) (serverDef as { args?: string[] }).args = argsArr;
+      if (Object.keys(envObj).length) (serverDef as { env?: Record<string,string> }).env = envObj;
+    }
+    parsed.mcpServers[slugName] = serverDef;
+
+    await writeFile(".mcp.json", JSON.stringify(parsed, null, 2));
+    setMcpModalOpen(false);
+    openFile(".mcp.json");
   }
 
   async function quickCreateSkill() {
@@ -364,6 +408,206 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
           )}
           {error && <p className="border-t border-neutral-800 bg-red-500/10 px-4 py-2 text-xs text-red-400">{error}</p>}
         </main>
+      </div>
+      {mcpModalOpen && (
+        <McpServerModal
+          onClose={() => setMcpModalOpen(false)}
+          onSave={saveMcpServer}
+          existingNames={(() => {
+            const f = tree.find(t => t.path === ".mcp.json");
+            return f ? null : []; // mevcut isim listesi save anında parse edilirken kontrol edilir
+          })() ?? []}
+        />
+      )}
+    </div>
+  );
+}
+
+function McpServerModal({
+  onClose,
+  onSave,
+  existingNames,
+}: {
+  onClose: () => void;
+  onSave: (form: McpFormState) => Promise<void> | void;
+  existingNames: string[];
+}) {
+  const [form, setForm] = useState<McpFormState>({
+    name: "",
+    transport: "stdio",
+    command: "",
+    args: "",
+    url: "",
+    envs: [{ key: "", value: "" }],
+  });
+  const [saving, setSaving] = useState(false);
+
+  function setEnv(i: number, patch: Partial<McpEnvRow>) {
+    setForm(f => ({ ...f, envs: f.envs.map((e, idx) => idx === i ? { ...e, ...patch } : e) }));
+  }
+  function addEnv() { setForm(f => ({ ...f, envs: [...f.envs, { key: "", value: "" }] })); }
+  function delEnv(i: number) { setForm(f => ({ ...f, envs: f.envs.filter((_, idx) => idx !== i) })); }
+
+  // Quick presets — kullanıcının bilmesi zor şeyleri 1-tıklama hazır hale getir
+  function applyPreset(p: "n8n" | "filesystem" | "fetch" | "github") {
+    if (p === "n8n") {
+      setForm(f => ({ ...f, name: "n8n", transport: "http", url: "https://n8n.argusteknoloji.com/mcp-server/http", envs: [{ key: "", value: "" }] }));
+    } else if (p === "filesystem") {
+      setForm(f => ({ ...f, name: "filesystem", transport: "stdio", command: "npx", args: "-y @modelcontextprotocol/server-filesystem /srv/altaris/vaults", envs: [{ key: "", value: "" }] }));
+    } else if (p === "fetch") {
+      setForm(f => ({ ...f, name: "fetch", transport: "stdio", command: "uvx", args: "mcp-server-fetch", envs: [{ key: "", value: "" }] }));
+    } else if (p === "github") {
+      setForm(f => ({ ...f, name: "github", transport: "stdio", command: "npx", args: "-y @modelcontextprotocol/server-github", envs: [{ key: "GITHUB_PERSONAL_ACCESS_TOKEN", value: "" }] }));
+    }
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    try { await onSave(form); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div
+        className="w-full max-w-2xl max-h-[92vh] overflow-y-auto rounded-lg border border-neutral-800 bg-neutral-950 p-6"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-semibold">📦 MCP Server ekle</h2>
+            <p className="text-xs text-neutral-500 mt-1">
+              Vault'taki <code className="bg-neutral-800 px-1 rounded">.mcp.json</code>'a server kaydı ekler.
+              CLI bu dizine cd edince otomatik yükler.
+            </p>
+          </div>
+          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-200 text-2xl leading-none">×</button>
+        </div>
+
+        {/* Presets */}
+        <div className="mb-4">
+          <div className="text-[11px] uppercase tracking-wider text-neutral-500 mb-2">Hazır şablon</div>
+          <div className="flex flex-wrap gap-2">
+            {[
+              { id: "n8n", label: "🔄 n8n (Argus)" },
+              { id: "filesystem", label: "📁 Filesystem" },
+              { id: "fetch", label: "🌐 Fetch (URL)" },
+              { id: "github", label: "🐙 GitHub" },
+            ].map(p => (
+              <button
+                key={p.id}
+                onClick={() => applyPreset(p.id as "n8n" | "filesystem" | "fetch" | "github")}
+                className="rounded border border-neutral-700 px-2 py-1 text-xs hover:bg-neutral-800"
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs text-neutral-400 mb-1">Server adı (slug)</label>
+            <input
+              value={form.name}
+              onChange={e => setForm({ ...form, name: e.target.value })}
+              placeholder="örn. n8n, slack, custom-tool"
+              className="w-full rounded bg-neutral-900 border border-neutral-700 px-3 py-2 text-sm font-mono"
+            />
+            {existingNames.includes(form.name.trim()) && (
+              <p className="mt-1 text-[11px] text-amber-400">⚠ Bu isim zaten var — üzerine yazılacak</p>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-xs text-neutral-400 mb-1">Transport</label>
+            <div className="flex gap-2">
+              {(["stdio", "http"] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setForm({ ...form, transport: t })}
+                  className={`rounded border px-3 py-1.5 text-xs ${
+                    form.transport === t
+                      ? "border-orange-500 bg-orange-500/15 text-orange-200"
+                      : "border-neutral-700 hover:bg-neutral-800"
+                  }`}
+                >
+                  {t === "stdio" ? "stdio (komut)" : "http (URL)"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {form.transport === "stdio" ? (
+            <>
+              <div>
+                <label className="block text-xs text-neutral-400 mb-1">Komut</label>
+                <input
+                  value={form.command}
+                  onChange={e => setForm({ ...form, command: e.target.value })}
+                  placeholder="npx, uvx, python, node, /path/to/binary"
+                  className="w-full rounded bg-neutral-900 border border-neutral-700 px-3 py-2 text-sm font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-neutral-400 mb-1">Argümanlar (boşlukla ayır)</label>
+                <input
+                  value={form.args}
+                  onChange={e => setForm({ ...form, args: e.target.value })}
+                  placeholder="-y @modelcontextprotocol/server-filesystem /path"
+                  className="w-full rounded bg-neutral-900 border border-neutral-700 px-3 py-2 text-sm font-mono"
+                />
+              </div>
+            </>
+          ) : (
+            <div>
+              <label className="block text-xs text-neutral-400 mb-1">URL</label>
+              <input
+                value={form.url}
+                onChange={e => setForm({ ...form, url: e.target.value })}
+                placeholder="https://example.com/mcp-server/http"
+                className="w-full rounded bg-neutral-900 border border-neutral-700 px-3 py-2 text-sm font-mono"
+              />
+            </div>
+          )}
+
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs text-neutral-400">
+                {form.transport === "http" ? "HTTP Headers" : "Environment variables"} (opsiyonel)
+              </label>
+              <button onClick={addEnv} className="text-xs text-orange-400 hover:text-orange-300">+ ekle</button>
+            </div>
+            {form.envs.map((e, i) => (
+              <div key={i} className="flex gap-2 mb-1.5">
+                <input
+                  value={e.key}
+                  onChange={ev => setEnv(i, { key: ev.target.value })}
+                  placeholder="KEY"
+                  className="w-1/3 rounded bg-neutral-900 border border-neutral-700 px-2 py-1.5 text-xs font-mono"
+                />
+                <input
+                  value={e.value}
+                  onChange={ev => setEnv(i, { value: ev.target.value })}
+                  placeholder="value (secret/url/path)"
+                  className="flex-1 rounded bg-neutral-900 border border-neutral-700 px-2 py-1.5 text-xs font-mono"
+                />
+                <button onClick={() => delEnv(i)} className="text-neutral-600 hover:text-red-400 px-1">×</button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-6 flex gap-2 justify-end">
+          <button onClick={onClose} className="rounded border border-neutral-700 px-4 py-2 text-xs hover:bg-neutral-800">İptal</button>
+          <button
+            onClick={handleSave}
+            disabled={saving || !form.name.trim()}
+            className="rounded bg-orange-500 hover:bg-orange-400 px-4 py-2 text-xs font-medium text-neutral-950 disabled:opacity-50"
+          >
+            {saving ? "Kaydediliyor…" : ".mcp.json'a ekle"}
+          </button>
+        </div>
       </div>
     </div>
   );
