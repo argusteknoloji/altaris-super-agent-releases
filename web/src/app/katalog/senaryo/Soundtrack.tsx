@@ -49,152 +49,140 @@ function scheduleSoundtrack(
   ctx: AudioContext,
   recordDest: MediaStreamAudioDestinationNode | null,
 ) {
+  // ──────────────────────────────────────────────────────────────────
+  // CINEMATIC AMBIENT — Apple / Tesla keynote tarzı
+  //
+  // Üç katman:
+  //   1) Heartbeat sub-kick'ler — yumuşak ritim, 1.7s aralıklarla, tempo
+  //      sahne 4 (cevap)'a doğru hızlanır, sahne 6'da yavaşlayıp resolve.
+  //   2) Air pad — D3 + A3 saf sinüs, çok düşük gain, yavaş LFO ile nefes.
+  //      "Var ama dikkat çekmeyen" arka kat.
+  //   3) Tension sweep — sahne 3 → 4 geçişinde bandpass-filtered noise,
+  //      "the answer is coming" hissi. Resolve'da theme motif ile biter.
+  // ──────────────────────────────────────────────────────────────────
   const t0 = ctx.currentTime;
   const master = gain(ctx, 0);
   master.connect(ctx.destination);
   if (recordDest) master.connect(recordDest);
   master.gain.setValueAtTime(0, t0);
-  master.gain.linearRampToValueAtTime(0.55, t0 + 0.8);
+  master.gain.linearRampToValueAtTime(0.5, t0 + 0.5);
+  master.gain.setValueAtTime(0.5, t0 + 21);
+  master.gain.linearRampToValueAtTime(0, t0 + 22);
 
-  // ── Temiz pad — saf sinüsler · perfect intervaller · oktav yukarı ──
-  // Önceki sawtooth/triangle + 73Hz fundamental "parazit/buzz" yapıyordu;
-  // sinüs dalga + D3 (147Hz) tabanı ile berrak ambient pad.
-  const padBus = gain(ctx, 1);
-  padBus.connect(master);
-  [
-    { freq: D_FREQ * 2,  peak: 0.045 }, // D3 (kök)
-    { freq: A_FREQ * 2,  peak: 0.028 }, // A3 (5'li)
-    { freq: D_FREQ * 4,  peak: 0.020 }, // D4 (oktav)
-    { freq: A_FREQ * 4,  peak: 0.012 }, // A4 (üst hava)
-  ].forEach(({ freq, peak }) => {
-    const o = osc(ctx, freq, "sine");
+  // ── 1) HEARTBEAT — 808-tarzı pitch-modulated sub kick ────────────
+  // 130Hz → 50Hz (0.12s'de) + hızlı decay → "thump" hissi.
+  // Tüm cihazlarda duyulur (laptop hoparlörü dahil), rahatsız etmez.
+  const heartbeat = (atSec: number, peak = 0.22) => {
+    const at = t0 + atSec;
+    const o = osc(ctx, 130, "sine");
     const g = gain(ctx, 0);
-    o.connect(g).connect(padBus);
-    g.gain.setValueAtTime(0, t0);
-    g.gain.linearRampToValueAtTime(peak,        t0 + 1.4);
-    g.gain.linearRampToValueAtTime(peak * 0.75, t0 + 9);
-    g.gain.linearRampToValueAtTime(peak * 0.55, t0 + 15);
-    g.gain.linearRampToValueAtTime(peak,        t0 + 18);
-    g.gain.linearRampToValueAtTime(0,           t0 + 21.6);
+    o.connect(g).connect(master);
+    o.frequency.setValueAtTime(130, at);
+    o.frequency.exponentialRampToValueAtTime(50, at + 0.12);
+    g.gain.setValueAtTime(0, at);
+    g.gain.linearRampToValueAtTime(peak, at + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.32);
+    o.start(at);
+    o.stop(at + 0.35);
+  };
+
+  // Heartbeat zamanlaması — yavaş başlar, build, accent, resolve
+  const heartTimes: Array<[number, number]> = [
+    // [time, gain]  -- yavaş kalp atışı
+    [0.6,  0.18], [2.4,  0.18],                       // sahne 1 (sakin)
+    [3.6,  0.20], [5.4,  0.20],                       // sahne 2 (soru — biraz daha tetikte)
+    [6.6,  0.22], [7.8,  0.22],                       // sahne 3 (typing — tension build)
+    [9.0,  0.32],                                      // sahne 4 girişi — VURGU (cevap!)
+    [10.2, 0.20], [11.5, 0.20], [13.0, 0.20],         // sahne 4 (kart pop'larıyla senkron)
+    [15.2, 0.26], [16.4, 0.20],                       // sahne 5 (reveal)
+    [17.8, 0.32],                                      // sahne 6 girişi — VURGU (resolve!)
+    [20.5, 0.16],                                      // sahne 6 son (yumuşayan)
+  ];
+  heartTimes.forEach(([t, g]) => heartbeat(t, g));
+
+  // ── 2) AIR PAD — D3 + A3 saf sinüs, LFO ile nefes ────────────────
+  const padG = gain(ctx, 0);
+  padG.connect(master);
+  [146.83, 220.00, 293.66].forEach((freq) => { // D3 · A3 · D4
+    const o = osc(ctx, freq, "sine");
+    o.connect(padG);
     o.start(t0);
     o.stop(t0 + 22);
   });
+  padG.gain.setValueAtTime(0, t0);
+  padG.gain.linearRampToValueAtTime(0.022, t0 + 2);     // sahneye yumuşak gir
+  padG.gain.linearRampToValueAtTime(0.016, t0 + 9);     // cevap zamanı geri çekil
+  padG.gain.linearRampToValueAtTime(0.012, t0 + 13);    // risk kartlarına yer ver
+  padG.gain.linearRampToValueAtTime(0.024, t0 + 17);    // resolve'a build
+  padG.gain.linearRampToValueAtTime(0.018, t0 + 20);
+  padG.gain.linearRampToValueAtTime(0, t0 + 21.8);
 
-  // Sahne 2 — soru tick'leri
-  [3.0, 3.6, 4.4, 5.4].forEach((t) => {
-    const o = osc(ctx, 880, "sine");
-    const g = gain(ctx, 0);
-    o.connect(g).connect(master);
-    const at = t0 + t;
-    g.gain.setValueAtTime(0, at);
-    g.gain.linearRampToValueAtTime(0.08, at + 0.02);
-    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.6);
-    o.start(at);
-    o.stop(at + 0.7);
-  });
+  // LFO — pad'e yavaş "breath" hareketi
+  const lfo = osc(ctx, 0.18, "sine");
+  const lfoAmp = gain(ctx, 0.006);
+  lfo.connect(lfoAmp).connect(padG.gain);
+  lfo.start(t0);
+  lfo.stop(t0 + 22);
 
-  // Sahne 3 — typing tick'leri
-  for (let i = 0; i < 18; i++) {
-    const at = t0 + 6.6 + i * 0.085;
-    const o = osc(ctx, 1400 + Math.random() * 600, "square");
-    const g = gain(ctx, 0);
-    o.connect(g).connect(master);
-    g.gain.setValueAtTime(0, at);
-    g.gain.linearRampToValueAtTime(0.018, at + 0.005);
-    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.05);
-    o.start(at);
-    o.stop(at + 0.06);
-  }
+  // ── 3) TENSION SWEEP — sahne 3→4 geçişi (7s–9s) ──────────────────
+  // White noise → bandpass filter, frekans 200Hz'den 1800Hz'e tarama.
+  // "Cevap geliyor" hissi. Yarım saniyelik bir "rush".
+  const noiseBuffer = ctx.createBuffer(1, ctx.sampleRate * 2.5, ctx.sampleRate);
+  const noiseData = noiseBuffer.getChannelData(0);
+  for (let i = 0; i < noiseData.length; i++) noiseData[i] = Math.random() * 2 - 1;
+  const noiseSrc = ctx.createBufferSource();
+  noiseSrc.buffer = noiseBuffer;
+  const sweepFilter = ctx.createBiquadFilter();
+  sweepFilter.type = "bandpass";
+  sweepFilter.Q.value = 3;
+  sweepFilter.frequency.setValueAtTime(200, t0 + 7);
+  sweepFilter.frequency.exponentialRampToValueAtTime(1800, t0 + 9.0);
+  const sweepG = gain(ctx, 0);
+  noiseSrc.connect(sweepFilter).connect(sweepG).connect(master);
+  sweepG.gain.setValueAtTime(0, t0 + 7);
+  sweepG.gain.linearRampToValueAtTime(0.08, t0 + 8);
+  sweepG.gain.linearRampToValueAtTime(0.0001, t0 + 9.2);
+  noiseSrc.start(t0 + 7);
+  noiseSrc.stop(t0 + 9.3);
 
-  // Brain pulse boom
-  const brainAt = t0 + 8.3;
-  const brainOsc = osc(ctx, D_FREQ / 2, "sine");
-  const brainG = gain(ctx, 0);
-  brainOsc.connect(brainG).connect(master);
-  brainG.gain.setValueAtTime(0, brainAt);
-  brainG.gain.linearRampToValueAtTime(0.4, brainAt + 0.05);
-  brainG.gain.exponentialRampToValueAtTime(0.0001, brainAt + 1.4);
-  brainOsc.start(brainAt);
-  brainOsc.stop(brainAt + 1.5);
-
-  // Sahne 4 — risk pop'ları
-  [9.5, 11.0, 12.5].forEach((t, i) => {
-    const at = t0 + t;
-    const baseFreq = [HIGH_C, HIGH_E, HIGH_G][i];
-    const o = osc(ctx, baseFreq, "triangle");
-    const o2 = osc(ctx, baseFreq * 2, "sine");
+  // ── 4) Sahne accent'leri — yumuşak bell hits ─────────────────────
+  const bell = (atSec: number, freq: number, peak: number, decay: number) => {
+    const at = t0 + atSec;
+    const o = osc(ctx, freq, "sine");
+    const o2 = osc(ctx, freq * 2, "sine");
+    const o2g = gain(ctx, 0.3);
     const g = gain(ctx, 0);
     o.connect(g);
-    o2.connect(g);
+    o2.connect(o2g).connect(g);
     g.connect(master);
     g.gain.setValueAtTime(0, at);
-    g.gain.linearRampToValueAtTime(0.12, at + 0.03);
-    g.gain.exponentialRampToValueAtTime(0.0001, at + 1.2);
+    g.gain.linearRampToValueAtTime(peak, at + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, at + decay);
     o.start(at);
     o2.start(at);
-    o.stop(at + 1.3);
-    o2.stop(at + 1.3);
-  });
-
-  // Sahne 5 — yükselen reveal arpej
-  const arpegio = [HIGH_C, HIGH_E, HIGH_G, HIGH_C * 2];
-  arpegio.forEach((freq, i) => {
-    const at = t0 + 15.4 + i * 0.18;
-    const o = osc(ctx, freq, "sine");
-    const g = gain(ctx, 0);
-    o.connect(g).connect(master);
-    g.gain.setValueAtTime(0, at);
-    g.gain.linearRampToValueAtTime(0.1, at + 0.03);
-    g.gain.exponentialRampToValueAtTime(0.0001, at + 0.7);
-    o.start(at);
-    o.stop(at + 0.75);
-  });
-
-  // ── ALTARIS theme motif (D-major pentatonic ascending) ──────────
-  const themeNotes = [293.66, 369.99, 440.0, 587.33];
-  const playTheme = (
-    startAt: number,
-    peakGain: number,
-    voice: OscillatorType = "triangle",
-  ) => {
-    themeNotes.forEach((freq, i) => {
-      const at = startAt + i * 0.22;
-      const o = osc(ctx, freq, voice);
-      const o2 = osc(ctx, freq * 2, "sine");
-      const g = gain(ctx, 0);
-      o.connect(g);
-      o2.connect(g);
-      g.connect(master);
-      g.gain.setValueAtTime(0, at);
-      g.gain.linearRampToValueAtTime(peakGain, at + 0.04);
-      g.gain.exponentialRampToValueAtTime(0.0001, at + 0.85);
-      o.start(at);
-      o2.start(at);
-      o.stop(at + 0.9);
-      o2.stop(at + 0.9);
-    });
+    o.stop(at + decay + 0.05);
+    o2.stop(at + decay + 0.05);
   };
-  playTheme(t0 + 0.4, 0.04, "sine");
-  playTheme(t0 + 18.1, 0.13, "triangle");
 
-  // Sahne 6 — warm chord pad
-  const resolveAt = t0 + 18;
-  const chord = [D_FREQ * 2, F_FREQ * 2 + 12, A_FREQ * 2];
-  chord.forEach((freq) => {
-    const o = osc(ctx, freq, "sine");
-    const g = gain(ctx, 0);
-    o.connect(g).connect(master);
-    g.gain.setValueAtTime(0, resolveAt);
-    g.gain.linearRampToValueAtTime(0.05, resolveAt + 0.5);
-    g.gain.linearRampToValueAtTime(0.04, resolveAt + 3);
-    g.gain.exponentialRampToValueAtTime(0.0001, resolveAt + 4);
-    o.start(resolveAt);
-    o.stop(resolveAt + 4.1);
+  // Sadece 3 ana an — fazla "ding" yok
+  bell(0.3, 293.66, 0.10, 1.6);   // sahne 1 hint (D4, yumuşak)
+  bell(9.05, 587.33, 0.13, 1.6);  // sahne 4 girişi (D5, "answer" parlatma)
+  bell(15.3, 659.25, 0.10, 1.4);  // sahne 5 (E5, reveal sparkle)
+
+  // ── 5) Risk kart pop'ları — yumuşak chime, daha az ──────────────
+  // 3'lü majör arpej (C-E-G), her kart için tek nota
+  [
+    { t: 9.5,  freq: HIGH_C },
+    { t: 11.0, freq: HIGH_E },
+    { t: 12.5, freq: HIGH_G },
+  ].forEach(({ t, freq }) => bell(t, freq, 0.085, 1.0));
+
+  // ── 6) ALTARIS theme motif — kapanış imzası ──────────────────────
+  // D-major pentatonic ascending: D4 · F#4 · A4 · D5
+  const themeNotes = [293.66, 369.99, 440.0, 587.33];
+  themeNotes.forEach((freq, i) => {
+    bell(18.2 + i * 0.26, freq, 0.13, 1.7);
   });
-
-  // Master fadeout
-  master.gain.setValueAtTime(0.5, t0 + 21);
-  master.gain.linearRampToValueAtTime(0, t0 + 22);
 }
 
 export function Soundtrack() {
@@ -203,14 +191,19 @@ export function Soundtrack() {
   const ctxRef = useRef<AudioContext | null>(null);
 
   // Sahnelerin animation'ı html[data-play="1"] selector'una bağlı.
-  // Phase değiştikçe DOM'u senkronize et — ama play/record başlangıcında
-  // ekstra olarak setPhase ÖNCE direct DOM yazımı yapıyoruz (bkz. start*).
+  // Recording sırasında ekstra `data-recording="1"` set edilir → UI chrome
+  // (top bar, bottom timeline) CSS ile gizlenir, çıktı temiz olur.
   useEffect(() => {
     const root = document.documentElement;
     if (phase === "playing" || phase === "recording") {
       root.setAttribute("data-play", "1");
     } else {
       root.removeAttribute("data-play");
+    }
+    if (phase === "recording") {
+      root.setAttribute("data-recording", "1");
+    } else {
+      root.removeAttribute("data-recording");
     }
   }, [phase]);
 
@@ -234,6 +227,54 @@ export function Soundtrack() {
       (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     return new Ctor();
   }
+
+  // Batch recording desteği: ?autoplay=1 ile otomatik başlama + offline
+  // audio render API. Detay için _lib/SenaryoPlayer.tsx'e bak.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    (window as unknown as { __altarisRenderAudio?: () => Promise<string> }).__altarisRenderAudio = async () => {
+      const sr = 44100;
+      const off = new OfflineAudioContext({
+        numberOfChannels: 2,
+        sampleRate: sr,
+        length: Math.ceil(sr * (TOTAL_S + 0.5)),
+      });
+      scheduleSoundtrack(off as unknown as AudioContext, null);
+      const buf = await off.startRendering();
+      // Inline WAV→base64
+      const numCh = buf.numberOfChannels;
+      const len = buf.length;
+      const bytesPerSample = 2;
+      const blockAlign = numCh * bytesPerSample;
+      const dataSize = len * blockAlign;
+      const ab = new ArrayBuffer(44 + dataSize);
+      const v = new DataView(ab);
+      const w = (o: number, s: string) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+      w(0, "RIFF"); v.setUint32(4, 36 + dataSize, true); w(8, "WAVE");
+      w(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, numCh, true);
+      v.setUint32(24, sr, true); v.setUint32(28, sr * blockAlign, true);
+      v.setUint16(32, blockAlign, true); v.setUint16(34, 16, true);
+      w(36, "data"); v.setUint32(40, dataSize, true);
+      const chs = [buf.getChannelData(0), numCh > 1 ? buf.getChannelData(1) : buf.getChannelData(0)];
+      let off2 = 44;
+      for (let i = 0; i < len; i++) for (let c = 0; c < numCh; c++) {
+        const s = Math.max(-1, Math.min(1, chs[c][i]));
+        v.setInt16(off2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+        off2 += 2;
+      }
+      const bytes = new Uint8Array(ab);
+      let bin = "";
+      for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+      return btoa(bin);
+    };
+    (window as unknown as { __altarisDuration?: number }).__altarisDuration = TOTAL_S;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("autoplay") === "1") {
+      const t = setTimeout(() => { void startPreview(); }, 200);
+      return () => clearTimeout(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function startPreview() {
     if (ctxRef.current) {
@@ -302,9 +343,11 @@ export function Soundtrack() {
       setPhase("done");
     };
     // 5. Animasyon · recorder · ses planı — hepsi aynı tick içinde başlar.
-    //    Sıra: önce animation tetikle, sonra recorder, sonra ses schedule.
-    //    Böylece kayıt frame 0'dan, ses 0. saniyeden senkron başlar.
+    //    Sıra: önce chrome'u gizle + animation tetikle, sonra recorder,
+    //    sonra ses. Böylece kayıt frame 0'dan, ses 0. saniyeden, ekran
+    //    tamamen temiz başlar (top bar, bottom timeline ve status YOK).
     document.documentElement.setAttribute("data-play", "1");
+    document.documentElement.setAttribute("data-recording", "1");
     recorder.start(250);
     scheduleSoundtrack(ctx, recDest);
 
@@ -324,13 +367,21 @@ export function Soundtrack() {
   }
 
   // ── UI ──────────────────────────────────────────────────────────
-  if (phase === "playing" || phase === "recording") {
+  // Kayıt sırasında HİÇBİR overlay yok — temiz video çıktısı.
+  // Preview sırasında (sadece kullanıcı izliyor, paylaşılmıyor) progress
+  // bar gösterilir ki user "ne kadar kaldı" görsün.
+  if (phase === "recording") {
+    return null;
+  }
+  if (phase === "playing") {
+    // Preview için progress bar — ui-chrome class'ı YOK çünkü kullanıcının
+    // ne kadar kaldığını görmesi gerekiyor. Recording'de zaten null döner.
     return (
       <div className="pointer-events-none fixed bottom-12 left-1/2 z-30 -translate-x-1/2">
         <div className="flex items-center gap-3 rounded-full border border-[rgba(120,80,50,0.4)] bg-[#0d0b0a]/85 px-4 py-2 backdrop-blur">
-          <span aria-hidden className={`size-2 rounded-full ${phase === "recording" ? "animate-pulse bg-[#ff5a5a]" : "bg-[#9bd07e]"}`} />
+          <span aria-hidden className="size-2 rounded-full bg-[#9bd07e]" />
           <span className="font-mono text-[10px] uppercase tracking-[0.32em] text-[#bdb4a6]">
-            {phase === "recording" ? "kaydediliyor" : "oynatılıyor"}
+            oynatılıyor
           </span>
           <span aria-hidden className="ml-2 h-1 w-32 rounded-full bg-[#3a342d]">
             <span className="block h-full rounded-full bg-[#f08c50]" style={{ width: `${progress * 100}%` }} />

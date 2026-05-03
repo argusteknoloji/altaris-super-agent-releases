@@ -94,14 +94,19 @@ export default function SenaryoPage() {
          * Soundtrack komponenti "Oynat" / "Kaydet" tıklanınca attribute'u
          * set eder; böylece kayıt sahne 0'dan baştan yakalanır.
          * ────────────────────────────────────────────────────────────── */
-        [data-play="1"] .s1 { animation: scene-life 3s   0s   ease-out forwards; }
-        [data-play="1"] .s2 { animation: scene-life 3s   3s   ease-out forwards; }
-        [data-play="1"] .s3 { animation: scene-life 3s   6s   ease-out forwards; }
-        [data-play="1"] .s4 { animation: scene-life 6s   9s   ease-out forwards; }
-        [data-play="1"] .s5 { animation: scene-life 3s   15s  ease-out forwards; }
-        [data-play="1"] .s6 { animation: scene-life 4s   18s  ease-out forwards; }
-        /* play yokken tüm sahneler gizli — boş siyah arkaplan */
-        :not([data-play="1"]) .scene { opacity: 0 !important; }
+        html[data-play="1"] .s1 { animation: scene-life 3s   0s   ease-out forwards; }
+        html[data-play="1"] .s2 { animation: scene-life 3s   3s   ease-out forwards; }
+        html[data-play="1"] .s3 { animation: scene-life 3s   6s   ease-out forwards; }
+        html[data-play="1"] .s4 { animation: scene-life 6s   9s   ease-out forwards; }
+        html[data-play="1"] .s5 { animation: scene-life 3s   15s  ease-out forwards; }
+        html[data-play="1"] .s6 { animation: scene-life 4s   18s  ease-out forwards; }
+        /* play yokken sahneler base opacity:0 ile gizli — fazladan kurala
+           gerek yok. (Önceki :not([data-play="1"]) seçici html dışındaki
+           atalara da eşleşip kaybolma bug'ına yol açıyordu.) */
+
+        /* Kayıt sırasında UI chrome gizli — LinkedIn vb. paylaşım için temiz
+           video çıktısı. Preview'da chrome görünür kalır (kullanıcı feedback). */
+        html[data-recording="1"] .ui-chrome { opacity: 0 !important; pointer-events: none !important; }
 
         /* ── Sahne 1: chaos kartları ──────────────────────────────────── */
         [data-play="1"] .s1-card { animation: drift 3.6s ease-in-out infinite; }
@@ -151,16 +156,16 @@ export default function SenaryoPage() {
           <div className="absolute inset-0 bg-[linear-gradient(180deg,transparent_0%,transparent_70%,rgba(0,0,0,0.55)_100%)]" />
         </div>
 
-        {/* fixed top tag (always visible) */}
-        <div className="absolute left-0 right-0 top-0 z-10 flex items-center justify-between px-8 py-4 text-[10px] uppercase tracking-[0.32em] text-[#6b6358]">
+        {/* fixed top tag — kayıt/preview sırasında ui-chrome ile gizli */}
+        <div className="ui-chrome absolute left-0 right-0 top-0 z-10 flex items-center justify-between px-8 py-4 text-[10px] uppercase tracking-[0.32em] text-[#6b6358] transition-opacity duration-300">
           <span>argus teknoloji · senaryo</span>
           <span>22 sn</span>
         </div>
 
         <Soundtrack />
 
-        {/* fixed bottom timeline (subtle) */}
-        <div className="absolute bottom-6 left-1/2 z-10 -translate-x-1/2">
+        {/* fixed bottom timeline — kayıt/preview sırasında ui-chrome ile gizli */}
+        <div className="ui-chrome absolute bottom-6 left-1/2 z-10 -translate-x-1/2 transition-opacity duration-300">
           <div className="flex items-center gap-3 text-[9px] uppercase tracking-[0.32em] text-[#3a342d]">
             {["pazartesi", "soru", "altaris", "cevap", "süre", "pilot"].map((s, i) => (
               <span key={s} className="flex items-center gap-3">
