@@ -166,6 +166,9 @@ public static class VaultEndpoints
         {
             var path = store.VaultPath(tc.TenantSlug, vault.Slug);
             VaultScaffold.Apply(path, vault.Name);
+            // Container API user'ı default debian uid; scaffold dosyaları world-readable
+            // olmalı ki list/file/graph endpoint'leri okuyabilsin (host owner ≠ container uid).
+            store.NormalizePermissions(path);
             var (files, bytes) = store.Stats(tc.TenantSlug, vault.Slug);
             vault.FileCount = files;
             vault.ByteSize  = bytes;
@@ -228,6 +231,14 @@ public static class VaultEndpoints
             return Results.Ok(new { path, content });
         }
         catch (FileNotFoundException) { return Results.NotFound(); }
+        catch (UnauthorizedAccessException)
+        {
+            // Host filesystem'de dosya owner-only mode (rsync'le böyle gelmiş olabilir).
+            // 500 yerine anlamlı 403 dön — kullanıcı durumu çözümleyebilir.
+            return Results.Problem(
+                detail: "Dosya container kullanıcısı tarafından okunamıyor (host perms). Sunucuda: chmod o+r <dosya>",
+                statusCode: 403);
+        }
         catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
     }
 

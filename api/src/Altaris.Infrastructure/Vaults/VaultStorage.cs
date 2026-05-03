@@ -23,6 +23,52 @@ public class VaultStorage
     public string VaultPath(string tenantSlug, string vaultSlug)
         => Path.Combine(TenantRoot(tenantSlug), Sanitize(vaultSlug));
 
+    public string VaultsRoot => _opts.RootDir;
+
+    /// <summary>
+    ///   Container API user'ı (debian default uid ≠ host owner uid) vault
+    ///   dosyalarını okuyabilsin diye perms normalize eder:
+    ///     - dir  → 755 (rwxr-xr-x)
+    ///     - file → 644 (rw-r--r--)
+    ///   External rsync, scp, manuel kopya gibi durumlarda perms 600/700 ile
+    ///   düşebiliyor; bu helper hem startup hem periodic worker tarafından
+    ///   çağrılır + idempotent.
+    ///   Toplam dosya sayısı return edilir (loglama için).
+    /// </summary>
+    public int NormalizePermissions(string root)
+    {
+        if (!Directory.Exists(root)) return 0;
+        const UnixFileMode dirMode  = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+                                    | UnixFileMode.GroupRead | UnixFileMode.GroupExecute
+                                    | UnixFileMode.OtherRead | UnixFileMode.OtherExecute;
+        const UnixFileMode fileMode = UnixFileMode.UserRead | UnixFileMode.UserWrite
+                                    | UnixFileMode.GroupRead
+                                    | UnixFileMode.OtherRead;
+        var stack = new Stack<string>();
+        stack.Push(root);
+        var count = 0;
+        while (stack.Count > 0)
+        {
+            var dir = stack.Pop();
+            try { File.SetUnixFileMode(dir, dirMode); } catch { /* not writable, skip */ }
+
+            string[] sub, files;
+            try { sub = Directory.GetDirectories(dir); files = Directory.GetFiles(dir); }
+            catch { continue; }
+
+            foreach (var sd in sub)
+            {
+                if (IsIgnoredDir(Path.GetFileName(sd))) continue;
+                stack.Push(sd);
+            }
+            foreach (var f in files)
+            {
+                try { File.SetUnixFileMode(f, fileMode); count++; } catch { /* skip */ }
+            }
+        }
+        return count;
+    }
+
     /// <summary>Resolve a relative path inside a vault, rejecting traversal.</summary>
     public string SafeFilePath(string tenantSlug, string vaultSlug, string relative)
     {
@@ -91,6 +137,39 @@ public class VaultStorage
         return false;
     }
 
+    /// <summary>
+    ///   Manuel BFS ile vault root altındaki tüm .md dosyalarını listeler.
+    ///   IsIgnoredDir filtresi + permission-denied tolerance — built-in
+    ///   Directory.EnumerateFiles bir alt-dizinde patlarsa tüm enumeration
+    ///   bozuluyor. BuildGraph + future graph-like tarama bunu kullanmalı.
+    /// </summary>
+    private IEnumerable<string> SafeEnumerateMd(string root)
+    {
+        var stack = new Stack<string>();
+        stack.Push(root);
+        while (stack.Count > 0)
+        {
+            var dir = stack.Pop();
+            string[] subDirs;
+            string[] files;
+            try
+            {
+                subDirs = Directory.GetDirectories(dir);
+                files   = Directory.GetFiles(dir, "*.md");
+            }
+            catch (UnauthorizedAccessException) { continue; }
+            catch (DirectoryNotFoundException)  { continue; }
+            catch (IOException)                 { continue; }
+
+            foreach (var sd in subDirs)
+            {
+                if (IsIgnoredDir(Path.GetFileName(sd))) continue;
+                stack.Push(sd);
+            }
+            foreach (var f in files) yield return f;
+        }
+    }
+
     public (int files, long bytes) Stats(string tenantSlug, string vaultSlug)
     {
         long bytes = 0; int files = 0;
@@ -152,8 +231,13 @@ public class VaultStorage
         var root = VaultPath(tenantSlug, vaultSlug);
         if (!Directory.Exists(root)) return new VaultGraph(Array.Empty<VaultGraphNode>(), Array.Empty<VaultGraphEdge>());
 
+        // SafeEnumerate: List() ile aynı manuel BFS — permission-denied dizinleri
+        // skip eder, IsIgnoredDir filtrelemesi uygular. Tek pass, sonra in-memory
+        // tekrar dolaşırız (.md filtresiyle).
+        var allMds = SafeEnumerateMd(root).ToList();
+
         // First pass: register every .md as a node.
-        foreach (var f in Directory.EnumerateFiles(root, "*.md", SearchOption.AllDirectories))
+        foreach (var f in allMds)
         {
             var name  = Path.GetFileNameWithoutExtension(f);
             var rel   = Path.GetRelativePath(root, f).Replace('\\', '/');
@@ -162,10 +246,12 @@ public class VaultStorage
 
         // Second pass: parse wikilinks.
         var rx = new Regex(@"\[\[([^\]\|#]+)(?:[#\|][^\]]*)?\]\]", RegexOptions.Compiled);
-        foreach (var f in Directory.EnumerateFiles(root, "*.md", SearchOption.AllDirectories))
+        foreach (var f in allMds)
         {
             var sourceName = Path.GetFileNameWithoutExtension(f);
-            var content = File.ReadAllText(f);
+            string content;
+            try { content = File.ReadAllText(f); }
+            catch { continue; }   // dosya okunamıyorsa atla
             foreach (Match m in rx.Matches(content))
             {
                 var target = m.Groups[1].Value.Trim();
