@@ -53,27 +53,37 @@ public static class CliJobRunner
         psi.ArgumentList.Add(prompt);
         psi.ArgumentList.Add("--output-format=json");
 
-        // Provider env eşlemesi — CLI bootstrap.ts bu env'lerden provider kurar.
-        var homeDir = altarisHome.TrimEnd('/').EndsWith("/.altaris")
-            ? altarisHome[..^9]   // /srv/altaris/.altaris → /srv/altaris (HOME)
-            : altarisHome;
-        psi.EnvironmentVariables["HOME"] = homeDir;
+        // HOME'u her invocation için izole bir tmp dizine yönlendir — provider
+        // OAuth dosyalarını (codex auth.json, vb.) güvenli yazıp okusun. /srv/altaris
+        // bind mount paths sadece okuma için (security). ALTARIS_HOME ayrı.
+        var sessionHome = Path.Combine(Path.GetTempPath(), $"altaris-cli-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(sessionHome);
+        psi.EnvironmentVariables["HOME"] = sessionHome;
         ApplyProviderEnv(psi.EnvironmentVariables, provider, llmModel);
+
+        // CLI bazen $HOME/.altaris.json (legacy claude config) bekliyor. Sunucuda
+        // /srv/altaris/.altaris.json'da bağlı, oradan kopyala. Yoksa sessizce geç.
+        try
+        {
+            var srcAltaris = Path.Combine(altarisHome.TrimEnd('/').EndsWith("/.altaris")
+                ? altarisHome[..^9] : altarisHome, ".altaris.json");
+            if (File.Exists(srcAltaris))
+                File.Copy(srcAltaris, Path.Combine(sessionHome, ".altaris.json"), overwrite: true);
+        }
+        catch { /* ignore */ }
 
         // Codex OAuth: CLI'nin codex code path'i ~/.codex/auth.json bekliyor.
         // DB'deki refresh + access tokenlardan dosyayı subprocess başlamadan
-        // önce yaz. Read-only mount değilse (vault root yazılabilir) sorun yok.
+        // önce session HOME altına yaz.
         if (provider.Provider.Equals("codex", StringComparison.OrdinalIgnoreCase)
             && provider.AuthKind == "oauth"
             && !string.IsNullOrEmpty(provider.RefreshTokenEnc))
         {
             try
             {
-                var codexDir = Path.Combine(homeDir, ".codex");
+                var codexDir = Path.Combine(sessionHome, ".codex");
                 Directory.CreateDirectory(codexDir);
                 var authPath = Path.Combine(codexDir, "auth.json");
-                // Codex auth.json minimal şeması — CLI accessToken expired ise
-                // refreshToken ile yeniler. account_id zorunlu.
                 var auth = new
                 {
                     OPENAI_API_KEY = (string?)null,
@@ -91,55 +101,62 @@ public static class CliJobRunner
             catch { /* sessizce devam — CLI auth.json yoksa kendi hata mesajını döner */ }
         }
 
-        using var proc = new Process { StartInfo = psi };
-        var stdoutSb = new StringBuilder();
-        var stderrSb = new StringBuilder();
-        proc.OutputDataReceived += (_, e) => { if (e.Data is not null) stdoutSb.AppendLine(e.Data); };
-        proc.ErrorDataReceived  += (_, e) => { if (e.Data is not null) stderrSb.AppendLine(e.Data); };
-
         try
         {
-            proc.Start();
-            proc.BeginOutputReadLine();
-            proc.BeginErrorReadLine();
+            using var proc = new Process { StartInfo = psi };
+            var stdoutSb = new StringBuilder();
+            var stderrSb = new StringBuilder();
+            proc.OutputDataReceived += (_, e) => { if (e.Data is not null) stdoutSb.AppendLine(e.Data); };
+            proc.ErrorDataReceived  += (_, e) => { if (e.Data is not null) stderrSb.AppendLine(e.Data); };
 
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeoutCts.CancelAfter(timeout);
-            try { await proc.WaitForExitAsync(timeoutCts.Token); }
-            catch (OperationCanceledException)
+            try
             {
-                try { proc.Kill(entireProcessTree: true); } catch { /* ignore */ }
-                return new RunResult(false, "", $"timeout ({timeout.TotalSeconds}sn)",
-                    stdoutSb.ToString(), sw.ElapsedMilliseconds);
+                proc.Start();
+                proc.BeginOutputReadLine();
+                proc.BeginErrorReadLine();
+
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeoutCts.CancelAfter(timeout);
+                try { await proc.WaitForExitAsync(timeoutCts.Token); }
+                catch (OperationCanceledException)
+                {
+                    try { proc.Kill(entireProcessTree: true); } catch { /* ignore */ }
+                    return new RunResult(false, "", $"timeout ({timeout.TotalSeconds}sn)",
+                        stdoutSb.ToString(), sw.ElapsedMilliseconds);
+                }
+            }
+            catch (Exception ex)
+            {
+                return new RunResult(false, "", $"subprocess başlatılamadı: {ex.Message}", "", sw.ElapsedMilliseconds);
+            }
+
+            sw.Stop();
+            var raw = stdoutSb.ToString().Trim();
+            if (string.IsNullOrEmpty(raw))
+                return new RunResult(false, "", $"CLI boş çıktı (exit={proc.ExitCode}, stderr={stderrSb})", "", sw.ElapsedMilliseconds);
+
+            try
+            {
+                // CLI son satırı tam JSON. Multi-line varsa son non-empty parse.
+                var lastLine = raw.Split('\n').Reverse()
+                    .FirstOrDefault(l => l.TrimStart().StartsWith("{"));
+                using var doc = JsonDocument.Parse(lastLine ?? raw);
+                var root = doc.RootElement;
+                var isError = root.TryGetProperty("is_error", out var ie) && ie.GetBoolean();
+                var result  = root.TryGetProperty("result", out var r) ? (r.GetString() ?? "") : "";
+
+                if (isError)
+                    return new RunResult(false, "", result, raw, sw.ElapsedMilliseconds);
+                return new RunResult(true, result, null, raw, sw.ElapsedMilliseconds);
+            }
+            catch (JsonException ex)
+            {
+                return new RunResult(false, "", $"JSON parse fail: {ex.Message}", raw, sw.ElapsedMilliseconds);
             }
         }
-        catch (Exception ex)
+        finally
         {
-            return new RunResult(false, "", $"subprocess başlatılamadı: {ex.Message}", "", sw.ElapsedMilliseconds);
-        }
-
-        sw.Stop();
-        var raw = stdoutSb.ToString().Trim();
-        if (string.IsNullOrEmpty(raw))
-            return new RunResult(false, "", $"CLI boş çıktı (exit={proc.ExitCode}, stderr={stderrSb})", "", sw.ElapsedMilliseconds);
-
-        try
-        {
-            // CLI son satırı tam JSON. Multi-line varsa son non-empty parse.
-            var lastLine = raw.Split('\n').Reverse()
-                .FirstOrDefault(l => l.TrimStart().StartsWith("{"));
-            using var doc = JsonDocument.Parse(lastLine ?? raw);
-            var root = doc.RootElement;
-            var isError = root.TryGetProperty("is_error", out var ie) && ie.GetBoolean();
-            var result  = root.TryGetProperty("result", out var r) ? (r.GetString() ?? "") : "";
-
-            if (isError)
-                return new RunResult(false, "", result, raw, sw.ElapsedMilliseconds);
-            return new RunResult(true, result, null, raw, sw.ElapsedMilliseconds);
-        }
-        catch (JsonException ex)
-        {
-            return new RunResult(false, "", $"JSON parse fail: {ex.Message}", raw, sw.ElapsedMilliseconds);
+            try { Directory.Delete(sessionHome, recursive: true); } catch { /* best effort */ }
         }
     }
 
