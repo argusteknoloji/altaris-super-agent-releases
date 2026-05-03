@@ -43,14 +43,24 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
         if (cancelled) return;
         setStats({ nodes: data.nodes.length, edges: data.edges.length });
 
-        const canvas = canvasRef.current!;
-        const ctx = canvas.getContext("2d")!;
+        const canvasNullable = canvasRef.current;
+        if (!canvasNullable) return;
+        const ctxNullable = canvasNullable.getContext("2d");
+        if (!ctxNullable) { setError("Canvas 2D context alinamadi"); return; }
+        const canvas = canvasNullable;        // narrow non-null
+        const ctx = ctxNullable;
         const dpr = window.devicePixelRatio || 1;
         const fit = () => {
-          canvas.width  = canvas.clientWidth  * dpr;
-          canvas.height = canvas.clientHeight * dpr;
+          const w = canvas.clientWidth, h = canvas.clientHeight;
+          if (w === 0 || h === 0) return;        // layout henuz settle olmadi — skip
+          canvas.width  = w * dpr;
+          canvas.height = h * dpr;
           ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         };
+        // ResizeObserver: parent flex layout ilk renderda 0 verebiliyor; observer
+        // gercek boyut gelince fit'i tekrar eder.
+        const ro = new ResizeObserver(() => fit());
+        ro.observe(canvas);
         fit();
         window.addEventListener("resize", fit);
 
@@ -164,10 +174,11 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
         }
         raf = requestAnimationFrame(tick);
 
-        // cleanup
-        return () => {
-          cancelled = true;
-          cancelAnimationFrame(raf);
+        // cleanup — NOT effective: async IIFE'nin return'i useEffect tarafindan
+        // gormezden gelinir. Aslinda asagidaki outer return calisir. ResizeObserver
+        // cleanup'i icin window'a disconnect helper ekliyoruz.
+        (window as unknown as { __graphCleanup?: () => void }).__graphCleanup = () => {
+          ro.disconnect();
           window.removeEventListener("resize", fit);
         };
       } catch (e) {
@@ -175,7 +186,12 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
       }
     })();
 
-    return () => { cancelled = true; cancelAnimationFrame(raf); };
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+      const cleanup = (window as unknown as { __graphCleanup?: () => void }).__graphCleanup;
+      if (cleanup) cleanup();
+    };
   }, [slug]);
 
   return (
@@ -196,7 +212,7 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
       </header>
       <div className="relative flex-1">
         {error && <p className="absolute left-4 top-4 rounded-md bg-red-500/10 px-3 py-1 text-xs text-red-400">{error}</p>}
-        <canvas ref={canvasRef} className="h-full w-full cursor-grab" />
+        <canvas ref={canvasRef} className="block h-full w-full cursor-grab" />
       </div>
     </div>
   );
