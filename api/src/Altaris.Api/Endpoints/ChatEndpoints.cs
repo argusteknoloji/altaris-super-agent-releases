@@ -373,6 +373,13 @@ public static class ChatEndpoints
         // Codex /responses (OpenAI Responses API) — chat/completions değil!
         // Body: { model, input: [{type:"message", role, content:[{type:"input_text", text}]}], stream }
         // System prompt → "instructions" field
+        // Model alias: codexplan → gpt-5.5, codexspark → gpt-5.3-codex-spark (CLI providerConfig.ts)
+        var resolvedModel = req.Model.ToLowerInvariant() switch
+        {
+            "codexplan"  => "gpt-5.5",
+            "codexspark" => "gpt-5.3-codex-spark",
+            _            => req.Model,
+        };
         var input = req.Messages.Select(m => new
         {
             type = "message",
@@ -381,15 +388,20 @@ public static class ChatEndpoints
         }).ToArray();
         var payload = new Dictionary<string, object?>
         {
-            ["model"]  = req.Model,
+            ["model"]  = resolvedModel,
             ["input"]  = input.Length > 0 ? (object)input : new[] {
                 new { type = "message", role = "user", content = new[] { new { type = "input_text", text = "" } } }
             },
             ["stream"] = true,
             ["store"]  = false,
         };
-        if (!string.IsNullOrWhiteSpace(req.SystemPrompt))
-            payload["instructions"] = req.SystemPrompt;
+        // GPT-5 codex serisi reasoning destekli — codexplan default high
+        if (req.Model.Equals("codexplan", StringComparison.OrdinalIgnoreCase))
+            payload["reasoning"] = new { effort = "high" };
+        // Codex /responses endpoint'i instructions field'ını zorunlu kılıyor (boş bile olamaz)
+        payload["instructions"] = string.IsNullOrWhiteSpace(req.SystemPrompt)
+            ? "You are a helpful assistant."
+            : req.SystemPrompt;
 
         var client = hf.CreateClient();
         var hreq = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/responses")
