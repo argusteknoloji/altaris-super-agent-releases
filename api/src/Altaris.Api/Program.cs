@@ -520,6 +520,7 @@ try
     app.MapCodexProviderEndpoints();
     app.MapExecutiveBrainEndpoints();
     app.MapDataSourceEndpoints();
+    app.MapWebhookEndpoints();
 
     Log.Information("Altaris API starting in {Env}", app.Environment.EnvironmentName);
     app.Run();

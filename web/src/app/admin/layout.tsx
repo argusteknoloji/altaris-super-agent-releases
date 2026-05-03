@@ -20,6 +20,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     { href: "/admin/api-keys",         label: "API anahtarları" },
     { href: "/admin/providers",        label: "Provider config" },
     { href: "/admin/data-sources",     label: "🔌 Connector'lar" },
+    { href: "/admin/webhooks",         label: "🪝 Webhook'lar" },
     { href: "/admin/audit",            label: "Denetim kaydı" },
     { href: "/admin/tenant-settings",  label: "🔐 Tenant ayarları" },
     ...(platformAdmin ? [{ href: "/admin/tenants", label: "Tenant'lar (platform)" }] : []),

@@ -22,6 +22,8 @@ public class AltarisDbContext : DbContext
     public DbSet<ExecutiveAgent> ExecutiveAgents => Set<ExecutiveAgent>();
     public DbSet<ExecutiveJob> ExecutiveJobs => Set<ExecutiveJob>();
     public DbSet<DataSource> DataSources => Set<DataSource>();
+    public DbSet<Webhook> Webhooks => Set<Webhook>();
+    public DbSet<WebhookInvocation> WebhookInvocations => Set<WebhookInvocation>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -279,6 +281,37 @@ public class AltarisDbContext : DbContext
             e.Property(x => x.UserAgent).HasColumnName("user_agent");
             e.Property(x => x.Payload).HasColumnName("payload").HasColumnType("jsonb");
             e.Property(x => x.OccurredAt).HasColumnName("occurred_at");
+        });
+
+        modelBuilder.Entity<Webhook>(e =>
+        {
+            e.ToTable("webhooks");
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.TenantId).HasColumnName("tenant_id");
+            e.Property(x => x.Slug).HasColumnName("slug");
+            e.Property(x => x.Name).HasColumnName("name");
+            e.Property(x => x.Secret).HasColumnName("secret");
+            e.Property(x => x.TargetKind).HasColumnName("target_kind");
+            e.Property(x => x.TargetId).HasColumnName("target_id");
+            e.Property(x => x.Enabled).HasColumnName("enabled");
+            e.Property(x => x.LastFiredAt).HasColumnName("last_fired_at");
+            e.Property(x => x.FireCount).HasColumnName("fire_count");
+            e.Property(x => x.CreatedAt).HasColumnName("created_at");
+            e.HasIndex(x => new { x.TenantId, x.Slug }).IsUnique();
+        });
+
+        modelBuilder.Entity<WebhookInvocation>(e =>
+        {
+            e.ToTable("webhook_invocations");
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.WebhookId).HasColumnName("webhook_id");
+            e.Property(x => x.TenantId).HasColumnName("tenant_id");
+            e.Property(x => x.Payload).HasColumnName("payload").HasColumnType("jsonb");
+            e.Property(x => x.Status).HasColumnName("status");
+            e.Property(x => x.ErrorText).HasColumnName("error_text");
+            e.Property(x => x.JobId).HasColumnName("job_id");
+            e.Property(x => x.ReceivedAt).HasColumnName("received_at");
+            e.HasIndex(x => new { x.WebhookId, x.ReceivedAt });
         });
     }
 }
