@@ -34,7 +34,11 @@ try
         .ReadFrom.Services(services)
         .Enrich.FromLogContext()
         .Enrich.WithProperty("service", "altaris-api")
-        .Enrich.WithProperty("env", ctx.HostingEnvironment.EnvironmentName));
+        .Enrich.WithProperty("env", ctx.HostingEnvironment.EnvironmentName)
+        // Console sink her ortamda zorunlu — appsettings'te WriteTo yoksa
+        // ReadFrom.Configuration sinkleri sıfırlar ve loglar yutulur.
+        .WriteTo.Console(outputTemplate:
+            "{Timestamp:HH:mm:ss.fff} [{Level:u3}] {service}: {Message:lj} {Properties:j}{NewLine}{Exception}"));
 
     // ── Required configuration in production ────────────────────────────────
     if (builder.Environment.IsProduction())

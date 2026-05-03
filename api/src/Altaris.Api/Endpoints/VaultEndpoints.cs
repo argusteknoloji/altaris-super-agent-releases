@@ -122,16 +122,18 @@ public static class VaultEndpoints
     private static async Task<IResult> ListVaults(AltarisDbContext db, ITenantContext tc, VaultStorage store)
     {
         if (tc.TenantId is null) return Results.Forbid();
-        var rows = await db.Vaults
-            .Where(v => v.TenantId == tc.TenantId)
-            .OrderByDescending(v => v.UpdatedAt)
-            .Join(db.Users, v => v.OwnerUserId, u => u.Id, (v, u) => new
+        // LEFT JOIN — owner_user_id nullable, ayrıca user silinmiş olabilir
+        var rows = await (
+            from v in db.Vaults.Where(v => v.TenantId == tc.TenantId)
+            join u in db.Users on v.OwnerUserId equals u.Id into uj
+            from u in uj.DefaultIfEmpty()
+            orderby v.UpdatedAt descending
+            select new
             {
                 v.Id, v.Slug, v.Name, v.Status, v.Visibility, v.FileCount, v.ByteSize,
                 v.CreatedAt, v.UpdatedAt,
-                owner = new { id = u.Id, email = u.Email }
-            })
-            .ToListAsync();
+                owner = u == null ? null : new { id = u.Id, email = u.Email }
+            }).ToListAsync();
         return Results.Ok(rows);
     }
 
