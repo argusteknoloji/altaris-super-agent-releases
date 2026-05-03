@@ -220,19 +220,26 @@ public static class CliJobRunner
             case "anthropic":
                 if (p.AuthKind == "oauth")
                 {
-                    // OAuth provider: ALTARIS_OAUTH_TOKEN env'i CLI'nin
-                    // getClaudeAIOAuthTokens() helper'ı tarafından okunur,
-                    // inference-only scope ile Bearer auth + claude_code system
-                    // prelude otomatik eklenir. ANTHROPIC_API_KEY (x-api-key)
-                    // OAuth token'larıyla CHALIŞMAZ — Anthropic 'Invalid API key'
-                    // döner.
                     env["ALTARIS_OAUTH_TOKEN"] = key;
                 }
                 else
                 {
                     env["ANTHROPIC_API_KEY"] = key;
                 }
-                if (!string.IsNullOrEmpty(model)) env["ANTHROPIC_MODEL"] = model;
+                if (!string.IsNullOrEmpty(model))
+                {
+                    env["ANTHROPIC_MODEL"] = model;
+                    // CLI'nin alias resolver'ı (sonnet/opus/haiku → real model) için
+                    // explicit override — model adı 'opus' içeriyorsa OPUS default,
+                    // 'haiku' içeriyorsa HAIKU default. Aksi halde SONNET default
+                    // seçilir ve agent'ın aliases'i 'sonnet' kalır.
+                    if (model.Contains("opus", StringComparison.OrdinalIgnoreCase))
+                        env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = model;
+                    else if (model.Contains("haiku", StringComparison.OrdinalIgnoreCase))
+                        env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = model;
+                    else
+                        env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = model;
+                }
                 break;
             case "codex":
                 env["ALTARIS_USE_OPENAI"] = "1";

@@ -44,13 +44,15 @@ export default function JobLiveTerminal({ sessionId }: { sessionId: string }) {
       term.open(containerRef.current);
       fit.fit();
 
-      // WS URL — token query param ile auth (proxy/cookie değil, direct WS)
-      const tokenRes = await fetch("/api/auth/token", { cache: "no-store" }).catch(() => null);
-      const token = tokenRes?.ok ? (await tokenRes.json()).accessToken : "";
-      const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const apiHost = (process.env.NEXT_PUBLIC_API_BASE ?? "").replace(/^https?:\/\//, "")
-        || window.location.host.replace(/^([^.]+)/, "api.$1");
-      const url = new URL(`${proto}//${apiHost}/ws/pty/watch`);
+      // WS URL — /api/proxy/token endpoint hem accessToken hem wsBase döner
+      // (remote-control viewer ile aynı pattern, NEXT_PUBLIC_API_BASE bağımsız)
+      const tokenRes = await fetch("/api/proxy/token", { cache: "no-store" }).catch(() => null);
+      if (!tokenRes || !tokenRes.ok) {
+        setStatus("error");
+        return;
+      }
+      const { token, wsBase } = await tokenRes.json() as { token: string; wsBase: string };
+      const url = new URL(`${wsBase.replace(/^http/, "ws")}/ws/pty/watch`);
       url.searchParams.set("session", sessionId);
       url.searchParams.set("access_token", token);
       const ws = new WebSocket(url);
