@@ -271,16 +271,23 @@ public static class AnthropicTokenRefresher
         try
         {
             using var client = httpFactory.CreateClient();
-            // Anthropic JSON body bekliyor (form-encoded değil)
+            // Anthropic JSON body bekliyor (form-encoded değil) + scope zorunlu
+            // (CLI src/services/oauth/client.ts:refreshOAuthToken ile uyumlu)
             var body = JsonSerializer.Serialize(new
             {
                 grant_type    = "refresh_token",
                 refresh_token = p.RefreshTokenEnc,
                 client_id     = ClientId,
+                scope         = "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload",
             });
             using var content = new StringContent(body, Encoding.UTF8, "application/json");
             using var res = await client.PostAsync(TokenUrl, content);
-            if (!res.IsSuccessStatusCode) return false;
+            if (!res.IsSuccessStatusCode)
+            {
+                var err = await res.Content.ReadAsStringAsync();
+                Console.Error.WriteLine($"[Anthropic refresh] HTTP {(int)res.StatusCode}: {err[..Math.Min(200, err.Length)]}");
+                return false;
+            }
             var json = await res.Content.ReadAsStringAsync();
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
