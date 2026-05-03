@@ -123,6 +123,9 @@ public static class ChatEndpoints
                 case "ollama":
                     await StreamOllama(req, cfg, config, httpFactory, ctx, collected, cancel);
                     break;
+                case "codex":
+                    await StreamCodex(req, cfg, httpFactory, ctx, collected, cancel);
+                    break;
                 case "lmstudio":
                 case "openai":
                     await StreamOpenAiCompatible(req, cfg, config, httpFactory, ctx, collected, cancel);
@@ -180,7 +183,17 @@ public static class ChatEndpoints
         {
             Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
         };
-        hreq.Headers.Add("x-api-key", apiKey);
+        // OAuth bağlı provider'da access_token Bearer'la, x-api-key değil.
+        // Claude Code beta scope'una claim erişimi için anthropic-beta header zorunlu.
+        if (pc?.AuthKind == "oauth")
+        {
+            hreq.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+            hreq.Headers.Add("anthropic-beta", "claude-code-20250219,oauth-2025-04-20");
+        }
+        else
+        {
+            hreq.Headers.Add("x-api-key", apiKey);
+        }
         hreq.Headers.Add("anthropic-version", "2023-06-01");
 
         using var resp = await client.SendAsync(hreq, HttpCompletionOption.ResponseHeadersRead, cancel);
@@ -313,6 +326,84 @@ public static class ChatEndpoints
                 }
             }
             catch (JsonException) { }
+        }
+    }
+
+    /// <summary>
+    ///   ChatGPT/Codex backend (https://chatgpt.com/backend-api/codex). OpenAI uyumlu
+    ///   chat/completions formatı kullanır + chatgpt-account-id header zorunlu.
+    ///   Auth: pc.ApiKeyEnc (CodexTokenRefresher worker tarafından tazelenen access_token).
+    /// </summary>
+    private static async Task StreamCodex(
+        ChatRequest req, Domain.Entities.ProviderConfig? pc, IHttpClientFactory hf,
+        HttpContext ctx, StringBuilder collected, CancellationToken cancel)
+    {
+        var baseUrl = pc?.BaseUrl?.TrimEnd('/') ?? "https://chatgpt.com/backend-api/codex";
+        var accessToken = pc?.ApiKeyEnc;
+        var accountId = pc?.AccountId;
+        if (string.IsNullOrEmpty(accessToken) || string.IsNullOrEmpty(accountId))
+        {
+            await Sse(ctx, "error",
+                JsonSerializer.Serialize(new { message = "Codex provider eksik (access_token / account_id). `altaris provider connect codex` ile yeniden bağla." }),
+                cancel);
+            return;
+        }
+
+        var client = hf.CreateClient();
+        var payload = new
+        {
+            model = req.Model,
+            stream = true,
+            max_tokens = req.MaxTokens,
+            messages = req.Messages.Select(m => new { role = m.Role, content = (object)m.Content }).ToArray()
+        };
+
+        var hreq = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/chat/completions")
+        {
+            Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json")
+        };
+        hreq.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+        hreq.Headers.Add("chatgpt-account-id", accountId);
+        // Codex backend OpenAI compat ama session id istiyor — random GUID yeter.
+        hreq.Headers.Add("session_id", Guid.NewGuid().ToString());
+
+        using var resp = await client.SendAsync(hreq, HttpCompletionOption.ResponseHeadersRead, cancel);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(cancel);
+            await Sse(ctx, "error",
+                JsonSerializer.Serialize(new { message = $"Codex HTTP {(int)resp.StatusCode}: {body[..Math.Min(300, body.Length)]}" }),
+                cancel);
+            return;
+        }
+
+        using var stream = await resp.Content.ReadAsStreamAsync(cancel);
+        using var reader = new StreamReader(stream);
+
+        string? line;
+        while ((line = await reader.ReadLineAsync(cancel)) != null)
+        {
+            if (!line.StartsWith("data: ")) continue;
+            var data = line[6..];
+            if (data == "[DONE]") break;
+            try
+            {
+                using var doc = JsonDocument.Parse(data);
+                if (doc.RootElement.TryGetProperty("choices", out var ch) && ch.GetArrayLength() > 0)
+                {
+                    var delta = ch[0].GetProperty("delta");
+                    if (delta.TryGetProperty("content", out var c))
+                    {
+                        var text = c.GetString() ?? "";
+                        if (text.Length > 0)
+                        {
+                            collected.Append(text);
+                            await Sse(ctx, "delta", JsonSerializer.Serialize(new { text }), cancel);
+                        }
+                    }
+                }
+            }
+            catch (JsonException) { /* skip malformed */ }
         }
     }
 
