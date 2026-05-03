@@ -120,17 +120,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Compose drift'i önle — repodaki docker-compose.prod.yml'i prod'a kopyala.
-      # (Bind mount eklediğimiz halde sunucudaki dosya eski kalmış, vault tree
-      #  endpoint 404 veriyordu. Her deploy'da senkron kalsın.)
-      - name: Sync compose file to prod
+      # Compose + Caddyfile drift'i önle — repodaki dosyaları prod'a kopyala.
+      # Compose değişikliği bind mount eklemişti ama sunucu eski kalmıştı; vault
+      # tree 404 verdi. Caddyfile değişikliği de aynı şekilde sync olmalı.
+      - name: Sync compose + caddyfile to prod
         uses: appleboy/scp-action@v0.1.7
         with:
           host:     ${{ secrets.PROD_SSH_HOST }}
           port:     ${{ secrets.PROD_SSH_PORT }}
           username: ${{ secrets.PROD_SSH_USER }}
           password: ${{ secrets.PROD_SSH_PASSWORD }}
-          source:   "infra/docker-compose.prod.yml"
+          source:   "infra/docker-compose.prod.yml,infra/caddy/Caddyfile"
           target:   "/opt/altaris/"
           strip_components: 0
           overwrite: true
@@ -150,6 +150,8 @@ jobs:
             docker compose -f docker-compose.prod.yml --env-file .env.production pull web api
             echo "→ Container'ları yeni image ile restart (compose değişikliği varsa recreate)…"
             docker compose -f docker-compose.prod.yml --env-file .env.production up -d web api
+            echo "→ Caddyfile reload (zero-downtime config refresh)…"
+            docker exec altaris-caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1 || true
             sleep 4
             echo "→ Health:"
             docker compose -f docker-compose.prod.yml --env-file .env.production ps web api

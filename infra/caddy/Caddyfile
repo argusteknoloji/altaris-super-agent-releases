@@ -33,6 +33,18 @@ altarisplatform.com {
         header_up X-Forwarded-Proto {scheme}
         header_up X-Forwarded-Host {host}
     }
+
+    # /_next/static/* dosyalari hash'li -> immutable cache (uzun)
+    # Diger her sey (HTML, server-rendered page, /api/*) -> no-cache
+    # ki deploy sonrasi tarayici eski JS bundle'i tutmasin.
+    @nextStatic path /_next/static/*
+    header @nextStatic Cache-Control "public, max-age=31536000, immutable"
+
+    @notStatic not path /_next/static/*
+    header @notStatic Cache-Control "no-cache, no-store, must-revalidate"
+    header @notStatic Pragma        "no-cache"
+    header @notStatic Expires       "0"
+
     header {
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
         X-Content-Type-Options    "nosniff"
