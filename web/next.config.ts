@@ -7,6 +7,11 @@ const config: NextConfig = {
   experimental: {
     serverActions: { bodySizeLimit: "2mb" }
   },
+  async rewrites() {
+    return [
+      { source: "/manifesto", destination: "/manifesto/index.html" }
+    ];
+  },
   async headers() {
     return [
       {
