@@ -228,6 +228,28 @@ try
                 ALTER TABLE vaults ADD COLUMN IF NOT EXISTS file_count INTEGER NOT NULL DEFAULT 0;
                 ALTER TABLE vaults ADD COLUMN IF NOT EXISTS byte_size  BIGINT  NOT NULL DEFAULT 0;
 
+                /* ─── vault_files (init.sql'den geri ekleme — eksikti) ─── */
+                CREATE EXTENSION IF NOT EXISTS pg_trgm;
+                CREATE TABLE IF NOT EXISTS vault_files (
+                    id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                    vault_id        UUID NOT NULL REFERENCES vaults(id) ON DELETE CASCADE,
+                    tenant_id       UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                    path            TEXT NOT NULL,
+                    content         TEXT NOT NULL,
+                    sha256          TEXT NOT NULL,
+                    bytes           INTEGER NOT NULL,
+                    indexed_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    ts              tsvector GENERATED ALWAYS AS (to_tsvector('simple', content)) STORED,
+                    UNIQUE (vault_id, path)
+                );
+                CREATE INDEX IF NOT EXISTS vault_files_ts_idx       ON vault_files USING GIN (ts);
+                CREATE INDEX IF NOT EXISTS vault_files_trgm_idx     ON vault_files USING GIN (content gin_trgm_ops);
+                CREATE INDEX IF NOT EXISTS vault_files_tenant_idx   ON vault_files (tenant_id);
+                ALTER TABLE vault_files ENABLE ROW LEVEL SECURITY;
+                DROP POLICY IF EXISTS tenant_isolation_vault_files ON vault_files;
+                CREATE POLICY tenant_isolation_vault_files ON vault_files
+                    USING (tenant_id::text = current_setting('app.tenant_id', true));
+
                 /* ─── webhooks (Sprint #77) ─── */
                 CREATE TABLE IF NOT EXISTS webhooks (
                     id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
