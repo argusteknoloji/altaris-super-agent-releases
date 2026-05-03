@@ -76,6 +76,46 @@ function renderMarkdown(src: string): string {
 }
 
 type TreeEntry = { path: string; bytes: number; modifiedUtc: string };
+
+// Folder/file tree node — flat path listesinden hiyerarsik yapi inseasi icin
+type FileNode   = { type: "file"; name: string; path: string; bytes: number; modifiedUtc: string };
+type FolderNode = { type: "folder"; name: string; path: string; children: TreeNode[] };
+type TreeNode   = FileNode | FolderNode;
+
+/** Flat path listesinden ('wiki/sources/foo.md') hiyerarsik tree olustur. */
+function buildTree(entries: TreeEntry[]): FolderNode {
+  const root: FolderNode = { type: "folder", name: "", path: "", children: [] };
+  // Yardimci: bir folder path'i icin (yoksa olustur) child folder doner
+  function ensureFolder(parent: FolderNode, name: string, path: string): FolderNode {
+    let f = parent.children.find(c => c.type === "folder" && c.name === name) as FolderNode | undefined;
+    if (!f) {
+      f = { type: "folder", name, path, children: [] };
+      parent.children.push(f);
+    }
+    return f;
+  }
+  for (const e of entries) {
+    const parts = e.path.split("/");
+    const fileName = parts.pop()!;
+    let cur = root;
+    let curPath = "";
+    for (const p of parts) {
+      curPath = curPath ? `${curPath}/${p}` : p;
+      cur = ensureFolder(cur, p, curPath);
+    }
+    cur.children.push({ type: "file", name: fileName, path: e.path, bytes: e.bytes, modifiedUtc: e.modifiedUtc });
+  }
+  // Klasorler once, sonra alfabetik sirala (recursive)
+  function sortRec(n: FolderNode) {
+    n.children.sort((a, b) => {
+      if (a.type !== b.type) return a.type === "folder" ? -1 : 1;
+      return a.name.localeCompare(b.name, "tr");
+    });
+    for (const c of n.children) if (c.type === "folder") sortRec(c);
+  }
+  sortRec(root);
+  return root;
+}
 type FileResp  = { path: string; content: string };
 
 export default function VaultBrowserPage({ params }: { params: Promise<{ slug: string }> }) {
@@ -87,6 +127,11 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
   const [filter, setFilter] = useState("");
   const [searchQ, setSearchQ] = useState("");
   const [searchHits, setSearchHits] = useState<Array<{ path: string; snippet: string; lineHint: number }>>([]);
+  const [sidebarTab, setSidebarTab] = useState<"files" | "search">("files");
+  // Editor ref + pending scroll line (search hit'ten gelen satır)
+  // Monaco instance'i tutmak için useRef; openFile sonrası satır highlight + reveal
+  const editorRef = useRef<{ revealLineInCenter: (line: number) => void; setSelection: (range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number }) => void } | null>(null);
+  const pendingLineRef = useRef<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [mcpModalOpen, setMcpModalOpen] = useState(false);
@@ -111,12 +156,24 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
 
   useEffect(() => { loadTree(); /* eslint-disable-next-line */ }, [slug]);
 
-  async function openFile(path: string) {
+  async function openFile(path: string, line?: number) {
     setError(null);
     const r = await fetch(`/api/proxy/vaults/${slug}/file?path=${encodeURIComponent(path)}`, { cache: "no-store" });
     if (!r.ok) { setError(await r.text()); return; }
     const f = await r.json() as FileResp;
     setActivePath(f.path); setContent(f.content); setSavedContent(f.content);
+    pendingLineRef.current = line ?? null;
+    // Eğer editor zaten mounted ise (aynı vault içinde dosya değişimi),
+    // content set edildikten sonra Monaco yeni değerle render eder; küçük delay
+    // ile reveal çağırırız ki yeni model hazır olsun.
+    if (line && editorRef.current) {
+      setTimeout(() => {
+        if (editorRef.current) {
+          editorRef.current.revealLineInCenter(line);
+          editorRef.current.setSelection({ startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 999 });
+        }
+      }, 80);
+    }
   }
 
   async function save() {
@@ -145,6 +202,25 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
     });
     if (!r.ok) setError(await r.text());
     else { await loadTree(); openFile(path); }
+    setBusy(false);
+  }
+
+  async function deleteActiveFile() {
+    if (!activePath) return;
+    if (!confirm(`"${activePath}" silinsin mi? Bu işlem geri alınamaz.`)) return;
+    setBusy(true); setError(null);
+    const r = await fetch(`/api/proxy/vaults/${slug}/file?path=${encodeURIComponent(activePath)}`, {
+      method: "DELETE"
+    });
+    if (!r.ok) {
+      setError(`Silinemedi: HTTP ${r.status} ${await r.text()}`);
+    } else {
+      // Editör'den çıkar, listeyi yenile
+      setActivePath(null);
+      setContent("");
+      setSavedContent("");
+      await loadTree();
+    }
     setBusy(false);
   }
 
@@ -273,6 +349,18 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
     if (r.ok) setSearchHits(await r.json());
   }
 
+  // Hiyerarşik tree + filter — filter aktifse sadece eşleşen dosyaları göster
+  // (klasör yapısı korunur)
+  const filteredEntries = useMemo(
+    () => filter
+      ? tree.filter(t => t.path.toLowerCase().includes(filter.toLowerCase()))
+      : tree,
+    [tree, filter]
+  );
+  const treeRoot = useMemo(() => buildTree(filteredEntries), [filteredEntries]);
+  // Filter aktifken tüm klasörleri otomatik aç (sonuçları göster)
+  const autoExpand = filter.length > 0;
+
   const filteredTree = useMemo(
     () => tree.filter(t => t.path.toLowerCase().includes(filter.toLowerCase())),
     [tree, filter]
@@ -312,6 +400,16 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
           <button onClick={newFile} disabled={busy} className="rounded-md border border-neutral-700 px-3 py-1 text-xs text-neutral-200 hover:bg-neutral-800">
             + Dosya
           </button>
+          {activePath && (
+            <button
+              onClick={deleteActiveFile}
+              disabled={busy}
+              title={`${activePath} dosyasını sil`}
+              className="rounded-md border border-red-500/40 px-3 py-1 text-xs text-red-300 hover:bg-red-500/10 disabled:opacity-40"
+            >
+              🗑 Sil
+            </button>
+          )}
           <button onClick={save} disabled={!activePath || !dirty || busy} className="rounded-md bg-orange-500 px-3 py-1 text-xs font-medium text-white hover:bg-orange-600 disabled:opacity-40">
             {busy ? "…" : "Kaydet"}
           </button>
@@ -319,56 +417,96 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
       </header>
 
       <div className="flex flex-1 overflow-hidden">
-        {/* sol: tree + arama */}
+        {/* sol: tree + arama (sekmeli) */}
         <aside className="flex w-80 flex-col border-r border-neutral-800 bg-neutral-950">
-          <div className="space-y-2 border-b border-neutral-800 p-3">
-            <input
-              value={filter}
-              onChange={e => setFilter(e.target.value)}
-              placeholder="dosya filtrele…"
-              className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs"
-            />
-            <input
-              value={searchQ}
-              onChange={e => runSearch(e.target.value)}
-              placeholder="içerikte ara…"
-              className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs"
-            />
+          {/* Tab bar */}
+          <div className="flex items-center border-b border-neutral-800 text-xs font-mono">
+            <button
+              onClick={() => setSidebarTab("files")}
+              className={
+                "flex-1 px-3 py-2 border-b-2 transition-colors " +
+                (sidebarTab === "files"
+                  ? "border-orange-500 text-orange-300"
+                  : "border-transparent text-neutral-500 hover:text-neutral-300")
+              }
+            >
+              📁 DOSYALAR
+            </button>
+            <button
+              onClick={() => setSidebarTab("search")}
+              className={
+                "flex-1 px-3 py-2 border-b-2 transition-colors " +
+                (sidebarTab === "search"
+                  ? "border-orange-500 text-orange-300"
+                  : "border-transparent text-neutral-500 hover:text-neutral-300")
+              }
+            >
+              🔎 ARAMA{searchHits.length > 0 ? ` (${searchHits.length})` : ""}
+            </button>
           </div>
 
-          {searchHits.length > 0 && (
-            <div className="border-b border-neutral-800 p-2 text-xs">
-              <p className="px-2 py-1 text-neutral-500">{searchHits.length} eşleşme</p>
-              {searchHits.map(h => (
-                <button
-                  key={h.path + h.lineHint}
-                  onClick={() => { openFile(h.path); setSearchQ(""); setSearchHits([]); }}
-                  className="block w-full rounded-md px-2 py-1 text-left hover:bg-neutral-900"
-                >
-                  <p className="truncate font-mono text-orange-400">{h.path}:{h.lineHint}</p>
-                  <p className="truncate text-neutral-500">{h.snippet}</p>
-                </button>
-              ))}
-            </div>
+          {sidebarTab === "files" && (
+            <>
+              <div className="border-b border-neutral-800 p-3">
+                <input
+                  value={filter}
+                  onChange={e => setFilter(e.target.value)}
+                  placeholder="dosya filtrele…"
+                  className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs"
+                />
+              </div>
+              <div className="flex-1 overflow-y-auto p-2 text-xs">
+                {treeRoot.children.length === 0
+                  ? <p className="px-2 py-1 text-neutral-500">Dosya yok.</p>
+                  : <TreeView
+                      nodes={treeRoot.children}
+                      activePath={activePath}
+                      autoExpand={autoExpand}
+                      onPick={openFile}
+                    />
+                }
+              </div>
+            </>
           )}
 
-          <ul className="flex-1 overflow-y-auto p-2 text-xs">
-            {filteredTree.length === 0 && <li className="px-2 py-1 text-neutral-500">Dosya yok.</li>}
-            {filteredTree.map(f => (
-              <li key={f.path}>
-                <button
-                  onClick={() => openFile(f.path)}
-                  className={
-                    "block w-full truncate rounded-md px-2 py-1 text-left font-mono " +
-                    (activePath === f.path ? "bg-neutral-900 text-orange-400" : "text-neutral-300 hover:bg-neutral-900")
-                  }
-                  title={`${f.bytes} B · ${fmtDateTimeTR(f.modifiedUtc)}`}
-                >
-                  {f.path}
-                </button>
-              </li>
-            ))}
-          </ul>
+          {sidebarTab === "search" && (
+            <>
+              <div className="border-b border-neutral-800 p-3">
+                <input
+                  value={searchQ}
+                  onChange={e => runSearch(e.target.value)}
+                  placeholder="vault içinde ara…"
+                  className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs"
+                  autoFocus
+                />
+                {searchQ && (
+                  <p className="mt-1 px-1 text-[10px] text-neutral-500">
+                    {searchHits.length} eşleşme {searchHits.length > 0 && "· tıkla ve aç"}
+                  </p>
+                )}
+              </div>
+              <div className="flex-1 overflow-y-auto text-xs">
+                {searchQ && searchHits.length === 0 && (
+                  <p className="px-3 py-2 text-neutral-500">Eşleşme yok.</p>
+                )}
+                {searchHits.map(h => (
+                  <button
+                    key={h.path + h.lineHint}
+                    onClick={() => {
+                      openFile(h.path, h.lineHint);
+                      setSidebarTab("files");
+                    }}
+                    className="block w-full border-b border-neutral-900 px-3 py-2 text-left hover:bg-neutral-900"
+                  >
+                    <p className="truncate font-mono text-[11px] text-orange-400">
+                      {h.path}<span className="text-neutral-500">:{h.lineHint}</span>
+                    </p>
+                    <p className="mt-0.5 line-clamp-2 font-mono text-[11px] leading-snug text-neutral-400">{h.snippet}</p>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
         </aside>
 
         {/* sağ: editor */}
@@ -395,8 +533,17 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
                     automaticLayout: true,
                     tabSize: 2
                   }}
-                  onMount={(editor: { addCommand: (kbm: number, h: () => void) => void }, monaco: { KeyMod: { CtrlCmd: number }; KeyCode: { KeyS: number } }) => {
+                  onMount={(editor: any, monaco: { KeyMod: { CtrlCmd: number }; KeyCode: { KeyS: number } }) => {
                     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => save());
+                    editorRef.current = editor;
+                    // İlk mount sırasında pending line varsa (search'ten geldi) reveal et
+                    if (pendingLineRef.current) {
+                      const line = pendingLineRef.current;
+                      setTimeout(() => {
+                        editor.revealLineInCenter(line);
+                        editor.setSelection({ startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 999 });
+                      }, 80);
+                    }
                   }}
                 />
               </div>
@@ -420,6 +567,104 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
         />
       )}
     </div>
+  );
+}
+
+/* ─── Folder tree (expand/collapse) ─────────────────────────────────── */
+
+function TreeView({
+  nodes, activePath, autoExpand, onPick,
+}: {
+  nodes: TreeNode[];
+  activePath: string | null;
+  autoExpand: boolean;
+  onPick: (path: string) => void;
+}) {
+  // Expanded folder paths (sessionStorage'a backed up — vault değişimi dışında kalıcı)
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  function toggle(path: string) {
+    setExpanded(s => {
+      const ns = new Set(s);
+      if (ns.has(path)) ns.delete(path); else ns.add(path);
+      return ns;
+    });
+  }
+  return (
+    <ul className="space-y-px">
+      {nodes.map(n =>
+        n.type === "folder"
+          ? <FolderRow
+              key={n.path}
+              node={n}
+              activePath={activePath}
+              expanded={expanded}
+              autoExpand={autoExpand}
+              onToggle={toggle}
+              onPick={onPick}
+            />
+          : <FileRow key={n.path} node={n} active={activePath === n.path} onPick={onPick} />
+      )}
+    </ul>
+  );
+}
+
+function FolderRow({
+  node, activePath, expanded, autoExpand, onToggle, onPick,
+}: {
+  node: FolderNode;
+  activePath: string | null;
+  expanded: Set<string>;
+  autoExpand: boolean;
+  onToggle: (path: string) => void;
+  onPick: (path: string) => void;
+}) {
+  const isOpen = autoExpand || expanded.has(node.path);
+  return (
+    <li>
+      <button
+        onClick={() => onToggle(node.path)}
+        className="block w-full truncate rounded-md px-2 py-1 text-left font-mono text-neutral-400 hover:bg-neutral-900"
+      >
+        <span className="inline-block w-3 text-neutral-600">{isOpen ? "▼" : "▶"}</span>{" "}
+        <span>{node.name}</span>
+        <span className="ml-1 text-neutral-600">({node.children.length})</span>
+      </button>
+      {isOpen && (
+        <ul className="ml-3 border-l border-neutral-800 pl-2">
+          {node.children.map(c =>
+            c.type === "folder"
+              ? <FolderRow
+                  key={c.path}
+                  node={c}
+                  activePath={activePath}
+                  expanded={expanded}
+                  autoExpand={autoExpand}
+                  onToggle={onToggle}
+                  onPick={onPick}
+                />
+              : <FileRow key={c.path} node={c} active={activePath === c.path} onPick={onPick} />
+          )}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+function FileRow({ node, active, onPick }: { node: FileNode; active: boolean; onPick: (path: string) => void }) {
+  return (
+    <li>
+      <button
+        onClick={() => onPick(node.path)}
+        className={
+          "block w-full truncate rounded-md px-2 py-1 text-left font-mono " +
+          (active ? "bg-neutral-900 text-orange-400" : "text-neutral-300 hover:bg-neutral-900")
+        }
+        title={`${node.bytes} B · ${fmtDateTimeTR(node.modifiedUtc)}`}
+      >
+        <span className="inline-block w-3" />{" "}
+        {node.name}
+      </button>
+    </li>
   );
 }
 
