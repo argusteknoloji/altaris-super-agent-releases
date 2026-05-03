@@ -176,7 +176,20 @@ public static class CliJobRunner
         switch (p.Provider.ToLowerInvariant())
         {
             case "anthropic":
-                env["ANTHROPIC_API_KEY"] = key;
+                if (p.AuthKind == "oauth")
+                {
+                    // OAuth provider: ALTARIS_OAUTH_TOKEN env'i CLI'nin
+                    // getClaudeAIOAuthTokens() helper'ı tarafından okunur,
+                    // inference-only scope ile Bearer auth + claude_code system
+                    // prelude otomatik eklenir. ANTHROPIC_API_KEY (x-api-key)
+                    // OAuth token'larıyla CHALIŞMAZ — Anthropic 'Invalid API key'
+                    // döner.
+                    env["ALTARIS_OAUTH_TOKEN"] = key;
+                }
+                else
+                {
+                    env["ANTHROPIC_API_KEY"] = key;
+                }
                 if (!string.IsNullOrEmpty(model)) env["ANTHROPIC_MODEL"] = model;
                 break;
             case "codex":
