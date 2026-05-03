@@ -38,12 +38,17 @@ public class VaultStorage
     public int NormalizePermissions(string root)
     {
         if (!Directory.Exists(root)) return 0;
-        const UnixFileMode dirMode  = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
-                                    | UnixFileMode.GroupRead | UnixFileMode.GroupExecute
-                                    | UnixFileMode.OtherRead | UnixFileMode.OtherExecute;
-        const UnixFileMode fileMode = UnixFileMode.UserRead | UnixFileMode.UserWrite
-                                    | UnixFileMode.GroupRead
-                                    | UnixFileMode.OtherRead;
+        // Bind-mount edilmiş vault dosyalari container API user'i (host uid'den
+        // farkli) tarafindan okunabilmeli + yazilabilmeli. WRITE de ekledik
+        // ki delete + edit endpoint'leri 'permission denied' yememesin.
+        // Sunucu icin guvenlik OK: bu path zaten /srv/altaris/vaults bind mount
+        // (host'un disindan erisilemez).
+        const UnixFileMode dirMode  = UnixFileMode.UserRead  | UnixFileMode.UserWrite  | UnixFileMode.UserExecute
+                                    | UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute
+                                    | UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute;
+        const UnixFileMode fileMode = UnixFileMode.UserRead  | UnixFileMode.UserWrite
+                                    | UnixFileMode.GroupRead | UnixFileMode.GroupWrite
+                                    | UnixFileMode.OtherRead | UnixFileMode.OtherWrite;
         var stack = new Stack<string>();
         stack.Push(root);
         var count = 0;

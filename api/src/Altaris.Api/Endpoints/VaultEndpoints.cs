@@ -422,6 +422,13 @@ public static class VaultEndpoints
         if (tc.TenantId is null || tc.TenantSlug is null) return Results.Forbid();
         try { store.Delete(tc.TenantSlug, slug, path); }
         catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
+        catch (FileNotFoundException) { return Results.NotFound(); }
+        catch (UnauthorizedAccessException)
+        {
+            return Results.Problem(
+                detail: $"Dosya silinemiyor (host perms). Sunucuda: chmod u+w '{path}'",
+                statusCode: 403);
+        }
         var v = await db.Vaults.FirstAsync(x => x.TenantId == tc.TenantId && x.Slug == slug, ct);
         var (files, bytes) = store.Stats(tc.TenantSlug, slug);
         v.FileCount = files; v.ByteSize = bytes; v.UpdatedAt = DateTimeOffset.UtcNow;
@@ -499,17 +506,91 @@ public static class VaultEndpoints
         var plim = cmd.CreateParameter(); plim.ParameterName = "lim"; plim.Value = limit; cmd.Parameters.Add(plim);
 
         var hits = new List<object>();
-        await using var rd = await cmd.ExecuteReaderAsync(ct);
-        while (await rd.ReadAsync(ct))
+        await using (var rd = await cmd.ExecuteReaderAsync(ct))
         {
-            hits.Add(new
+            while (await rd.ReadAsync(ct))
             {
-                path     = rd.GetString(0),
-                snippet  = rd.IsDBNull(1) ? "" : rd.GetString(1),
-                lineHint = 1   // FTS doesn't return line numbers; keep field for UI compat.
-            });
+                hits.Add(new
+                {
+                    path     = rd.GetString(0),
+                    snippet  = rd.IsDBNull(1) ? "" : rd.GetString(1),
+                    lineHint = 1
+                });
+            }
+        }
+
+        // Fallback: vault_files boş (rsync/manuel kopyalanmış vault) ya da hit yok →
+        // ripgrep ile filesystem'i tara, gerçek line numbers + multi-line snippet döndür
+        if (hits.Count == 0)
+        {
+            var fsHits = await RipgrepSearch(store.VaultPath(tc.TenantSlug, slug), q, limit, ct);
+            return Results.Ok(fsHits);
         }
         return Results.Ok(hits);
+    }
+
+    /// <summary>
+    ///   `rg --json -i -m {limit}` ile vault'ı tarar, JSON output'u parse eder.
+    ///   Postgres FTS index'lenmemiş (rsync) vault'lar için fallback.
+    /// </summary>
+    private static async Task<List<object>> RipgrepSearch(string vaultRoot, string query, int limit, CancellationToken ct)
+    {
+        var hits = new List<object>();
+        if (!System.IO.Directory.Exists(vaultRoot)) return hits;
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "rg",
+                WorkingDirectory = vaultRoot,
+                RedirectStandardOutput = true,
+                RedirectStandardError  = true,
+                UseShellExecute = false,
+                CreateNoWindow  = true,
+            };
+            psi.ArgumentList.Add("--json");
+            psi.ArgumentList.Add("-i");                    // case-insensitive
+            psi.ArgumentList.Add("--max-count=3");          // her dosyadan max 3 hit
+            psi.ArgumentList.Add($"--max-filesize=2M");     // büyük dosyalardan kaç
+            psi.ArgumentList.Add("--type-add=md:*.md");
+            psi.ArgumentList.Add("--type-add=txt:*.{txt,json,yaml,yml}");
+            psi.ArgumentList.Add("-tmd");
+            psi.ArgumentList.Add("-ttxt");
+            psi.ArgumentList.Add(query);
+            psi.ArgumentList.Add(".");
+
+            using var proc = System.Diagnostics.Process.Start(psi);
+            if (proc is null) return hits;
+
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(8));
+
+            string? line;
+            while ((line = await proc.StandardOutput.ReadLineAsync(timeoutCts.Token)) != null)
+            {
+                if (hits.Count >= limit) break;
+                if (string.IsNullOrEmpty(line)) continue;
+                try
+                {
+                    using var doc = System.Text.Json.JsonDocument.Parse(line);
+                    var root = doc.RootElement;
+                    if (root.TryGetProperty("type", out var t) && t.GetString() == "match")
+                    {
+                        var data    = root.GetProperty("data");
+                        var path    = data.GetProperty("path").GetProperty("text").GetString() ?? "";
+                        var lineNo  = data.GetProperty("line_number").GetInt32();
+                        var lineText = data.GetProperty("lines").TryGetProperty("text", out var lt) ? (lt.GetString() ?? "") : "";
+                        var snippet = lineText.Trim();
+                        if (snippet.Length > 200) snippet = snippet[..200] + "…";
+                        hits.Add(new { path, snippet, lineHint = lineNo });
+                    }
+                }
+                catch (System.Text.Json.JsonException) { /* skip malformed */ }
+            }
+            try { if (!proc.HasExited) proc.Kill(true); } catch { /* ignore */ }
+        }
+        catch { /* rg yok veya başka hata — boş dön */ }
+        return hits;
     }
 
     private static IResult Graph(string slug, ITenantContext tc, VaultStorage store)

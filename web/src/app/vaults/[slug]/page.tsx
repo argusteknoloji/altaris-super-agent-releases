@@ -62,9 +62,21 @@ function renderMarkdown(src: string): string {
   return out;
 
   function inline(s: string): string {
-    // [[wikilink]] → <a>
-    s = s.replace(/\[\[([^\]\|#]+)(?:[#\|][^\]]*)?\]\]/g,
-      (_m, t) => `<a class="text-sky-400 hover:underline">${t}</a>`);
+    // [text](url) — markdown link. http(s):// dış (yeni sekme), aksi halde
+    // vault içi relative path olarak işaretle (data-relpath).
+    s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_m, text, href) => {
+      const trimmed = String(href).trim();
+      if (/^https?:\/\//i.test(trimmed) || /^mailto:/i.test(trimmed)) {
+        return `<a href="${escAttr(trimmed)}" target="_blank" rel="noreferrer" class="text-sky-400 hover:underline">${text}</a>`;
+      }
+      return `<a data-relpath="${escAttr(trimmed)}" class="text-sky-400 hover:underline cursor-pointer">${text}</a>`;
+    });
+    // [[wikilink]] | [[wikilink#section]] | [[wikilink|alias]] → vault içi link
+    s = s.replace(/\[\[([^\]\|#]+)(?:#[^\]\|]*)?(?:\|([^\]]+))?\]\]/g,
+      (_m, target, alias) => {
+        const label = alias ?? target;
+        return `<a data-wikilink="${escAttr(target.trim())}" class="text-sky-400 hover:underline cursor-pointer">${label}</a>`;
+      });
     // **bold**
     s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
     // *italic*
@@ -72,6 +84,9 @@ function renderMarkdown(src: string): string {
     // `inline code`
     s = s.replace(/`([^`]+)`/g, '<code class="bg-neutral-800 rounded px-1">$1</code>');
     return s;
+  }
+  function escAttr(s: string): string {
+    return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 }
 
@@ -203,6 +218,56 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
     if (!r.ok) setError(await r.text());
     else { await loadTree(); openFile(path); }
     setBusy(false);
+  }
+
+  /**
+   *  Preview <div> üzerinde event delegation: <a data-wikilink="X"> ya da
+   *  <a data-relpath="path"> tıklamasını yakala, vault dosyasını aç.
+   *  - data-relpath: aktif dosya dizinine göre çözer (ör. ./other.md, ../foo.md)
+   *  - data-wikilink: tüm tree'de basename === target ya da .md eki kontrolüyle
+   *    eşleşen ilk dosyayı bulur (Obsidian davranışı)
+   */
+  function onPreviewClick(ev: React.MouseEvent<HTMLDivElement>) {
+    const t = ev.target as HTMLElement;
+    const a = t.closest("a") as HTMLAnchorElement | null;
+    if (!a) return;
+    const rel = a.getAttribute("data-relpath");
+    const wiki = a.getAttribute("data-wikilink");
+    if (!rel && !wiki) return;
+    ev.preventDefault();
+
+    let target: string | null = null;
+    if (rel) {
+      // aktif dosya dizinine göre normalize et
+      const baseDir = activePath ? activePath.split("/").slice(0, -1).join("/") : "";
+      const joined = baseDir ? `${baseDir}/${rel}` : rel;
+      // ./ ve ../ çöz
+      const parts: string[] = [];
+      for (const p of joined.split("/")) {
+        if (p === "" || p === ".") continue;
+        if (p === "..") parts.pop();
+        else parts.push(p);
+      }
+      target = parts.join("/");
+      // .md eki yoksa dene
+      if (!tree.some(f => f.path === target) && !target.endsWith(".md")) target = target + ".md";
+    } else if (wiki) {
+      const name = wiki.trim();
+      // Önce path === name (ör. "wiki/foo.md")
+      let m = tree.find(f => f.path === name || f.path === name + ".md");
+      // Sonra basename eşleşmesi (Obsidian: wikilinks isim ile bağlanır)
+      if (!m) m = tree.find(f => {
+        const base = f.path.split("/").pop()!.replace(/\.md$/i, "");
+        return base.toLowerCase() === name.toLowerCase();
+      });
+      target = m?.path ?? null;
+    }
+
+    if (target && tree.some(f => f.path === target)) {
+      void openFile(target);
+    } else {
+      setError(`Bağlantı hedefi bulunamadı: ${rel ?? wiki}`);
+    }
   }
 
   async function deleteActiveFile() {
@@ -548,8 +613,11 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
                 />
               </div>
               {isMd && showPreview && (
-                <div className="prose prose-invert flex-1 overflow-y-auto bg-[#0a0a0a] px-6 py-4 text-sm text-neutral-200"
-                     dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }} />
+                <div
+                  className="prose prose-invert flex-1 overflow-y-auto bg-[#0a0a0a] px-6 py-4 text-sm text-neutral-200"
+                  onClick={onPreviewClick}
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }}
+                />
               )}
             </div>
           )}
