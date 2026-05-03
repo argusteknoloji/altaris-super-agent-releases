@@ -44,7 +44,7 @@ const CAPS: Array<[string, string]> = [
   ["KVKK-uyumlu audit",       "Her API çağrısı, her takeover, her provider geçişi audit_events'e yazılır. Tam izlenebilir kurumsal trail."],
   ["Keycloak OAuth + SSO",    "CLI için Device Flow, web için NextAuth, kurumsal IdP federasyonu — tek SSO tüm yüzeyleri kapsar."],
   ["Provider abstraction",    "Codex · OpenAI · Anthropic · Ollama · Mistral · Gemini. Tek tenant config'te değiştir, mid-session geçiş yap."],
-  ["Vault tabanlı hafıza",    "Obsidian uyumlu kurumsal knowledge base, PostgreSQL FTS + pg_trgm fuzzy search, paylaşımlı bağlam."],
+  ["Vault tabanlı hafıza",    "Markdown tabanlı kurumsal knowledge base, PostgreSQL FTS + pg_trgm fuzzy search, paylaşımlı bağlam."],
   ["Container-only kurulum",  "docker compose up · 6 servis · MacBook açılışında otomatik başlatma. Tek komut, tek panel."],
 ];
 
@@ -453,8 +453,8 @@ export default function KatalogPage() {
           <div className="grid gap-12 md:grid-cols-2">
             <div>
               <p className="text-base leading-relaxed text-[#bdb4a6]">
-                Vault, Altaris'in kurumsal hafıza katmanıdır. Obsidian formatıyla tam uyumlu,
-                markdown tabanlı, FTS aranabilir, üç görünürlük seviyesi destekler:{" "}
+                Vault, Altaris'in kurumsal hafıza katmanıdır. Markdown tabanlı, doğal dosya
+                hiyerarşisi, FTS aranabilir, üç görünürlük seviyesi destekler:{" "}
                 <span className="text-[#f08c50]">private</span> · {" "}
                 <span className="text-[#f08c50]">tenant</span> · {" "}
                 <span className="text-[#f08c50]">executive</span>.
@@ -474,7 +474,7 @@ export default function KatalogPage() {
                 ["Search",    "PostgreSQL FTS (tsvector) + pg_trgm fuzzy · GIN index · sub-100ms p95"],
                 ["Sync",      "Push + checksum diff · 64 KB/dosya cap · idempotent UUID dedup"],
                 ["Görünürlük", "private (kullanıcı) · tenant (ekip) · executive (cross-vault sentez)"],
-                ["Editör",    "Web: Monaco + canlı önizleme · CLI: $EDITOR · Obsidian native uyumu"],
+                ["Editör",    "Web: Monaco + canlı önizleme · CLI: $EDITOR · markdown editör uyumu"],
                 ["Agentic katman", "agents/ · skills/ · commands/ · hooks/ · _templates/ · bin/"],
               ].map(([k, v]) => (
                 <div key={k} className="border-l border-[rgba(120,80,50,0.32)] pl-4">

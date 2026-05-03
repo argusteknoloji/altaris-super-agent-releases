@@ -92,7 +92,7 @@ export default function VaultsPage() {
         <div>
           <h1 className="text-2xl font-semibold">Vaults</h1>
           <p className="mt-1 text-sm text-neutral-400">
-            Argus knowledge vaults — Obsidian uyumlu, sunucu tarafı yönetilen.
+            Argus knowledge vaults — markdown tabanlı, sunucu tarafı yönetilen.
             CLI'dan da: <code className="font-mono text-orange-400">altaris vault create &lt;slug&gt;</code>
           </p>
         </div>

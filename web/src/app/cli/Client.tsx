@@ -534,9 +534,9 @@ export default function CliClient({
                       [{p.mode}]
                     </span>
                   </div>
-                  <code className="mt-3 block overflow-x-auto whitespace-nowrap text-[12.5px] text-[#9b9285]">
+                  <p className="mt-3 text-[12.5px] leading-relaxed text-[#9b9285]">
                     {p.example}
-                  </code>
+                  </p>
                   {p.tag && (
                     <span className="mt-3 inline-block rounded-sm border border-[rgba(155,208,126,0.4)] bg-[#0d100a] px-2 py-0.5 text-[9px] uppercase tracking-[0.22em] text-[#9bd07e]">
                       {p.tag}

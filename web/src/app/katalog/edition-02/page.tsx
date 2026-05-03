@@ -589,7 +589,7 @@ export default function KatalogEdition2Page() {
               {[
                 ["Görünürlük",     "Private (kullanıcı) · Tenant (ekip) · Executive (yönetim)"],
                 ["Arama",          "Tam metin + bulanık eşleşme · saniyenin altında yanıt"],
-                ["Format",         "Markdown · Obsidian uyumlu · doğal dosya hiyerarşisi"],
+                ["Format",         "Markdown · doğal dosya hiyerarşisi"],
                 ["Yetkilendirme",  "RBAC · vault başına granular kontrol"],
                 ["Versiyon",       "Sürüm geçmişi · değişiklik denetim izi"],
                 ["Entegrasyon",    "MCP server adaptörleri · kurum içi sistemlerle köprü"],
