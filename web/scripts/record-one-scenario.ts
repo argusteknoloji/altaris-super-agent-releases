@@ -12,11 +12,13 @@ import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync, copyFileSync, rmSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
-const [, , URL_PATH, SLUG, VAULT_DIR] = process.argv;
+const [, , URL_PATH, SLUG, VAULT_DIR, LANG_RAW] = process.argv;
 if (!URL_PATH || !SLUG || !VAULT_DIR) {
-  console.error("usage: bun record-one-scenario.ts <url-path> <slug> <vault-dir>");
+  console.error("usage: bun record-one-scenario.ts <url-path> <slug> <vault-dir> [lang]");
+  console.error("  lang: 'tr' (default) or 'en' — affects public/scenarios subdirectory and vault filename suffix");
   process.exit(2);
 }
+const LANG = (LANG_RAW === "en" ? "en" : "tr") as "tr" | "en";
 
 const BASE = process.env.SENARYO_BASE ?? "http://localhost:3000";
 const WIDTH = parseInt(process.env.WIDTH ?? "1920", 10);
@@ -106,11 +108,16 @@ function muxToMp4(silent: string, audio: string, out: string): Promise<void> {
   console.log(`  🎬 mux → mp4`);
   await muxToMp4(silentPath, wavPath, mp4Local);
 
-  const mp4Vault = join(VAULT_DIR, `${SLUG}.mp4`);
+  // Vault: TR is "<slug>.mp4", EN is "<slug>-en.mp4" (avoid overwriting TR)
+  const vaultName = LANG === "en" ? `${SLUG}-en.mp4` : `${SLUG}.mp4`;
+  const mp4Vault = join(VAULT_DIR, vaultName);
   copyFileSync(mp4Local, mp4Vault);
 
-  // Repo public assets — bu sayede commit + push videoyu da içerir
-  const mp4Public = join("public", "scenarios", `${SLUG}.mp4`);
+  // Repo public assets — TR: public/scenarios/<slug>.mp4
+  //                       EN: public/scenarios/en/<slug>.mp4
+  const publicSubdir = LANG === "en" ? join("public", "scenarios", "en") : join("public", "scenarios");
+  mkdirSync(publicSubdir, { recursive: true });
+  const mp4Public = join(publicSubdir, `${SLUG}.mp4`);
   try {
     copyFileSync(mp4Local, mp4Public);
     console.log(`  ✓ ${mp4Public}`);

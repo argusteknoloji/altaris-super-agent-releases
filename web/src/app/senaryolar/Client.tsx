@@ -38,24 +38,35 @@ type ClientDict = {
   footer: { copy: string };
 };
 
-const SRC_BY_NUM: Record<string, string> = {
-  I:    "/scenarios/01-yonetici-sabahi.mp4",
-  II:   "/scenarios/02-gece-krizi.mp4",
-  III:  "/scenarios/03-boardroom.mp4",
-  IV:   "/scenarios/04-ilk-gun.mp4",
-  V:    "/scenarios/05-10dk-kala.mp4",
-  VI:   "/scenarios/06-imza-oncesi.mp4",
-  VII:  "/scenarios/07-sessiz-cikis.mp4",
-  VIII: "/scenarios/08-q4-hedefi.mp4",
-  IX:   "/scenarios/09-yatirim-karari.mp4",
-  X:    "/scenarios/10-denetim-hazir.mp4",
-  XI:   "/scenarios/11-yesil-sinir.mp4",
-  XII:  "/scenarios/12-aksam-vardiyasi.mp4",
-  XIII: "/scenarios/13-hat-durusu.mp4",
-  XIV:  "/scenarios/14-davaya-24-saat.mp4",
-  XV:   "/scenarios/15-komite-sabahi.mp4",
-  XVI:  "/scenarios/16-konteyner-gecikmesi.mp4",
+// Slug map — file slugs are language-neutral; only the asset directory changes
+// based on locale (TR → /scenarios, EN → /scenarios/en). EN videos must exist
+// at /public/scenarios/en/<slug>.mp4 — fallback to TR is handled in the
+// onError handler below.
+const SLUG_BY_NUM: Record<string, string> = {
+  I:    "01-yonetici-sabahi",
+  II:   "02-gece-krizi",
+  III:  "03-boardroom",
+  IV:   "04-ilk-gun",
+  V:    "05-10dk-kala",
+  VI:   "06-imza-oncesi",
+  VII:  "07-sessiz-cikis",
+  VIII: "08-q4-hedefi",
+  IX:   "09-yatirim-karari",
+  X:    "10-denetim-hazir",
+  XI:   "11-yesil-sinir",
+  XII:  "12-aksam-vardiyasi",
+  XIII: "13-hat-durusu",
+  XIV:  "14-davaya-24-saat",
+  XV:   "15-komite-sabahi",
+  XVI:  "16-konteyner-gecikmesi",
 };
+
+function srcFor(num: string, locale: Locale): string {
+  const slug = SLUG_BY_NUM[num];
+  if (!slug) return "";
+  const dir = locale === "en" ? "/scenarios/en" : "/scenarios";
+  return `${dir}/${slug}.mp4`;
+}
 
 export default function SenaryolarClient({
   scenes,
@@ -80,11 +91,11 @@ export default function SenaryolarClient({
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
-    const desired = SRC_BY_NUM[scenes[active].num];
+    const desired = srcFor(scenes[active].num, locale);
     if (!desired) return;
     if (!v.src.endsWith(desired)) v.src = desired;
     v.play().catch(() => {});
-  }, [active, scenes]);
+  }, [active, scenes, locale]);
 
   // sync mute
   useEffect(() => {
@@ -379,7 +390,7 @@ export default function SenaryolarClient({
                   <video
                     ref={videoRef}
                     className="h-full w-full object-cover"
-                    src={SRC_BY_NUM[scenes[0].num]}
+                    src={srcFor(scenes[0].num, locale)}
                     muted
                     playsInline
                     preload="metadata"
@@ -387,6 +398,15 @@ export default function SenaryolarClient({
                     onPlay={() => setPlaying(true)}
                     onPause={() => setPlaying(false)}
                     onEnded={() => setActive((i) => (i + 1) % scenes.length)}
+                    onError={(e) => {
+                      // EN video missing → fallback to TR
+                      const v = e.currentTarget;
+                      const trSrc = srcFor(scenes[active].num, "tr");
+                      if (locale === "en" && !v.src.endsWith(trSrc)) {
+                        v.src = trSrc;
+                        v.play().catch(() => {});
+                      }
+                    }}
                     onTimeUpdate={(e) => {
                       const v = e.currentTarget;
                       if (v.duration) setProgress((v.currentTime / v.duration) * 100);
