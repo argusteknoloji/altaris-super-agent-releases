@@ -152,40 +152,56 @@ export default function SenaryolarClient({
     const el = frameRef.current;
     const v  = videoRef.current;
     if (!el && !v) return;
-    // Aktif fullscreen var mı? (standart + webkit)
-    const fsActive = document.fullscreenElement
-      // @ts-expect-error — Safari prefix
-      || document.webkitFullscreenElement
-      // @ts-expect-error — iOS Safari
-      || document.webkitCurrentFullScreenElement;
+
+    type FsDoc = Document & {
+      webkitFullscreenElement?: Element | null;
+      webkitCurrentFullScreenElement?: Element | null;
+      webkitExitFullscreen?: () => Promise<void> | void;
+    };
+    type FsEl = HTMLElement & {
+      webkitRequestFullscreen?: () => Promise<void> | void;
+    };
+    type FsVid = HTMLVideoElement & {
+      webkitEnterFullscreen?: () => void;
+    };
+
+    const doc = document as FsDoc;
+    const fsActive =
+      doc.fullscreenElement ||
+      doc.webkitFullscreenElement ||
+      doc.webkitCurrentFullScreenElement;
 
     if (fsActive) {
-      (document.exitFullscreen
-        // @ts-expect-error — Safari prefix
-        ?? document.webkitExitFullscreen?.bind(document))?.();
+      (doc.exitFullscreen?.bind(doc) ?? doc.webkitExitFullscreen?.bind(doc))?.();
       return;
     }
 
     setEngaged(true);
     setMuted(false);
 
-    // iOS Safari div fullscreen desteklemiyor — sadece <video>'nun
-    // webkitEnterFullscreen() metodu çalışır. macOS Safari div fullscreen
-    // için webkitRequestFullscreen prefix'ine ihtiyaç duyar.
-    // @ts-expect-error — iOS Safari only
-    const iosVideoFs = v?.webkitEnterFullscreen as (() => void) | undefined;
-    const elReq = el?.requestFullscreen
-      // @ts-expect-error — Safari prefix
-      ?? el?.webkitRequestFullscreen?.bind(el);
+    // Element üzerinde method'u DOĞRUDAN çağırmak şart — `const f = el.requestFullscreen`
+    // gibi referans alıp çağırmak `Illegal invocation` atar (this kaybolur).
+    // Sırayla deneriz: standart → webkit prefix → iOS Safari video native.
+    const fEl = el as FsEl | null;
+    const fV  = v as FsVid | null;
 
-    if (elReq) {
-      Promise.resolve(elReq()).catch(() => {
-        // div fullscreen reddedildi (iOS Safari) → video native fullscreen'e düş
-        if (iosVideoFs) iosVideoFs();
-      });
-    } else if (iosVideoFs) {
-      iosVideoFs();
-    }
+    const tryDivFs = async () => {
+      if (fEl?.requestFullscreen) {
+        await fEl.requestFullscreen();
+        return true;
+      }
+      if (fEl?.webkitRequestFullscreen) {
+        await fEl.webkitRequestFullscreen();
+        return true;
+      }
+      return false;
+    };
+
+    tryDivFs().catch(() => {
+      // div fullscreen reddedildi (iOS Safari) → video native fullscreen'e düş
+      if (fV?.webkitEnterFullscreen) fV.webkitEnterFullscreen();
+      else if (fV?.requestFullscreen) fV.requestFullscreen().catch(() => {});
+    });
   };
 
   const onRowEnter = (i: number) => { if (!engaged) setActive(i); };
@@ -242,10 +258,26 @@ export default function SenaryolarClient({
         .pulse-dot { animation: ember_pulse 1.6s infinite; }
 
         /* Fullscreen — frame fills the whole viewport */
+        /* Default frame ratio — kept in CSS rather than Tailwind so :fullscreen
+           can override it without specificity gymnastics. */
+        .stage-frame { aspect-ratio: 16 / 10; }
         .stage-frame:fullscreen,
-        .stage-frame:-webkit-full-screen { width: 100vw; height: 100vh; aspect-ratio: auto; border-radius: 0; border: 0; }
+        .stage-frame:-webkit-full-screen {
+          width: 100vw; height: 100vh;
+          aspect-ratio: auto;
+          max-width: none; max-height: none;
+          border-radius: 0; border: 0;
+          background: #000;
+        }
         .stage-frame:fullscreen video,
-        .stage-frame:-webkit-full-screen video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+        .stage-frame:-webkit-full-screen video {
+          width: 100%; height: 100%;
+          object-fit: contain;
+          background: #000;
+        }
+        /* Overlay'ler fullscreen'de de görünür kalsın */
+        .stage-frame:fullscreen .fs-hide,
+        .stage-frame:-webkit-full-screen .fs-hide { display: none; }
       `}</style>
 
       <main className="relative min-h-screen overflow-x-hidden bg-[#0a0908] font-mono text-[#ddd8d0] antialiased">
@@ -386,7 +418,7 @@ export default function SenaryolarClient({
               <div className="lg:sticky lg:top-6">
                 <div
                   ref={frameRef}
-                  className="stage-frame relative aspect-[16/10] overflow-hidden rounded-md border border-[rgba(120,80,50,0.32)] bg-[#0d0b0a] shadow-[0_60px_80px_-40px_rgba(0,0,0,0.6),inset_0_0_0_1px_rgba(255,255,255,0.02)]"
+                  className="stage-frame relative overflow-hidden rounded-md border border-[rgba(120,80,50,0.32)] bg-[#0d0b0a] shadow-[0_60px_80px_-40px_rgba(0,0,0,0.6),inset_0_0_0_1px_rgba(255,255,255,0.02)]"
                 >
                   <video
                     ref={videoRef}
