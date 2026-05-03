@@ -123,14 +123,56 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
   async function newFile() {
     const path = prompt("Yeni dosya yolu (ör. wiki/concepts/yeni-not.md):", "wiki/concepts/yeni-not.md");
     if (!path) return;
+    await writeFile(path, `# ${path.split("/").pop()?.replace(/\.md$/, "")}\n`);
+  }
+
+  async function writeFile(path: string, content: string) {
     setBusy(true); setError(null);
     const r = await fetch(`/api/proxy/vaults/${slug}/file`, {
       method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path, content: `# ${path.split("/").pop()?.replace(/\.md$/, "")}\n` })
+      body: JSON.stringify({ path, content })
     });
     if (!r.ok) setError(await r.text());
     else { await loadTree(); openFile(path); }
     setBusy(false);
+  }
+
+  /**
+   * Altaris CLI'nin proje konvansiyonu — bu vault içinde:
+   *   .mcp.json                          MCP server config (Claude Code uyumlu)
+   *   .altaris/skills/{name}/SKILL.md    Proje skill'i (frontmatter + body)
+   *   .altaris/agents/{name}.md          Sub-agent (frontmatter + body)
+   *   ALTARIS.md veya CLAUDE.md          Proje instruction (root)
+   */
+  async function quickCreateMcp() {
+    const exists = tree.some(t => t.path === ".mcp.json");
+    if (exists) { openFile(".mcp.json"); return; }
+    const tmpl = JSON.stringify({
+      mcpServers: {
+        "example-gmail": {
+          command: "npx",
+          args: ["-y", "@modelcontextprotocol/server-gmail"],
+          env: { GMAIL_CREDENTIALS_PATH: "~/.altaris/gmail.json" }
+        }
+      }
+    }, null, 2);
+    await writeFile(".mcp.json", tmpl);
+  }
+
+  async function quickCreateSkill() {
+    const name = prompt("Skill adı (slug, ör: ingest-pdf):");
+    if (!name) return;
+    const safe = name.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+    const tmpl = `---\nname: ${safe}\ndescription: Bu skill'in ne işe yaradığını 1-2 cümlede yaz. Triggering keywords + output expectations.\n---\n\n# ${safe}\n\n## Ne yapar\nKısaca açıkla.\n\n## Adımlar\n1. ...\n2. ...\n\n## Örnek kullanım\n\`\`\`\n[user prompt'u]\n\`\`\`\n`;
+    await writeFile(`.altaris/skills/${safe}/SKILL.md`, tmpl);
+  }
+
+  async function quickCreateAgent() {
+    const name = prompt("Sub-agent adı (slug, ör: code-reviewer):");
+    if (!name) return;
+    const safe = name.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+    const tmpl = `---\nname: ${safe}\ndescription: Bu sub-agent ne için. Hangi durumda main agent bunu spawn etmeli.\ntools: Read, Grep, Glob, Bash\nmodel: claude-sonnet-4-6\n---\n\nSen ${safe} sub-agent'sın. Görevin:\n\n- ...\n- ...\n\nÇıktı formatın:\n\n\`\`\`\n[expected output schema]\n\`\`\`\n`;
+    await writeFile(`.altaris/agents/${safe}.md`, tmpl);
   }
 
   async function runSearch(q: string) {
@@ -164,6 +206,15 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
               {showPreview ? "Preview kapat" : "Preview aç"}
             </button>
           )}
+          <button onClick={quickCreateMcp} disabled={busy} className="rounded-md border border-blue-500/40 px-3 py-1 text-xs text-blue-300 hover:bg-blue-500/10" title=".mcp.json oluştur veya aç (CLI projede otomatik yükler)">
+            📦 MCP
+          </button>
+          <button onClick={quickCreateSkill} disabled={busy} className="rounded-md border border-emerald-500/40 px-3 py-1 text-xs text-emerald-300 hover:bg-emerald-500/10" title=".altaris/skills/ altına yeni skill template'i oluştur">
+            🧠 Skill
+          </button>
+          <button onClick={quickCreateAgent} disabled={busy} className="rounded-md border border-purple-500/40 px-3 py-1 text-xs text-purple-300 hover:bg-purple-500/10" title=".altaris/agents/ altına yeni sub-agent template'i oluştur">
+            🤖 Sub-agent
+          </button>
           <button onClick={newFile} disabled={busy} className="rounded-md border border-neutral-700 px-3 py-1 text-xs text-neutral-200 hover:bg-neutral-800">
             + Dosya
           </button>

@@ -50,8 +50,11 @@ const SRC_BY_NUM: Record<string, string> = {
   IX:   "/scenarios/09-yatirim-karari.mp4",
   X:    "/scenarios/10-denetim-hazir.mp4",
   XI:   "/scenarios/11-yesil-sinir.mp4",
-  XII:  "/scenarios/12-meb-brifi.mp4",
-  XIII: "/scenarios/13-yonerge-gecisi.mp4",
+  XII:  "/scenarios/12-aksam-vardiyasi.mp4",
+  XIII: "/scenarios/13-hat-durusu.mp4",
+  XIV:  "/scenarios/14-davaya-24-saat.mp4",
+  XV:   "/scenarios/15-komite-sabahi.mp4",
+  XVI:  "/scenarios/16-konteyner-gecikmesi.mp4",
 };
 
 export default function SenaryolarClient({
@@ -517,7 +520,7 @@ export default function SenaryolarClient({
               <span className="text-[#3a342d]">·</span>
               <span className="inline-flex items-center gap-1.5">
                 <span aria-hidden className="size-1 rounded-full bg-[#f08c50] pulse-dot" />
-                xiii
+                xvi
               </span>
             </div>
             <div>{d.footer.copy}</div>
