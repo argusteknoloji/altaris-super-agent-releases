@@ -4495,6 +4495,11 @@ Examples:
       process.stderr.write(`[argus] register failed: ${(e as Error).message}\n`);
     }
   }
+  // Debug aid: ALTARIS_DEBUG=1 ile commander dispatch izle
+  if (process.env.ALTARIS_DEBUG === '1') {
+    process.stderr.write(`[altaris-debug] argv: ${JSON.stringify(process.argv.slice(2))}\n`);
+    process.stderr.write(`[altaris-debug] commands: ${program.commands.map(c => c.name()).slice(0, 40).join(',')}\n`);
+  }
   profileCheckpoint('run_before_parse');
   await program.parseAsync(process.argv);
   profileCheckpoint('run_after_parse');
