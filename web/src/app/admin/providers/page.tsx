@@ -68,6 +68,9 @@ export default function ProvidersPage() {
       <h2 className="text-2xl font-semibold">Provider config</h2>
       <p className="mt-1 text-sm text-neutral-400">Tenant için model provider endpoint + API anahtarlarını yönet. Lokal LLM (Ollama, LM Studio) için API anahtarı gereksiz.</p>
 
+      {/* OAuth bağlantı kartı — Claude/Codex için tek-tık (CLI'sız) */}
+      <OAuthConnectCards onConnected={load} />
+
       <form onSubmit={save} className={`mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3 rounded-lg border p-4 md:grid-cols-6 ${editing ? "border-orange-500/40 bg-orange-500/5" : "border-neutral-800 bg-neutral-900/40"}`}>
         {editing && (
           <div className="md:col-span-6 flex items-center justify-between text-xs">
@@ -124,6 +127,207 @@ export default function ProvidersPage() {
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+/* ─── OAuth bağlantı kartları ─────────────────────────────────────────── */
+
+function OAuthConnectCards({ onConnected }: { onConnected: () => void }) {
+  const [claudeOpen, setClaudeOpen] = useState(false);
+  const [codexHelpOpen, setCodexHelpOpen] = useState(false);
+
+  return (
+    <>
+      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <button
+          onClick={() => setClaudeOpen(true)}
+          className="rounded-lg border border-purple-500/40 bg-purple-500/10 p-4 text-left hover:bg-purple-500/15 transition"
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">🟣</span>
+            <div className="flex-1">
+              <div className="font-medium text-purple-200">Claude bağla (OAuth)</div>
+              <div className="text-xs text-neutral-400 mt-0.5">Anthropic Claude — claude.com hesabı ile tek-tık. Token süresi otomatik tazelenir.</div>
+            </div>
+            <span className="text-purple-300">→</span>
+          </div>
+        </button>
+
+        <button
+          onClick={() => setCodexHelpOpen(true)}
+          className="rounded-lg border border-emerald-500/40 bg-emerald-500/10 p-4 text-left hover:bg-emerald-500/15 transition"
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">🟢</span>
+            <div className="flex-1">
+              <div className="font-medium text-emerald-200">Codex bağla (OAuth)</div>
+              <div className="text-xs text-neutral-400 mt-0.5">OpenAI Codex / ChatGPT Plus — sadece CLI üzerinden (auth.openai.com loopback gerektiriyor).</div>
+            </div>
+            <span className="text-emerald-300">→</span>
+          </div>
+        </button>
+      </div>
+
+      {claudeOpen && <ClaudeConnectModal onClose={() => setClaudeOpen(false)} onConnected={() => { setClaudeOpen(false); onConnected(); }} />}
+      {codexHelpOpen && <CodexHelpModal onClose={() => setCodexHelpOpen(false)} />}
+    </>
+  );
+}
+
+function ClaudeConnectModal({ onClose, onConnected }: { onClose: () => void; onConnected: () => void }) {
+  const [step, setStep] = useState<"start" | "paste" | "done">("start");
+  const [authorizeUrl, setAuthorizeUrl] = useState("");
+  const [state, setState] = useState("");
+  const [code, setCode] = useState("");
+  const [makeDefault, setMakeDefault] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [result, setResult] = useState<{ name?: string; email?: string } | null>(null);
+
+  async function start() {
+    setBusy(true); setErr(null);
+    try {
+      const r = await fetch("/api/proxy/admin/oauth-start-claude", { method: "POST" });
+      if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+      const j = await r.json();
+      setAuthorizeUrl(j.authorizeUrl);
+      setState(j.state);
+      setStep("paste");
+      // Otomatik yeni sekme aç
+      window.open(j.authorizeUrl, "_blank", "noopener,noreferrer");
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  async function exchange() {
+    if (!code.trim()) { setErr("Kodu yapıştır"); return; }
+    setBusy(true); setErr(null);
+    try {
+      const r = await fetch("/api/proxy/admin/oauth-exchange-claude", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: code.trim(), state, makeDefault, model: null }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
+      const j = await r.json();
+      setResult({ name: j.name, email: j.email });
+      setStep("done");
+    } catch (e) { setErr((e as Error).message); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div className="w-full max-w-xl rounded-lg border border-neutral-800 bg-neutral-950 p-6" onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between mb-4">
+          <h2 className="text-lg font-semibold">🟣 Claude OAuth bağlantısı</h2>
+          <button onClick={onClose} className="text-2xl text-neutral-500 hover:text-neutral-200 leading-none">×</button>
+        </div>
+
+        {step === "start" && (
+          <>
+            <ol className="text-sm text-neutral-300 space-y-2 mb-5 ml-5 list-decimal">
+              <li>Aşağıdaki butona tıkla → Anthropic OAuth sayfası yeni sekmede açılır</li>
+              <li>claude.com hesabınla giriş yap, "Authorize"a bas</li>
+              <li>Anthropic seni <code className="bg-neutral-800 px-1 rounded">platform.claude.com/oauth/code/callback</code>'e yönlendirir, ekranda kod gösterilir</li>
+              <li>O kodu kopyala, bu modal'a yapıştır → Bağla</li>
+            </ol>
+            {err && <div className="mb-3 rounded border border-red-700 bg-red-950/40 px-3 py-2 text-xs text-red-300">{err}</div>}
+            <button onClick={start} disabled={busy} className="w-full rounded bg-purple-500 hover:bg-purple-400 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+              {busy ? "Hazırlanıyor…" : "Anthropic OAuth'u aç →"}
+            </button>
+          </>
+        )}
+
+        {step === "paste" && (
+          <>
+            <div className="mb-3 rounded border border-amber-600/40 bg-amber-950/20 p-3 text-xs text-amber-200">
+              ⚠ Yeni sekme açılmadıysa <a href={authorizeUrl} target="_blank" rel="noreferrer" className="underline">manuel link</a>.
+            </div>
+            <label className="block text-xs text-neutral-400 mb-1">Anthropic'in verdiği kodu yapıştır</label>
+            <textarea
+              value={code}
+              onChange={e => setCode(e.target.value)}
+              placeholder="ör. abc123def456..."
+              rows={3}
+              className="w-full rounded bg-neutral-900 border border-neutral-700 px-3 py-2 text-xs font-mono"
+              autoFocus
+            />
+            <label className="mt-3 flex items-center gap-2 text-xs">
+              <input type="checkbox" checked={makeDefault} onChange={e => setMakeDefault(e.target.checked)} />
+              <span>Tenant için default Claude provider yap</span>
+            </label>
+            {err && <div className="mt-3 rounded border border-red-700 bg-red-950/40 px-3 py-2 text-xs text-red-300">{err}</div>}
+            <div className="mt-4 flex gap-2 justify-end">
+              <button onClick={() => setStep("start")} className="rounded border border-neutral-700 px-3 py-1.5 text-xs hover:bg-neutral-800">Geri</button>
+              <button onClick={exchange} disabled={busy || !code.trim()} className="rounded bg-purple-500 hover:bg-purple-400 px-4 py-1.5 text-xs font-medium text-white disabled:opacity-50">
+                {busy ? "Bağlanıyor…" : "Bağla"}
+              </button>
+            </div>
+          </>
+        )}
+
+        {step === "done" && (
+          <>
+            <div className="rounded border border-emerald-600/40 bg-emerald-950/20 p-4 mb-4">
+              <div className="text-sm text-emerald-200 font-medium mb-1">✓ Bağlandı</div>
+              <div className="text-xs text-neutral-300">
+                <div><span className="text-neutral-500">Hesap:</span> {result?.email ?? "—"}</div>
+                <div><span className="text-neutral-500">Provider adı:</span> {result?.name ?? "—"}</div>
+              </div>
+            </div>
+            <button onClick={onConnected} className="w-full rounded bg-purple-500 hover:bg-purple-400 px-4 py-2 text-sm font-medium text-white">
+              Kapat ve listeyi yenile
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CodexHelpModal({ onClose }: { onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  const cmd = "altaris provider connect codex --tenant " + (typeof window !== "undefined" ? window.location.host.split('.')[0] : "<tenant>");
+  function copy() {
+    navigator.clipboard.writeText(cmd).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1800); });
+  }
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+      <div className="w-full max-w-xl rounded-lg border border-neutral-800 bg-neutral-950 p-6" onClick={e => e.stopPropagation()}>
+        <div className="flex items-start justify-between mb-4">
+          <h2 className="text-lg font-semibold">🟢 Codex OAuth — CLI gerekiyor</h2>
+          <button onClick={onClose} className="text-2xl text-neutral-500 hover:text-neutral-200 leading-none">×</button>
+        </div>
+
+        <p className="text-sm text-neutral-300 mb-3">
+          OpenAI Codex / ChatGPT Plus OAuth'u <code className="bg-neutral-800 px-1 rounded">auth.openai.com</code> sadece
+          <em> loopback callback</em> (http://localhost:1455/...) kabul ediyor — web'den doğrudan başlatılamıyor.
+          Şuna ihtiyacın var:
+        </p>
+
+        <ol className="text-xs text-neutral-300 space-y-1 mb-4 ml-5 list-decimal">
+          <li>Bir laptopta/desktop'ta CLI kurulu olsun (<code className="bg-neutral-800 px-1 rounded">altaris</code> binary)</li>
+          <li>Şu komutu çalıştır:</li>
+        </ol>
+
+        <div className="flex items-center gap-2 mb-3">
+          <code className="flex-1 rounded bg-neutral-900 border border-neutral-800 px-3 py-2 text-xs font-mono text-emerald-200 overflow-x-auto">{cmd}</code>
+          <button onClick={copy} className="rounded bg-neutral-800 hover:bg-neutral-700 px-3 py-2 text-xs">
+            {copied ? "✓" : "📋 kopyala"}
+          </button>
+        </div>
+
+        <p className="text-xs text-neutral-400">
+          CLI tarayıcı açar, OAuth tamamlanır, token bu platforma POST edilir → providers listesinde görünür.
+          OpenAI domain'ini whitelist'e ekleyene kadar web tek-tık desteklenmiyor.
+        </p>
+
+        <button onClick={onClose} className="mt-4 w-full rounded border border-neutral-700 px-4 py-2 text-sm hover:bg-neutral-900">
+          Tamam
+        </button>
       </div>
     </div>
   );

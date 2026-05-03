@@ -547,6 +547,7 @@ try
     app.MapInviteEndpoints();
     app.MapMeEndpoints();
     app.MapCodexProviderEndpoints();
+    app.MapOAuthConnectEndpoints();
     app.MapExecutiveBrainEndpoints();
     app.MapDataSourceEndpoints();
     app.MapWebhookEndpoints();
