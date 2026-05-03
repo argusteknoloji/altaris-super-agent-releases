@@ -230,36 +230,38 @@ export function SenaryoPlayer({
     setProgress(0);
   }
 
-  // Fullscreen toggle — mobile + desktop. iOS Safari div fullscreen'i sınırlı
-  // destekler; o nedenle bir CSS fallback class'ı (data-pseudo-fullscreen)
-  // ekliyoruz: viewport'u tam dolduran fixed pozisyonlu mod.
-  async function toggleFullscreen() {
+  // Fullscreen toggle — native FS'i <main> üzerinde dener; ayrıca pseudo-FS
+  // attribute'unu HER zaman toggle'lar (CSS fallback). Böylece native başarılı
+  // olsa da olmasa da görsel feedback garanti.
+  function toggleFullscreen() {
     const root = document.documentElement;
-    // Önce native API'yi dene
-    const isFs = !!document.fullscreenElement ||
-      !!(document as unknown as { webkitFullscreenElement?: Element }).webkitFullscreenElement;
+    const target = (document.querySelector("main") as HTMLElement | null) ?? root;
+    const isFs = !!document.fullscreenElement
+      || !!(document as unknown as { webkitFullscreenElement?: Element }).webkitFullscreenElement;
+    const cur = root.getAttribute("data-pseudo-fullscreen") === "1";
+
+    // CSS pseudo-FS attribute'unu her durumda güncelle (sync, garanti çalışır)
+    if (cur) root.removeAttribute("data-pseudo-fullscreen");
+    else root.setAttribute("data-pseudo-fullscreen", "1");
+
+    // Native FS sync çağır — promise reject olursa sessizce yut, pseudo zaten devrede
     try {
       if (!isFs) {
-        if (root.requestFullscreen) {
-          await root.requestFullscreen();
-        } else {
-          const wk = root as unknown as { webkitRequestFullscreen?: () => Promise<void> };
-          if (wk.webkitRequestFullscreen) await wk.webkitRequestFullscreen();
-          else throw new Error("not supported");
-        }
+        const req = (target as HTMLElement & {
+          requestFullscreen?: () => Promise<void>;
+          webkitRequestFullscreen?: () => Promise<void> | void;
+        });
+        const p = req.requestFullscreen?.() ?? req.webkitRequestFullscreen?.();
+        if (p && typeof (p as Promise<void>).catch === "function") (p as Promise<void>).catch(() => {});
       } else {
-        if (document.exitFullscreen) await document.exitFullscreen();
-        else {
-          const wk = document as unknown as { webkitExitFullscreen?: () => Promise<void> };
-          if (wk.webkitExitFullscreen) await wk.webkitExitFullscreen();
-        }
+        const ex = (document as Document & {
+          exitFullscreen?: () => Promise<void>;
+          webkitExitFullscreen?: () => Promise<void> | void;
+        });
+        const p = ex.exitFullscreen?.() ?? ex.webkitExitFullscreen?.();
+        if (p && typeof (p as Promise<void>).catch === "function") (p as Promise<void>).catch(() => {});
       }
-    } catch {
-      // iOS Safari fallback — pseudo-fullscreen via CSS attribute
-      const cur = root.getAttribute("data-pseudo-fullscreen");
-      if (cur === "1") root.removeAttribute("data-pseudo-fullscreen");
-      else root.setAttribute("data-pseudo-fullscreen", "1");
-    }
+    } catch { /* native FS desteklenmiyor — pseudo zaten aktif */ }
   }
 
   if (phase === "recording") return null;
