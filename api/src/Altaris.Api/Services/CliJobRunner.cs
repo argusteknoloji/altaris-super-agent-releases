@@ -54,10 +54,42 @@ public static class CliJobRunner
         psi.ArgumentList.Add("--output-format=json");
 
         // Provider env eşlemesi — CLI bootstrap.ts bu env'lerden provider kurar.
-        psi.EnvironmentVariables["HOME"] = altarisHome.TrimEnd('/').EndsWith("/.altaris")
+        var homeDir = altarisHome.TrimEnd('/').EndsWith("/.altaris")
             ? altarisHome[..^9]   // /srv/altaris/.altaris → /srv/altaris (HOME)
             : altarisHome;
+        psi.EnvironmentVariables["HOME"] = homeDir;
         ApplyProviderEnv(psi.EnvironmentVariables, provider, llmModel);
+
+        // Codex OAuth: CLI'nin codex code path'i ~/.codex/auth.json bekliyor.
+        // DB'deki refresh + access tokenlardan dosyayı subprocess başlamadan
+        // önce yaz. Read-only mount değilse (vault root yazılabilir) sorun yok.
+        if (provider.Provider.Equals("codex", StringComparison.OrdinalIgnoreCase)
+            && provider.AuthKind == "oauth"
+            && !string.IsNullOrEmpty(provider.RefreshTokenEnc))
+        {
+            try
+            {
+                var codexDir = Path.Combine(homeDir, ".codex");
+                Directory.CreateDirectory(codexDir);
+                var authPath = Path.Combine(codexDir, "auth.json");
+                // Codex auth.json minimal şeması — CLI accessToken expired ise
+                // refreshToken ile yeniler. account_id zorunlu.
+                var auth = new
+                {
+                    OPENAI_API_KEY = (string?)null,
+                    tokens = new
+                    {
+                        id_token = provider.IdTokenEnc ?? "",
+                        access_token = provider.ApiKeyEnc ?? "",
+                        refresh_token = provider.RefreshTokenEnc,
+                        account_id = provider.AccountId ?? ""
+                    },
+                    last_refresh = (provider.LastRefreshedAt ?? DateTimeOffset.UtcNow).ToString("O")
+                };
+                await File.WriteAllTextAsync(authPath, JsonSerializer.Serialize(auth), ct);
+            }
+            catch { /* sessizce devam — CLI auth.json yoksa kendi hata mesajını döner */ }
+        }
 
         using var proc = new Process { StartInfo = psi };
         var stdoutSb = new StringBuilder();
