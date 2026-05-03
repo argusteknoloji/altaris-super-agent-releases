@@ -31,7 +31,90 @@ public static class VaultEndpoints
         app.MapGet   ("/api/v1/vaults/{slug}/semantic-search", SemanticSearch).RequireAuthorization(); // ?q=...&k=10
         app.MapPost  ("/api/v1/vaults/{slug}/reindex", ReindexAll).RequireAuthorization();   // tenant-admin reembed
         app.MapGet   ("/api/v1/vaults/{slug}/graph",   Graph).RequireAuthorization();
+        // Skill ZIP upload — multipart/form-data, .altaris/skills/{name}/ altına extract
+        app.MapPost  ("/api/v1/vaults/{slug}/upload-skill", UploadSkill)
+            .RequireAuthorization()
+            .DisableAntiforgery();
         return app;
+    }
+
+    /// <summary>
+    ///   ZIP içindeki dosyaları .altaris/skills/{name}/ altına extract eder.
+    ///   ZIP root'ta tek dizin varsa o skill name'i, aksi halde formdaki "name"
+    ///   alanı (yoksa filename'in stem'i). Path traversal koruması: her entry
+    ///   VaultStorage.SafeFilePath ile validate, .. veya / başlangıçlı path'ler reddedilir.
+    /// </summary>
+    private static async Task<IResult> UploadSkill(
+        string slug, HttpRequest request, ITenantContext tc, VaultStorage store,
+        CancellationToken ct)
+    {
+        if (tc.TenantSlug is null) return Results.Forbid();
+        if (!request.HasFormContentType) return Results.BadRequest(new { error = "multipart_required" });
+
+        var form = await request.ReadFormAsync(ct);
+        var file = form.Files.GetFile("file") ?? form.Files.FirstOrDefault();
+        if (file is null || file.Length == 0)
+            return Results.BadRequest(new { error = "file_required" });
+        if (file.Length > 50 * 1024 * 1024)
+            return Results.BadRequest(new { error = "file_too_large", max = "50MB" });
+
+        // Skill name resolve: form alanı > zip root dir > filename stem
+        var explicitName = form["name"].ToString().Trim();
+        var fallbackName = Path.GetFileNameWithoutExtension(file.FileName);
+        var skillName = !string.IsNullOrWhiteSpace(explicitName) ? explicitName : fallbackName;
+        skillName = new string(skillName.ToLowerInvariant()
+            .Where(c => char.IsLetterOrDigit(c) || c is '-' or '_').ToArray());
+        if (string.IsNullOrEmpty(skillName))
+            return Results.BadRequest(new { error = "invalid_skill_name" });
+
+        var targetRoot = $".altaris/skills/{skillName}";
+        var written = new List<string>();
+        bool sawSkillMd = false;
+
+        await using var stream = file.OpenReadStream();
+        using var zip = new System.IO.Compression.ZipArchive(stream, System.IO.Compression.ZipArchiveMode.Read);
+
+        // ZIP root'ta tek dir varsa onu strip et (skill-name/ -> .../skills/X/)
+        var topDirs = zip.Entries
+            .Where(e => !string.IsNullOrEmpty(e.FullName))
+            .Select(e => e.FullName.Split('/', '\\')[0])
+            .Distinct().ToList();
+        var stripPrefix = (topDirs.Count == 1 && zip.Entries.All(e => e.FullName.Length == 0
+                          || e.FullName.StartsWith(topDirs[0] + "/")
+                          || e.FullName.StartsWith(topDirs[0] + "\\")))
+            ? topDirs[0] + "/" : null;
+
+        foreach (var entry in zip.Entries)
+        {
+            if (string.IsNullOrEmpty(entry.Name)) continue;            // dizin
+            if (entry.Length > 10 * 1024 * 1024) continue;             // tek dosya max 10MB
+            var relRaw = stripPrefix is not null && entry.FullName.StartsWith(stripPrefix)
+                ? entry.FullName[stripPrefix.Length..]
+                : entry.FullName;
+            relRaw = relRaw.Replace('\\', '/').TrimStart('/');
+            if (relRaw.Contains("..")) continue;                       // traversal koru
+            var rel = $"{targetRoot}/{relRaw}";
+
+            // SafeFilePath traversal'ı zaten reddeder; ekstra güvence.
+            string fullPath;
+            try { fullPath = store.SafeFilePath(tc.TenantSlug, slug, rel); }
+            catch { continue; }
+
+            Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+            await using var dst = File.Create(fullPath);
+            await using var src = entry.Open();
+            await src.CopyToAsync(dst, ct);
+            written.Add(rel);
+            if (relRaw.Equals("SKILL.md", StringComparison.OrdinalIgnoreCase)) sawSkillMd = true;
+        }
+
+        if (!sawSkillMd)
+        {
+            return Results.BadRequest(new { error = "skill_md_missing", written = written.Count,
+                hint = "ZIP root'unda SKILL.md olmalı (veya tek dizin altında)" });
+        }
+
+        return Results.Ok(new { skill = skillName, path = targetRoot, files = written.Count });
     }
 
     // ─── REST ────────────────────────────────────────────────────────────────

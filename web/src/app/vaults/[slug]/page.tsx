@@ -167,6 +167,53 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
     await writeFile(`.altaris/skills/${safe}/SKILL.md`, tmpl);
   }
 
+  async function uploadSkillZip(file: File) {
+    if (!file.name.toLowerCase().endsWith(".zip")) {
+      setError("ZIP dosyası seçin"); return;
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      setError("Dosya çok büyük (max 50MB)"); return;
+    }
+    const explicitName = prompt(
+      `Skill adı (slug, boş bırakırsan ZIP içindeki dizin/dosya adı kullanılır):`,
+      file.name.replace(/\.zip$/i, "").toLowerCase().replace(/[^a-z0-9-]/g, "-")
+    );
+    setBusy(true); setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      if (explicitName) fd.append("name", explicitName);
+      const r = await fetch(`/api/proxy/vaults/${slug}/upload-skill`, {
+        method: "POST", body: fd,
+      });
+      if (!r.ok) {
+        const txt = await r.text();
+        setError(`Upload fail: ${txt}`);
+      } else {
+        const out = await r.json() as { skill: string; path: string; files: number };
+        await loadTree();
+        // Skill'in SKILL.md'sini aç
+        openFile(`${out.path}/SKILL.md`);
+        alert(`✓ Skill yüklendi: ${out.skill} (${out.files} dosya)`);
+      }
+    } catch (e) {
+      setError(`Upload hatası: ${(e as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function pickSkillZip() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".zip,application/zip";
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (file) uploadSkillZip(file);
+    };
+    input.click();
+  }
+
   async function quickCreateAgent() {
     const name = prompt("Sub-agent adı (slug, ör: code-reviewer):");
     if (!name) return;
@@ -211,6 +258,9 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
           </button>
           <button onClick={quickCreateSkill} disabled={busy} className="rounded-md border border-emerald-500/40 px-3 py-1 text-xs text-emerald-300 hover:bg-emerald-500/10" title=".altaris/skills/ altına yeni skill template'i oluştur">
             🧠 Skill
+          </button>
+          <button onClick={pickSkillZip} disabled={busy} className="rounded-md border border-emerald-500/40 px-3 py-1 text-xs text-emerald-300 hover:bg-emerald-500/10" title="ZIP dosyasından skill yükle (.altaris/skills/{name}/ altına extract)">
+            📥 Skill ZIP
           </button>
           <button onClick={quickCreateAgent} disabled={busy} className="rounded-md border border-purple-500/40 px-3 py-1 text-xs text-purple-300 hover:bg-purple-500/10" title=".altaris/agents/ altına yeni sub-agent template'i oluştur">
             🤖 Sub-agent
