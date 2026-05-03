@@ -411,12 +411,19 @@ try
             .Where(s => s.Length > 0 && !s.StartsWith("--"))
             .ToArray();
 
+        // Raw ADO.NET — EF Core ExecuteSqlRawAsync SQL'i String.Format ile
+        // parse ediyor ve '{}'::jsonb gibi literal'leri parametre placeholder
+        // sanip patlatıyordu. NpgsqlCommand direkt çalıştırınca sorun yok.
+        var conn = db.Database.GetDbConnection();
+        await conn.OpenAsync();
         var ok = 0; var failed = 0;
         foreach (var stmt in statements)
         {
             try
             {
-                await db.Database.ExecuteSqlRawAsync(stmt);
+                await using var cmd = conn.CreateCommand();
+                cmd.CommandText = stmt;
+                await cmd.ExecuteNonQueryAsync();
                 ok++;
             }
             catch (Exception ex)
