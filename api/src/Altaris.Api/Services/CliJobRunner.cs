@@ -50,7 +50,10 @@ public static class CliJobRunner
         {
             FileName = "altaris",
             WorkingDirectory = vaultPath,
-            RedirectStandardInput = true,
+            // RedirectStandardInput=false → CLI stdin'i parent'tan inherit eder
+            // (container'da /dev/null). Yoksa CLI 3sn 'no stdin data received'
+            // warning yazıp ilerliyor → log gürültüsü.
+            RedirectStandardInput = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
