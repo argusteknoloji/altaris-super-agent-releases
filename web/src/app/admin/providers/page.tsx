@@ -183,6 +183,7 @@ function ClaudeConnectModal({ onClose, onConnected }: { onClose: () => void; onC
   const [state, setState] = useState("");
   const [code, setCode] = useState("");
   const [makeDefault, setMakeDefault] = useState(true);
+  const [model, setModel] = useState("claude-opus-4-7");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<{ name?: string; email?: string } | null>(null);
@@ -213,7 +214,7 @@ function ClaudeConnectModal({ onClose, onConnected }: { onClose: () => void; onC
       const r = await fetch("/api/proxy/admin/oauth-exchange-claude", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: code.trim(), state, makeDefault, model: null }),
+        body: JSON.stringify({ code: code.trim(), state, makeDefault, model }),
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}: ${await r.text()}`);
       const j = await r.json();
@@ -284,6 +285,22 @@ function ClaudeConnectModal({ onClose, onConnected }: { onClose: () => void; onC
               className="w-full rounded bg-neutral-900 border border-neutral-700 px-3 py-2 text-xs font-mono"
               autoFocus
             />
+            <div className="mt-3">
+              <label className="block text-xs text-neutral-400 mb-1">Varsayılan model</label>
+              <select
+                value={model}
+                onChange={e => setModel(e.target.value)}
+                className="w-full rounded bg-neutral-900 border border-neutral-700 px-3 py-2 text-xs"
+              >
+                <option value="claude-opus-4-7">Claude Opus 4.7 (en güçlü, yavaş + pahalı)</option>
+                <option value="claude-sonnet-4-6">Claude Sonnet 4.6 (dengeli — günlük iş)</option>
+                <option value="claude-haiku-4-5">Claude Haiku 4.5 (en hızlı + ucuz)</option>
+              </select>
+              <p className="mt-1 text-[10px] text-neutral-500">
+                Bu provider'ın varsayılan modeli. Executive Brain agent'ları kendi model alanını
+                set ederse onu override edebilir.
+              </p>
+            </div>
             <label className="mt-3 flex items-center gap-2 text-xs">
               <input type="checkbox" checked={makeDefault} onChange={e => setMakeDefault(e.target.checked)} />
               <span>Tenant için default Claude provider yap</span>
