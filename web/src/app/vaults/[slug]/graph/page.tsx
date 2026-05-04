@@ -34,6 +34,8 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
   useEffect(() => {
     let cancelled = false;
     let raf = 0;
+    let ro: ResizeObserver | null = null;
+    const cleanups: Array<() => void> = [];
 
     (async () => {
       try {
@@ -43,17 +45,13 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
         if (cancelled) return;
         setStats({ nodes: data.nodes.length, edges: data.edges.length });
 
-        const canvasNullable = canvasRef.current;
-        if (!canvasNullable) return;
-        const ctxNullable = canvasNullable.getContext("2d");
-        if (!ctxNullable) { setError("Canvas 2D context alinamadi"); return; }
-        const canvas = canvasNullable;
-        const ctx = ctxNullable;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { setError("Canvas 2D context alinamadi"); return; }
         const dpr = window.devicePixelRatio || 1;
 
-        // Layout settle bekle — canvas non-zero size alana kadar rAF poll.
-        // Next.js client-side route transition'da parent flex container
-        // ilk birkaç frame için 0 boyut verebiliyor. Max 30 frame bekle (~500ms).
+        // Layout settle bekle — flex parent ilk birkaç frame 0 boyut verebilir.
         let waitFrames = 0;
         let rect = canvas.getBoundingClientRect();
         while ((rect.width === 0 || rect.height === 0) && waitFrames < 30) {
@@ -67,31 +65,34 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
           return;
         }
 
-        // Per-tick fit — getBoundingClientRect her zaman gerçek pixel boyut verir.
-        // Sadece boyut değişince canvas.width/height set edilir (DPR re-init).
-        let lastW = 0, lastH = 0;
-        const fit = () => {
+        // Resize sadece ResizeObserver tetiklediğinde — per-tick fit yok.
+        // Tek seferde set + transform; sonraki resize'larda da paintNow() ile
+        // anında redraw → kararlı, flash yok.
+        let cssW = 0, cssH = 0;
+        const applyResize = () => {
           const r = canvas.getBoundingClientRect();
           const w = r.width, h = r.height;
           if (w === 0 || h === 0) return;
-          if (w !== lastW || h !== lastH) {
-            canvas.width  = Math.round(w * dpr);
-            canvas.height = Math.round(h * dpr);
+          // Sub-pixel oynamayı yut — sadece tam pixel değişince re-init
+          const targetW = Math.round(w * dpr);
+          const targetH = Math.round(h * dpr);
+          if (canvas.width !== targetW || canvas.height !== targetH) {
+            canvas.width  = targetW;
+            canvas.height = targetH;
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-            lastW = w; lastH = h;
           }
+          cssW = w; cssH = h;
         };
-        fit();
+        applyResize();
 
-        // Build sim nodes — gerçek canvas boyutu ile merkezle
+        // Build sim nodes — merkezle
         const nodeMap = new Map<string, Sim>();
-        const cx = lastW / 2;
-        const cy = lastH / 2;
+        const cx0 = cssW / 2, cy0 = cssH / 2;
         for (const n of data.nodes) {
           nodeMap.set(n.id, {
             node: n, degree: 0,
-            x: cx + (Math.random() - 0.5) * 400,
-            y: cy + (Math.random() - 0.5) * 400,
+            x: cx0 + (Math.random() - 0.5) * 400,
+            y: cy0 + (Math.random() - 0.5) * 400,
             vx: 0, vy: 0
           });
         }
@@ -103,7 +104,6 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
           .map(e => ({ s: nodeMap.get(e.source)!, t: nodeMap.get(e.target)! }))
           .filter(l => l.s && l.t);
 
-        // Tiny force-directed layout (no external lib). Good enough up to ~500 nodes.
         const REPULSION = 4500;
         const LINK_LEN  = 90;
         const LINK_K    = 0.04;
@@ -111,33 +111,57 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
         const DAMPING   = 0.85;
 
         let dragging: Sim | null = null;
-        let mouseX = 0, mouseY = 0;
-        canvas.addEventListener("mousedown", ev => {
+        const onDown = (ev: MouseEvent) => {
           const rect = canvas.getBoundingClientRect();
-          mouseX = ev.clientX - rect.left;
-          mouseY = ev.clientY - rect.top;
+          const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
           let pick: Sim | null = null;
           let bestD = 16 * 16;
           for (const n of nodeMap.values()) {
-            const d = (n.x - mouseX) ** 2 + (n.y - mouseY) ** 2;
+            const d = (n.x - mx) ** 2 + (n.y - my) ** 2;
             if (d < bestD) { bestD = d; pick = n; }
           }
-          if (pick) { dragging = pick; pick.fx = mouseX; pick.fy = mouseY; }
-        });
-        canvas.addEventListener("mousemove", ev => {
+          if (pick) { dragging = pick; pick.fx = mx; pick.fy = my; }
+        };
+        const onMove = (ev: MouseEvent) => {
+          if (!dragging) return;
           const rect = canvas.getBoundingClientRect();
-          mouseX = ev.clientX - rect.left;
-          mouseY = ev.clientY - rect.top;
-          if (dragging) { dragging.fx = mouseX; dragging.fy = mouseY; }
-        });
-        canvas.addEventListener("mouseup", () => {
+          dragging.fx = ev.clientX - rect.left;
+          dragging.fy = ev.clientY - rect.top;
+        };
+        const onUp = () => {
           if (dragging) { dragging.fx = undefined; dragging.fy = undefined; }
           dragging = null;
-        });
+        };
+        canvas.addEventListener("mousedown", onDown);
+        canvas.addEventListener("mousemove", onMove);
+        window.addEventListener("mouseup", onUp);
+        cleanups.push(
+          () => canvas.removeEventListener("mousedown", onDown),
+          () => canvas.removeEventListener("mousemove", onMove),
+          () => window.removeEventListener("mouseup", onUp),
+        );
 
-        function tick() {
-          if (cancelled) return;
-          fit();   // her tick'te canvas size senkronize (resize, layout shift)
+        function paint() {
+          ctx!.fillStyle = "#0a0a0a";
+          ctx!.fillRect(0, 0, cssW, cssH);
+          ctx!.strokeStyle = "rgba(148,163,184,0.18)";
+          ctx!.lineWidth = 1;
+          for (const l of links) {
+            ctx!.beginPath();
+            ctx!.moveTo(l.s.x, l.s.y); ctx!.lineTo(l.t.x, l.t.y);
+            ctx!.stroke();
+          }
+          ctx!.font = "11px ui-monospace, Menlo, monospace";
+          for (const n of nodeMap.values()) {
+            const r = 4 + Math.min(8, Math.sqrt(n.degree) * 2.5);
+            ctx!.fillStyle = colorFor(n.node.group);
+            ctx!.beginPath(); ctx!.arc(n.x, n.y, r, 0, Math.PI * 2); ctx!.fill();
+            ctx!.fillStyle = "#cbd5e1";
+            ctx!.fillText(n.node.label, n.x + r + 2, n.y + 4);
+          }
+        }
+
+        function step() {
           const arr = Array.from(nodeMap.values());
           // Coulomb repulsion
           for (let i = 0; i < arr.length; i++) {
@@ -153,7 +177,6 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
               b.vx -= fx; b.vy -= fy;
             }
           }
-          // Hooke springs along links
           for (const l of links) {
             const dx = l.t.x - l.s.x, dy = l.t.y - l.s.y;
             const d = Math.sqrt(dx * dx + dy * dy) || 1;
@@ -162,37 +185,34 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
             l.s.vx += fx; l.s.vy += fy;
             l.t.vx -= fx; l.t.vy -= fy;
           }
-          const cx2 = lastW / 2, cy2 = lastH / 2;
+          const cx2 = cssW / 2, cy2 = cssH / 2;
           for (const n of arr) {
-            // Centering pull
             n.vx += (cx2 - n.x) * CENTER_K;
             n.vy += (cy2 - n.y) * CENTER_K;
             n.vx *= DAMPING; n.vy *= DAMPING;
             if (n.fx !== undefined && n.fy !== undefined) { n.x = n.fx; n.y = n.fy; }
             else { n.x += n.vx; n.y += n.vy; }
           }
+        }
 
-          // Render
-          ctx.fillStyle = "#0a0a0a";
-          ctx.fillRect(0, 0, lastW, lastH);
-          ctx.strokeStyle = "rgba(148,163,184,0.18)";
-          ctx.lineWidth = 1;
-          for (const l of links) {
-            ctx.beginPath();
-            ctx.moveTo(l.s.x, l.s.y); ctx.lineTo(l.t.x, l.t.y);
-            ctx.stroke();
-          }
-          ctx.font = "11px ui-monospace, Menlo, monospace";
-          for (const n of arr) {
-            const r = 4 + Math.min(8, Math.sqrt(n.degree) * 2.5);
-            ctx.fillStyle = colorFor(n.node.group);
-            ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = "#cbd5e1";
-            ctx.fillText(n.node.label, n.x + r + 2, n.y + 4);
-          }
+        function tick() {
+          if (cancelled) return;
+          step();
+          paint();
           raf = requestAnimationFrame(tick);
         }
+        // İlk frame'i hemen çiz ki resize fit sonrası boş canvas görünmesin
+        paint();
         raf = requestAnimationFrame(tick);
+
+        // Resize handling — ResizeObserver, per-tick yerine event-driven.
+        // Boyut değişince anında applyResize + paint → black flash yok.
+        ro = new ResizeObserver(() => {
+          applyResize();
+          paint();
+        });
+        ro.observe(canvas);
+        cleanups.push(() => ro?.disconnect());
       } catch (e) {
         setError((e as Error).message);
       }
@@ -201,6 +221,7 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
     return () => {
       cancelled = true;
       cancelAnimationFrame(raf);
+      for (const fn of cleanups) { try { fn(); } catch { /* ignore */ } }
     };
   }, [slug]);
 
