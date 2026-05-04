@@ -594,9 +594,10 @@ export const AgentTool = buildTool({
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         if (message.includes('Cannot create agent worktree: not in a git repository')) {
-          if (isolation === 'worktree') {
-            throw error;
-          }
+          // Git yoksa ve WorktreeCreate hook'u da konfigüre değilse, isolation
+          // talep edilmiş bile olsa fail etmek yerine cwd'de çalıştır. Kullanıcı
+          // git'siz akış kullanmak isteyebilir; sub-agent'ı bloklamak yerine
+          // notice log'la geç.
           logForDebugging('Agent worktree isolation unavailable outside a git repository; falling back to the current working directory.');
         } else {
           throw error;
