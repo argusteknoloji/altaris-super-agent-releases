@@ -130,12 +130,20 @@ public static class RemoteControlEndpoints
     }
 
     private static async Task<IResult> ListPublished(
-        AltarisDbContext db, ITenantContext tc, RemoteControlBroker broker)
+        AltarisDbContext db, ITenantContext tc, RemoteControlBroker broker, HttpContext http)
     {
         if (tc.TenantId is null) return Results.Forbid();
+        var isAdmin = Permissions.OwnershipAuth.IsAdmin(http);
         var live = broker.ForTenant(tc.TenantId.Value).ToDictionary(b => b.Id);
-        var dbRows = await db.Sessions
-            .Where(s => s.TenantId == tc.TenantId && s.RemoteControl && s.Status == "active")
+        IQueryable<AgentSession> q = db.Sessions
+            .Where(s => s.TenantId == tc.TenantId && s.RemoteControl && s.Status == "active");
+        // Üye: sadece kendi published sessionları; admin: tenant'taki hepsi.
+        if (!isAdmin)
+        {
+            if (tc.UserId is null) return Results.Ok(Array.Empty<object>());
+            q = q.Where(s => s.UserId == tc.UserId);
+        }
+        var dbRows = await q
             .Join(db.Users, s => s.UserId, u => u.Id, (s, u) => new { s, u })
             .OrderByDescending(x => x.s.RemoteControlAt)
             .Select(x => new {
