@@ -21,6 +21,9 @@ public static class AdminEndpoints
     {
         var grp = app.MapGroup("/api/v1/admin").RequireAdminRole();
 
+        // ===== DEBUG (geçici — KC token diagnostic) =====
+        grp.MapGet("/debug/kc-token-test", DebugKcToken);
+
         // ===== USERS (Keycloak + local mirror) =====
         grp.MapGet("/users", ListUsers);
         grp.MapPost("/users", CreateUser);
@@ -136,6 +139,53 @@ public static class AdminEndpoints
     ///   Tenant_admin için yok sayılır — kendi tenant'ından başkasına yazamaz
     ///   (RLS zaten engeller, biz daha erken net cevap dönüyoruz).
     /// </summary>
+    /// <summary>
+    ///   GEÇİCİ DIAG — Keycloak admin token endpoint'ini test eder, env'den
+    ///   gelen client_id/secret ile gerçek POST atar, dönen JSON'u + masked
+    ///   secret'i UI'a verir. Sorun çözülünce bu endpoint silinmeli.
+    /// </summary>
+    private static async Task<IResult> DebugKcToken(KeycloakAdminOptions opts, IHttpClientFactory httpFactory)
+    {
+        static string Mask(string? s) =>
+            string.IsNullOrEmpty(s) ? "(empty)"
+            : s.Length <= 8 ? new string('*', s.Length)
+            : $"{s[..4]}…{s[^4..]} (len={s.Length})";
+
+        var http = httpFactory.CreateClient();
+        var tokenUrl = $"{opts.RealmBase}/protocol/openid-connect/token";
+        string status, body;
+        try
+        {
+            using var resp = await http.PostAsync(tokenUrl, new FormUrlEncodedContent(new[]
+            {
+                new KeyValuePair<string, string>("grant_type", "client_credentials"),
+                new KeyValuePair<string, string>("client_id", opts.AdminClientId),
+                new KeyValuePair<string, string>("client_secret", opts.AdminClientSecret),
+            }));
+            status = $"{(int)resp.StatusCode} {resp.StatusCode}";
+            body = await resp.Content.ReadAsStringAsync();
+            // access_token ifşa olmasın — sadece var/yok bilgisi
+            if (resp.IsSuccessStatusCode && body.Contains("access_token"))
+                body = "OK (access_token alındı, gizlendi)";
+        }
+        catch (Exception ex)
+        {
+            status = "EXCEPTION";
+            body = ex.Message;
+        }
+        return Results.Ok(new
+        {
+            opts.RealmBase,
+            opts.AdminBase,
+            opts.Realm,
+            opts.AdminClientId,
+            adminClientSecret_masked = Mask(opts.AdminClientSecret),
+            tokenUrl,
+            tokenResponseStatus = status,
+            tokenResponseBody = body,
+        });
+    }
+
     public record CreateUserRequest(
         string Email, string? FirstName, string? LastName, string Password,
         bool Temporary, string Role, Guid? TargetTenantId = null);
