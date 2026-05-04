@@ -68,7 +68,7 @@ export default function Senaryo11EnPage() {
     <SenaryoStage
       sceneTimings={SCENE_TIMINGS}
       topLabel="argus + carbon-labs · scenario 11 · green border"
-      timeline={["cbam", "question", "nexus", "scope 1·2·3", "premium", "exports"]}
+      timeline={["cbam", "question", "data layer", "scope 1·2·3", "premium", "exports"]}
       accentColors={{ from: "#a8d895", via: "#6fb573", to: "#3a8060" }}
     >
       <section className="scene s1">
@@ -119,7 +119,7 @@ export default function Senaryo11EnPage() {
           <div className="w-full max-w-3xl">
             <div className="mb-5 flex items-center gap-3 text-[10px] uppercase tracking-[0.32em] text-[#6b6358]">
               <span aria-hidden className="size-1.5 rounded-full bg-[#a8d895] animate-pulse" />
-              <span>nexus platform · carbon-labs</span>
+              <span>carbon-labs · green data</span>
               <span className="text-[#3a342d]">·</span>
               <span>green data layer</span>
             </div>
@@ -227,7 +227,7 @@ export default function Senaryo11EnPage() {
 ▀ ▀   ▀▀▀   ▀    ▀ ▀   ▀ ▀   ▀   ▀▀▀`}
             </pre>
             <div className="mt-3 text-[11px] uppercase tracking-[0.32em] text-[#a8d895]">
-              + nexus platform · carbon-labs partnership
+              + carbon-labs partnership
             </div>
             <div className="mt-4 text-[11px] uppercase tracking-[0.32em] text-[#f08c50]">
               carbon · water · energy — what gets measured gets managed

@@ -39,7 +39,7 @@ const SCENARIOS: Array<{ url: string; slug: string; label: string }> = [
   { url: "/katalog/senaryo/8",   slug: "08-q4-hedefi",         label: "Q4 Hedefi" },
   { url: "/katalog/senaryo/9",   slug: "09-yatirim-karari",    label: "5 Milyon Dolar" },
   { url: "/katalog/senaryo/10",  slug: "10-denetim-hazir",     label: "Denetim Hazır" },
-  { url: "/katalog/senaryo/11",  slug: "11-yesil-sinir",       label: "Yeşil Sınır · NEXUS" },
+  { url: "/katalog/senaryo/11",  slug: "11-yesil-sinir",       label: "Yeşil Sınır · Carbon-Labs" },
   { url: "/katalog/senaryo/12",  slug: "12-aksam-vardiyasi",   label: "Akşam Vardiyası · Sağlık" },
   { url: "/katalog/senaryo/13",  slug: "13-hat-durusu",        label: "Hat Duruşu · Üretim" },
   { url: "/katalog/senaryo/14",  slug: "14-davaya-24-saat",    label: "Davaya 24 Saat · Hukuk" },

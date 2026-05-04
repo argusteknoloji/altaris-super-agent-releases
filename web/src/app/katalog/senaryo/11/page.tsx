@@ -3,7 +3,7 @@
 // ─────────────────────────────────────────────────────────────────
 // Senaryo 11 — "Yeşil Sınır"
 // Üretim direktörü, CBAM (AB Karbon Sınır Düzenlemesi) yaklaşıyor.
-// NEXUS Platform · Carbon-Labs ortak çözümü → Scope 1/2/3 + su
+// Carbon-Labs ortak çözümü → Scope 1/2/3 + su
 // ayak izi + green premium fırsatı.
 // Mood: Organic, sustainable, E-major key, water-flow noise.
 // ─────────────────────────────────────────────────────────────────
@@ -91,7 +91,7 @@ export default function Senaryo11Page() {
     <SenaryoStage
       sceneTimings={SCENE_TIMINGS}
       topLabel="argus + carbon-labs · senaryo 11 · yeşil sınır"
-      timeline={["cbam", "soru", "nexus", "scope 1·2·3", "premium", "ihracat"]}
+      timeline={["cbam", "soru", "veri katmanı", "scope 1·2·3", "premium", "ihracat"]}
       accentColors={{ from: "#a8d895", via: "#6fb573", to: "#3a8060" }}
     >
       <section className="scene s1">
@@ -142,7 +142,7 @@ export default function Senaryo11Page() {
           <div className="w-full max-w-3xl">
             <div className="mb-5 flex items-center gap-3 text-[10px] uppercase tracking-[0.32em] text-[#6b6358]">
               <span aria-hidden className="size-1.5 rounded-full bg-[#a8d895] animate-pulse" />
-              <span>nexus platform · carbon-labs</span>
+              <span>carbon-labs · green data</span>
               <span className="text-[#3a342d]">·</span>
               <span>green data layer</span>
             </div>
@@ -250,7 +250,7 @@ export default function Senaryo11Page() {
 ▀ ▀   ▀▀▀   ▀    ▀ ▀   ▀ ▀   ▀   ▀▀▀`}
             </pre>
             <div className="mt-3 text-[11px] uppercase tracking-[0.32em] text-[#a8d895]">
-              + nexus platform · carbon-labs ortaklığı
+              + carbon-labs ortaklığı
             </div>
             <div className="mt-4 text-[11px] uppercase tracking-[0.32em] text-[#f08c50]">
               karbon · su · enerji — ölçülemeyen yönetilemez
