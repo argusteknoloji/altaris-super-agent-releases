@@ -21,21 +21,38 @@ import { createHash } from "node:crypto";
 import type { Command } from "commander";
 
 const CREDS_PATH = join(homedir(), ".altaris", "credentials.json");
-const API_BASE   = process.env.ALTARIS_API_BASE ?? "http://localhost:5050";
+const FALLBACK_API_BASE = process.env.ALTARIS_API_BASE ?? "http://localhost:5050";
 const LOCAL_ROOT = join(homedir(), ".altaris", "vaults");
 
-interface Creds { access_token: string; expires_at: number; }
+interface Creds { access_token: string; expires_at: number; api_base?: string; }
 
-async function getToken(): Promise<string | null> {
+let cachedCreds: Creds | null = null;
+async function readCreds(): Promise<Creds | null> {
+  if (cachedCreds) return cachedCreds;
   try {
-    const c = JSON.parse(await readFile(CREDS_PATH, "utf8")) as Creds;
-    if (typeof c.expires_at === "number" && Date.now() > c.expires_at) return null;
-    return c.access_token ?? null;
+    cachedCreds = JSON.parse(await readFile(CREDS_PATH, "utf8")) as Creds;
+    return cachedCreds;
   } catch { return null; }
 }
 
+async function getToken(): Promise<string | null> {
+  const c = await readCreds();
+  if (!c) return null;
+  if (typeof c.expires_at === "number" && Date.now() > c.expires_at) return null;
+  return c.access_token ?? null;
+}
+
+async function getApiBase(): Promise<string> {
+  // Env > credentials.json (login sırasında yazılıyor) > localhost fallback
+  if (process.env.ALTARIS_API_BASE) return process.env.ALTARIS_API_BASE;
+  const c = await readCreds();
+  if (c?.api_base) return c.api_base.replace(/\/$/, "");
+  return FALLBACK_API_BASE;
+}
+
 async function api<T = unknown>(token: string, method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const base = await getApiBase();
+  const res = await fetch(`${base}${path}`, {
     method,
     headers: {
       Authorization: `Bearer ${token}`,
