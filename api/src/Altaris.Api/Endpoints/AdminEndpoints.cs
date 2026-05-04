@@ -158,15 +158,38 @@ public static class AdminEndpoints
             effectiveTenantSlug = target.Slug;
         }
 
-        var kcId = await kc.CreateUserAsync(new CreateKeycloakUserRequest(
-            Email: req.Email,
-            FirstName: req.FirstName,
-            LastName: req.LastName,
-            TenantSlug: effectiveTenantSlug,
-            Password: req.Password,
-            TemporaryPassword: req.Temporary,
-            RealmRoles: new[] { role }
-        ));
+        // Aynı e-posta DB'de zaten varsa erken dön (UI net cevap görsün)
+        var emailNorm = req.Email.Trim().ToLowerInvariant();
+        if (await db.Users.AnyAsync(u => u.Email.ToLower() == emailNorm))
+            return Results.Conflict(new { error = "user_email_exists", detail = $"Bu e-posta ({req.Email}) zaten kayıtlı." });
+
+        string kcId;
+        try
+        {
+            kcId = await kc.CreateUserAsync(new CreateKeycloakUserRequest(
+                Email: req.Email,
+                FirstName: req.FirstName,
+                LastName: req.LastName,
+                TenantSlug: effectiveTenantSlug,
+                Password: req.Password,
+                TemporaryPassword: req.Temporary,
+                RealmRoles: new[] { role }
+            ));
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("409"))
+        {
+            // Keycloak: User exists with same username / email
+            return Results.Conflict(new { error = "keycloak_user_exists", detail = ex.Message });
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Diğer KC hataları (4xx body dahil) — UI mesajı görsün
+            return Results.Problem(detail: ex.Message, statusCode: 502, title: "Keycloak hatası");
+        }
+        catch (Exception ex)
+        {
+            return Results.Problem(detail: ex.Message, statusCode: 500, title: "Kullanıcı oluşturulamadı");
+        }
         var user = new User
         {
             Id = Guid.NewGuid(),
