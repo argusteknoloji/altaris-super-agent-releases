@@ -66,6 +66,7 @@ public static class CliJobRunner
         // verir + final 'result' event'inden cevabı parse ediyoruz.
         psi.ArgumentList.Add("--output-format=stream-json");
         psi.ArgumentList.Add("--include-partial-messages");
+        psi.ArgumentList.Add("--verbose");   // stream-json + --print combo'su zorunlu
         // CLI bayrağı: stream-json input format opsiyonel — biz tek prompt'ta
         // çalıştırdığımız için --input-format text default, ekleme yapmıyoruz.
         // Server-side subprocess: kullanıcı interaktif onay veremez. Tüm tool
