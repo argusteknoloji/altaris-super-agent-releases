@@ -118,6 +118,15 @@ export default function SetupPage() {
     } catch { /* no clipboard permission */ }
   }
 
+  function downloadScript(content: string, filename: string) {
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; document.body.appendChild(a);
+    a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   return (
     <main className="mx-auto max-w-4xl px-6 py-10">
       <div className="mb-6">
@@ -214,12 +223,23 @@ export default function SetupPage() {
           <div>
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-semibold text-neutral-300">1. Tek-satır kurulum</h2>
-              <button
-                onClick={() => copy(asset.installScript, "install")}
-                className="rounded-md border border-neutral-700 px-3 py-1 text-xs text-neutral-300 hover:bg-neutral-800"
-              >
-                {copied === "install" ? "Kopyalandı ✓" : "Kopyala"}
-              </button>
+              <div className="flex gap-2">
+                {os === "windows" && (
+                  <button
+                    onClick={() => downloadScript(asset.installScript, "install-altaris.ps1")}
+                    title="install-altaris.ps1 indir; sonra PowerShell'de: ./install-altaris.ps1 (veya sağ tık → Run with PowerShell)"
+                    className="rounded-md border border-orange-500/40 bg-orange-500/10 px-3 py-1 text-xs text-orange-300 hover:bg-orange-500/20"
+                  >
+                    ⬇ .ps1 indir
+                  </button>
+                )}
+                <button
+                  onClick={() => copy(asset.installScript, "install")}
+                  className="rounded-md border border-neutral-700 px-3 py-1 text-xs text-neutral-300 hover:bg-neutral-800"
+                >
+                  {copied === "install" ? "Kopyalandı ✓" : "Kopyala"}
+                </button>
+              </div>
             </div>
             <pre className="mt-2 overflow-x-auto rounded-lg border border-neutral-800 bg-[#0a0a0a] p-4 font-mono text-xs leading-6 text-neutral-100">
 {asset.installScript}
@@ -227,6 +247,14 @@ export default function SetupPage() {
             <p className="mt-2 text-xs text-neutral-500">
               Yukarıdaki komut binary'yi {os === "windows" ? "%LOCALAPPDATA%\\Altaris\\altaris.exe" : os === "linux" ? "/usr/local/bin/altaris" : "~/.local/bin/altaris"} altına kurar.
             </p>
+            {os === "windows" && (
+              <p className="mt-1 text-[11px] text-neutral-500">
+                💡 PowerShell çok satırlı yapıştırmada satır satır çalışır. Tek seferde çalıştırmak için
+                {" "}<span className="font-mono text-orange-300">.ps1 indir</span> butonunu kullan, sonra PowerShell'de
+                {" "}<code className="rounded bg-neutral-900 px-1.5 py-0.5 font-mono text-neutral-300">powershell -ExecutionPolicy Bypass -File .\install-altaris.ps1</code>
+                {" "}komutunu çalıştır.
+              </p>
+            )}
           </div>
 
           <div>
