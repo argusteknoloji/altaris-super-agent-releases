@@ -153,8 +153,13 @@ public class ExecutiveJobWorker : BackgroundService
         if (tenant is null) throw new InvalidOperationException("tenant_not_found");
 
         IQueryable<Vault> vq = db.Vaults.AsNoTracking().Where(v => v.TenantId == job.TenantId);
+        // Per-job vault override (form'dan kullanıcının seçtiği vault'lar) > agent.VaultFilter > visibility default
         string[]? filter = null;
-        if (agent?.VaultFilter is not null)
+        if (job.VaultSlugs is not null)
+        {
+            try { filter = JsonSerializer.Deserialize<string[]>(job.VaultSlugs); } catch { }
+        }
+        if ((filter is null || filter.Length == 0) && agent?.VaultFilter is not null)
         {
             try { filter = JsonSerializer.Deserialize<string[]>(agent.VaultFilter); } catch { }
         }

@@ -51,4 +51,8 @@ public class ExecutiveJob
     ///   --resume olarak forward edilir. Aynı thread_id altında kalır.
     /// </summary>
     public Guid? ParentJobId { get; set; }
+    /// <summary>JSON array of vault slugs — bu job için override; null ise agent.VaultFilter veya tenant default.</summary>
+    public string? VaultSlugs { get; set; }
+    /// <summary>Recurring schedule'dan üretildiyse onun id'si — UI'da grouping için.</summary>
+    public Guid? ScheduleId { get; set; }
 }

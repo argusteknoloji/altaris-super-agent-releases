@@ -237,6 +237,33 @@ try
                 ALTER TABLE executive_jobs ADD COLUMN IF NOT EXISTS cli_session_id TEXT;
                 ALTER TABLE executive_jobs ADD COLUMN IF NOT EXISTS parent_job_id UUID;
                 CREATE INDEX IF NOT EXISTS executive_jobs_parent_idx ON executive_jobs(parent_job_id);
+
+                /* Per-job vault override + recurring schedule linkage */
+                ALTER TABLE executive_jobs ADD COLUMN IF NOT EXISTS vault_slugs JSONB;
+                ALTER TABLE executive_jobs ADD COLUMN IF NOT EXISTS schedule_id UUID;
+                CREATE INDEX IF NOT EXISTS executive_jobs_schedule_idx ON executive_jobs(schedule_id);
+
+                /* Recurring is sablonlari — kullanicinin Isler sayfasindan
+                   yarattigi her gun/her saat/haftaici tipi periyodik joblar */
+                CREATE TABLE IF NOT EXISTS executive_job_schedules (
+                    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                    tenant_id           UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+                    created_by          UUID NOT NULL,
+                    name                TEXT NOT NULL,
+                    description         TEXT,
+                    instructions        TEXT NOT NULL,
+                    agent_id            UUID,
+                    provider_config_id  UUID,
+                    vault_slugs         JSONB,
+                    schedule_cron       TEXT NOT NULL,
+                    schedule_kind       TEXT NOT NULL DEFAULT 'daily',
+                    enabled             BOOLEAN NOT NULL DEFAULT true,
+                    last_fired_at       TIMESTAMPTZ,
+                    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+                CREATE INDEX IF NOT EXISTS executive_job_schedules_tenant_idx
+                    ON executive_job_schedules(tenant_id, enabled);
                 /* AgentSession.source CHECK constraint relax: executive-brain-job ekle */
                 ALTER TABLE agent_sessions DROP CONSTRAINT IF EXISTS agent_sessions_source_check;
                 ALTER TABLE agent_sessions ADD CONSTRAINT agent_sessions_source_check

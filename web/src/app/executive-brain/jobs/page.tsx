@@ -76,14 +76,19 @@ export default function JobsPage() {
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-baseline sm:justify-between">
         <div>
           <Link href="/executive-brain" className="text-xs text-neutral-400 hover:text-orange-400">← Beyin'e dön</Link>
-          <h1 className="mt-2 text-3xl font-semibold">📋 Job geçmişi</h1>
+          <h1 className="mt-2 text-3xl font-semibold">📋 İş Geçmişi <span className="text-sm font-normal text-neutral-500">/ Job History</span></h1>
           <p className="mt-1 text-sm text-neutral-400">
-            Yöneticinin sorduğu tüm sorular + cevapları + scheduled cron run'ları.
+            Tüm tek-seferlik ve zamanlanmış işlerin durumu.
           </p>
         </div>
-        <Link href="/executive-brain/agents" className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-900">
-          🧠 Ajanlar
-        </Link>
+        <div className="flex gap-2">
+          <Link href="/executive-brain/jobs/new" className="rounded-md bg-orange-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-orange-600">
+            + Yeni İş
+          </Link>
+          <Link href="/executive-brain/agents" className="rounded-md border border-neutral-700 px-3 py-1.5 text-xs text-neutral-300 hover:bg-neutral-900">
+            🧠 Ajanlar
+          </Link>
+        </div>
       </div>
 
       {/* Filter */}

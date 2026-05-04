@@ -39,6 +39,12 @@ public static class ExecutiveBrainEndpoints
         app.MapPost  ("/api/v1/executive-brain/jobs/{id:guid}/retry",   RetryJob).RequireAuthorization();
         app.MapPost  ("/api/v1/executive-brain/jobs/{id:guid}/followup",FollowupJob).RequireAuthorization();
 
+        // Job schedules — recurring iş şablonları (her gün/saat/haftaiçi)
+        app.MapGet   ("/api/v1/executive-brain/job-schedules",            ListJobSchedules).RequireAuthorization();
+        app.MapPost  ("/api/v1/executive-brain/job-schedules",            CreateJobSchedule).RequireAuthorization();
+        app.MapPatch ("/api/v1/executive-brain/job-schedules/{id:guid}",  UpdateJobSchedule).RequireAuthorization();
+        app.MapDelete("/api/v1/executive-brain/job-schedules/{id:guid}",  DeleteJobSchedule).RequireAuthorization();
+
         // Agent CRUD
         app.MapGet   ("/api/v1/executive-brain/agents",                 ListAgents).RequireAuthorization();
         app.MapGet   ("/api/v1/executive-brain/agents/{id:guid}",       GetAgent).RequireAuthorization();
@@ -301,7 +307,8 @@ public static class ExecutiveBrainEndpoints
 
     // ═════════════════════════ JOBS ═════════════════════════════════════
 
-    public record SubmitJobRequest(string Question, Guid? AgentId, Guid? ProviderConfigId, Guid? ThreadId, DateTimeOffset? ScheduledFor);
+    public record SubmitJobRequest(string Question, Guid? AgentId, Guid? ProviderConfigId, Guid? ThreadId,
+                                   DateTimeOffset? ScheduledFor, string[]? VaultSlugs);
 
     private static async Task<IResult> SubmitJob(
         SubmitJobRequest req, AltarisDbContext db, ITenantContext tc,
@@ -336,6 +343,9 @@ public static class ExecutiveBrainEndpoints
             ProviderConfigId = req.ProviderConfigId,
             ThreadId = req.ThreadId ?? Guid.NewGuid(),
             Question = req.Question,
+            VaultSlugs = (req.VaultSlugs is { Length: > 0 })
+                ? System.Text.Json.JsonSerializer.Serialize(req.VaultSlugs)
+                : null,
             Status = "pending",
             ScheduledFor = req.ScheduledFor,
             CreatedAt = DateTimeOffset.UtcNow,
@@ -345,6 +355,144 @@ public static class ExecutiveBrainEndpoints
 
         return Results.Accepted($"/api/v1/executive-brain/jobs/{job.Id}",
             new { id = job.Id, status = job.Status, threadId = job.ThreadId });
+    }
+
+    // ═════════════════════════ JOB SCHEDULES ════════════════════════════════
+
+    public record JobScheduleDto(
+        Guid Id, string Name, string? Description, string Instructions,
+        Guid? AgentId, Guid? ProviderConfigId, string[]? VaultSlugs,
+        string ScheduleCron, string ScheduleKind, bool Enabled,
+        DateTimeOffset? LastFiredAt, DateTimeOffset CreatedAt);
+
+    private static JobScheduleDto ToScheduleDto(Domain.Entities.JobSchedule s) => new(
+        s.Id, s.Name, s.Description, s.Instructions, s.AgentId, s.ProviderConfigId,
+        s.VaultSlugs is null ? null : System.Text.Json.JsonSerializer.Deserialize<string[]>(s.VaultSlugs),
+        s.ScheduleCron, s.ScheduleKind, s.Enabled, s.LastFiredAt, s.CreatedAt);
+
+    public record CreateJobScheduleRequest(
+        string Name, string? Description, string Instructions,
+        Guid? AgentId, Guid? ProviderConfigId, string[]? VaultSlugs,
+        string ScheduleKind, string? AtTime);
+
+    /// <summary>
+    ///   ScheduleKind ("hourly"|"daily"|"weekdays"|"weekly") + opsiyonel HH:mm
+    ///   → 5-field cron expression. UTC bazlı; client istemce TZ shift'i için
+    ///   AtTime'i kendi TZ'sinden UTC'ye çevirip yollar.
+    /// </summary>
+    private static string KindToCron(string kind, string? atTime)
+    {
+        var (hh, mm) = ParseHHmm(atTime ?? "09:00");
+        return kind.ToLowerInvariant() switch
+        {
+            "hourly"   => "0 * * * *",                  // her saat başı
+            "weekdays" => $"{mm} {hh} * * 1-5",         // pazartesi-cuma
+            "weekly"   => $"{mm} {hh} * * 1",           // pazartesi
+            _          => $"{mm} {hh} * * *",           // daily — default
+        };
+    }
+    private static (int hh, int mm) ParseHHmm(string s)
+    {
+        var parts = s.Split(':');
+        int.TryParse(parts.ElementAtOrDefault(0), out var h);
+        int.TryParse(parts.ElementAtOrDefault(1), out var m);
+        return (Math.Clamp(h, 0, 23), Math.Clamp(m, 0, 59));
+    }
+
+    private static async Task<IResult> ListJobSchedules(
+        AltarisDbContext db, ITenantContext tc, HttpContext http,
+        Altaris.Infrastructure.Permissions.CapabilityResolver caps)
+    {
+        if (tc.TenantId is null) return Results.Forbid();
+        var deny = await Altaris.Api.Permissions.CapabilityHttpExtensions.RequireCapabilityAsync(
+            http, caps, Altaris.Domain.Permissions.Capabilities.ExecutiveBrainUse);
+        if (deny is not null) return deny;
+        IQueryable<Domain.Entities.JobSchedule> q = db.JobSchedules.AsNoTracking()
+            .Where(s => s.TenantId == tc.TenantId);
+        if (!Altaris.Api.Permissions.OwnershipAuth.IsAdmin(http))
+        {
+            if (tc.UserId is null) return Results.Ok(Array.Empty<JobScheduleDto>());
+            q = q.Where(s => s.CreatedBy == tc.UserId);
+        }
+        var rows = await q.OrderByDescending(s => s.CreatedAt).ToListAsync();
+        return Results.Ok(rows.Select(ToScheduleDto));
+    }
+
+    private static async Task<IResult> CreateJobSchedule(
+        CreateJobScheduleRequest req, AltarisDbContext db, ITenantContext tc, HttpContext http,
+        Altaris.Infrastructure.Permissions.CapabilityResolver caps)
+    {
+        if (tc.TenantId is null || tc.UserId is null) return Results.Forbid();
+        var deny = await Altaris.Api.Permissions.CapabilityHttpExtensions.RequireCapabilityAsync(
+            http, caps, Altaris.Domain.Permissions.Capabilities.ExecutiveBrainUse);
+        if (deny is not null) return deny;
+        if (string.IsNullOrWhiteSpace(req.Name) || string.IsNullOrWhiteSpace(req.Instructions))
+            return Results.BadRequest(new { error = "name + instructions required" });
+
+        var s = new Domain.Entities.JobSchedule
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tc.TenantId.Value,
+            CreatedBy = tc.UserId.Value,
+            Name = req.Name.Trim(),
+            Description = req.Description,
+            Instructions = req.Instructions,
+            AgentId = req.AgentId,
+            ProviderConfigId = req.ProviderConfigId,
+            VaultSlugs = (req.VaultSlugs is { Length: > 0 })
+                ? System.Text.Json.JsonSerializer.Serialize(req.VaultSlugs) : null,
+            ScheduleCron = KindToCron(req.ScheduleKind, req.AtTime),
+            ScheduleKind = req.ScheduleKind,
+            Enabled = true,
+            CreatedAt = DateTimeOffset.UtcNow,
+            UpdatedAt = DateTimeOffset.UtcNow,
+        };
+        db.JobSchedules.Add(s);
+        await db.SaveChangesAsync();
+        return Results.Created($"/api/v1/executive-brain/job-schedules/{s.Id}", ToScheduleDto(s));
+    }
+
+    public record UpdateJobScheduleRequest(string? Name, string? Description, string? Instructions,
+                                           Guid? AgentId, Guid? ProviderConfigId, string[]? VaultSlugs,
+                                           string? ScheduleKind, string? AtTime, bool? Enabled);
+
+    private static async Task<IResult> UpdateJobSchedule(
+        Guid id, UpdateJobScheduleRequest req, AltarisDbContext db, ITenantContext tc, HttpContext http,
+        Altaris.Infrastructure.Permissions.CapabilityResolver caps)
+    {
+        if (tc.TenantId is null) return Results.Forbid();
+        var s = await db.JobSchedules.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tc.TenantId);
+        if (s is null) return Results.NotFound();
+        if (!Altaris.Api.Permissions.OwnershipAuth.OwnsOrAdmin(http, tc, s.CreatedBy)) return Results.Forbid();
+
+        if (!string.IsNullOrWhiteSpace(req.Name)) s.Name = req.Name.Trim();
+        if (req.Description is not null) s.Description = req.Description;
+        if (!string.IsNullOrWhiteSpace(req.Instructions)) s.Instructions = req.Instructions;
+        if (req.AgentId is not null) s.AgentId = req.AgentId;
+        if (req.ProviderConfigId is not null) s.ProviderConfigId = req.ProviderConfigId;
+        if (req.VaultSlugs is not null)
+            s.VaultSlugs = req.VaultSlugs.Length == 0 ? null : System.Text.Json.JsonSerializer.Serialize(req.VaultSlugs);
+        if (!string.IsNullOrWhiteSpace(req.ScheduleKind))
+        {
+            s.ScheduleKind = req.ScheduleKind;
+            s.ScheduleCron = KindToCron(req.ScheduleKind, req.AtTime);
+        }
+        if (req.Enabled is not null) s.Enabled = req.Enabled.Value;
+        s.UpdatedAt = DateTimeOffset.UtcNow;
+        await db.SaveChangesAsync();
+        return Results.Ok(ToScheduleDto(s));
+    }
+
+    private static async Task<IResult> DeleteJobSchedule(
+        Guid id, AltarisDbContext db, ITenantContext tc, HttpContext http)
+    {
+        if (tc.TenantId is null) return Results.Forbid();
+        var s = await db.JobSchedules.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tc.TenantId);
+        if (s is null) return Results.NotFound();
+        if (!Altaris.Api.Permissions.OwnershipAuth.OwnsOrAdmin(http, tc, s.CreatedBy)) return Results.Forbid();
+        db.JobSchedules.Remove(s);
+        await db.SaveChangesAsync();
+        return Results.NoContent();
     }
 
     // ═════════════════════════ WHAT-IF SIMULATIONS ══════════════════════════

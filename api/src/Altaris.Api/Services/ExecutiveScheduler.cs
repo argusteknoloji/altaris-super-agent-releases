@@ -99,6 +99,43 @@ public class ExecutiveScheduler : BackgroundService
             });
             _log.LogInformation("Scheduled job for agent {Slug} (cron {Cron})", agent.Slug, agent.ScheduleCron);
         }
+        // Job schedules — kullanıcının "İşler" sayfasından oluşturduğu recurring şablonlar
+        var schedules = await db.JobSchedules.AsNoTracking()
+            .Where(s => s.Enabled)
+            .ToListAsync(ct);
+        foreach (var s in schedules)
+        {
+            if (!ShouldFire(s.ScheduleCron, minuteStart, minuteEnd, out var fireTime))
+                continue;
+            // Aynı schedule için son 2 dk pending/running iş varsa atla
+            var dup = await db.ExecutiveJobs.AnyAsync(j =>
+                j.ScheduleId == s.Id
+                && (j.Status == "pending" || j.Status == "running")
+                && j.CreatedAt >= minuteStart.AddMinutes(-2),
+                ct);
+            if (dup) continue;
+
+            db.ExecutiveJobs.Add(new ExecutiveJob
+            {
+                Id = Guid.NewGuid(),
+                TenantId = s.TenantId,
+                UserId = s.CreatedBy,
+                AgentId = s.AgentId,
+                ProviderConfigId = s.ProviderConfigId,
+                ThreadId = Guid.NewGuid(),
+                Question = s.Instructions,
+                VaultSlugs = s.VaultSlugs,
+                ScheduleId = s.Id,
+                Status = "pending",
+                ScheduledFor = fireTime,
+                CreatedAt = DateTimeOffset.UtcNow,
+            });
+            // Touch last_fired_at — UI 'son tetiklenme' kolonunda göstersin
+            await db.JobSchedules.Where(x => x.Id == s.Id)
+                .ExecuteUpdateAsync(u => u.SetProperty(x => x.LastFiredAt, (DateTimeOffset?)fireTime), ct);
+            _log.LogInformation("Scheduled job from JobSchedule {Name} ({Cron})", s.Name, s.ScheduleCron);
+        }
+
         if (db.ChangeTracker.HasChanges())
             await db.SaveChangesAsync(ct);
     }

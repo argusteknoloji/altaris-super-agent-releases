@@ -21,6 +21,7 @@ public class AltarisDbContext : DbContext
     public DbSet<UserCapability> UserCapabilities => Set<UserCapability>();
     public DbSet<ExecutiveAgent> ExecutiveAgents => Set<ExecutiveAgent>();
     public DbSet<ExecutiveJob> ExecutiveJobs => Set<ExecutiveJob>();
+    public DbSet<JobSchedule> JobSchedules => Set<JobSchedule>();
     public DbSet<DataSource> DataSources => Set<DataSource>();
     public DbSet<Webhook> Webhooks => Set<Webhook>();
     public DbSet<WebhookInvocation> WebhookInvocations => Set<WebhookInvocation>();
@@ -248,8 +249,32 @@ public class AltarisDbContext : DbContext
             e.Property(x => x.RemoteSessionId).HasColumnName("remote_session_id");
             e.Property(x => x.CliSessionId).HasColumnName("cli_session_id");
             e.Property(x => x.ParentJobId).HasColumnName("parent_job_id");
+            e.Property(x => x.VaultSlugs).HasColumnName("vault_slugs").HasColumnType("jsonb");
+            e.Property(x => x.ScheduleId).HasColumnName("schedule_id");
             e.HasIndex(x => new { x.TenantId, x.CreatedAt });
             e.HasIndex(x => x.ParentJobId);
+            e.HasIndex(x => x.ScheduleId);
+        });
+
+        modelBuilder.Entity<JobSchedule>(e =>
+        {
+            e.ToTable("executive_job_schedules");
+            e.Property(x => x.Id).HasColumnName("id");
+            e.Property(x => x.TenantId).HasColumnName("tenant_id");
+            e.Property(x => x.CreatedBy).HasColumnName("created_by");
+            e.Property(x => x.Name).HasColumnName("name");
+            e.Property(x => x.Description).HasColumnName("description");
+            e.Property(x => x.Instructions).HasColumnName("instructions");
+            e.Property(x => x.AgentId).HasColumnName("agent_id");
+            e.Property(x => x.ProviderConfigId).HasColumnName("provider_config_id");
+            e.Property(x => x.VaultSlugs).HasColumnName("vault_slugs").HasColumnType("jsonb");
+            e.Property(x => x.ScheduleCron).HasColumnName("schedule_cron");
+            e.Property(x => x.ScheduleKind).HasColumnName("schedule_kind");
+            e.Property(x => x.Enabled).HasColumnName("enabled");
+            e.Property(x => x.LastFiredAt).HasColumnName("last_fired_at");
+            e.Property(x => x.CreatedAt).HasColumnName("created_at");
+            e.Property(x => x.UpdatedAt).HasColumnName("updated_at");
+            e.HasIndex(x => new { x.TenantId, x.Enabled });
         });
 
         modelBuilder.Entity<DataSource>(e =>
