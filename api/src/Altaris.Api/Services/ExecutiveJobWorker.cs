@@ -180,23 +180,43 @@ public class ExecutiveJobWorker : BackgroundService
         var altarisHome = Environment.GetEnvironmentVariable("ALTARIS_HOME") ?? "/srv/altaris/.altaris";
         trace.Add(new { step = "vault_path", path = vaultPath, home = altarisHome });
 
-        // 3. Multi-turn memory (önceki 3 turn özeti prompt'a inject)
-        var prior = await db.ExecutiveJobs.AsNoTracking()
-            .Where(p => p.ThreadId == job.ThreadId && p.Id != job.Id && p.Status == "completed")
-            .OrderByDescending(p => p.CreatedAt).Take(3)
-            .Select(p => new { p.Question, p.Answer })
-            .ToListAsync(ct);
-
-        var systemPrompt = agent?.SystemPrompt ?? "Sen yardımcı bir ajansın. Türkçe, kısa, doğrudan cevap ver. Vault'taki belgelerden faydalan.";
-        var promptParts = new List<string> { "[Sistem talimatı]\n" + systemPrompt };
-        if (prior.Count > 0)
+        // 3. Follow-up resume: parent job set ise CLI session uzatma kullan,
+        //    aksi halde önceki turn özetini prompt'a inject et (legacy memory).
+        string? resumeSessionId = null;
+        if (job.ParentJobId is { } parentId)
         {
-            var memory = string.Join("\n", prior.AsEnumerable().Reverse().Select((p, i) =>
-                $"Tur {i + 1}: Soru → {p.Question}\nCevap → {(p.Answer ?? "").Substring(0, Math.Min((p.Answer ?? "").Length, 600))}"));
-            promptParts.Add("[Önceki konuşma]\n" + memory);
+            resumeSessionId = await db.ExecutiveJobs.AsNoTracking()
+                .Where(p => p.Id == parentId && p.TenantId == job.TenantId)
+                .Select(p => p.CliSessionId)
+                .FirstOrDefaultAsync(ct);
+            trace.Add(new { step = "resume_lookup", parentJobId = parentId, hasSession = resumeSessionId is not null });
         }
-        promptParts.Add("[Yeni soru]\n" + job.Question);
-        var fullPrompt = string.Join("\n\n", promptParts);
+
+        string fullPrompt;
+        if (!string.IsNullOrEmpty(resumeSessionId))
+        {
+            // CLI'nin kendi transcript'i context'i tutar — sadece yeni turn'i gönder
+            fullPrompt = job.Question;
+        }
+        else
+        {
+            var prior = await db.ExecutiveJobs.AsNoTracking()
+                .Where(p => p.ThreadId == job.ThreadId && p.Id != job.Id && p.Status == "completed")
+                .OrderByDescending(p => p.CreatedAt).Take(3)
+                .Select(p => new { p.Question, p.Answer })
+                .ToListAsync(ct);
+
+            var systemPrompt = agent?.SystemPrompt ?? "Sen yardımcı bir ajansın. Türkçe, kısa, doğrudan cevap ver. Vault'taki belgelerden faydalan.";
+            var promptParts = new List<string> { "[Sistem talimatı]\n" + systemPrompt };
+            if (prior.Count > 0)
+            {
+                var memory = string.Join("\n", prior.AsEnumerable().Reverse().Select((p, i) =>
+                    $"Tur {i + 1}: Soru → {p.Question}\nCevap → {(p.Answer ?? "").Substring(0, Math.Min((p.Answer ?? "").Length, 600))}"));
+                promptParts.Add("[Önceki konuşma]\n" + memory);
+            }
+            promptParts.Add("[Yeni soru]\n" + job.Question);
+            fullPrompt = string.Join("\n\n", promptParts);
+        }
 
         // 4. Live PTY preview için AgentSession kaydı yarat — frontend bu ID'yle
         //    /ws/pty/watch?session=... kanalına xterm.js ile bağlanır.
@@ -237,7 +257,8 @@ public class ExecutiveJobWorker : BackgroundService
             ptyMgr:        ptyMgr,
             liveSessionId: sessionId,
             liveTenantId:  job.TenantId,
-            liveUserId:    job.UserId ?? Guid.Empty);
+            liveUserId:    job.UserId ?? Guid.Empty,
+            resumeSessionId: resumeSessionId);
         trace.Add(new { step = "cli_run", ms = sw.ElapsedMilliseconds, success = run.Success, durationMs = run.DurationMs });
 
         // Session'i completed olarak işaretle (live preview'i kapat)
@@ -249,6 +270,18 @@ public class ExecutiveJobWorker : BackgroundService
                     .SetProperty(x => x.EndedAt, (DateTimeOffset?)DateTimeOffset.UtcNow), ct);
         }
         catch { /* cleanup failure ok */ }
+
+        // CLI session id'yi sakla (success/fail fark etmez — follow-up için lazım)
+        if (!string.IsNullOrEmpty(run.CliSessionId))
+        {
+            try
+            {
+                var sid = run.CliSessionId;
+                await db.ExecutiveJobs.Where(j => j.Id == job.Id)
+                    .ExecuteUpdateAsync(s => s.SetProperty(j => j.CliSessionId, sid), ct);
+            }
+            catch { /* best effort */ }
+        }
 
         if (!run.Success)
         {

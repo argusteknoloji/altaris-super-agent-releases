@@ -232,6 +232,11 @@ try
                 /* Job live PTY preview — running job CLI subprocess'i bir AgentSession
                    altinda yayin yapiyor; frontend bu ID'yi xterm.js viewer'da kullanir */
                 ALTER TABLE executive_jobs ADD COLUMN IF NOT EXISTS remote_session_id UUID;
+                /* Follow-up zinciri: aynı thread içinde CLI session uzatma — parent.cli_session_id
+                   --resume olarak child job'a forward ediliyor */
+                ALTER TABLE executive_jobs ADD COLUMN IF NOT EXISTS cli_session_id TEXT;
+                ALTER TABLE executive_jobs ADD COLUMN IF NOT EXISTS parent_job_id UUID;
+                CREATE INDEX IF NOT EXISTS executive_jobs_parent_idx ON executive_jobs(parent_job_id);
                 /* AgentSession.source CHECK constraint relax: executive-brain-job ekle */
                 ALTER TABLE agent_sessions DROP CONSTRAINT IF EXISTS agent_sessions_source_check;
                 ALTER TABLE agent_sessions ADD CONSTRAINT agent_sessions_source_check

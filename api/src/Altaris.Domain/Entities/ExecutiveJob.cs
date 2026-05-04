@@ -40,4 +40,15 @@ public class ExecutiveJob
     ///   session kapanır ama transcript session_messages tablosunda kalır.
     /// </summary>
     public Guid? RemoteSessionId { get; set; }
+    /// <summary>
+    ///   Altaris CLI'nin kendi session id'si — stream-json `system.init` event'inden
+    ///   yakalanır. Follow-up job'larda `--resume &lt;id&gt;` flag'iyle aynı CLI
+    ///   konuşma context'ini uzatmak için kullanılır.
+    /// </summary>
+    public string? CliSessionId { get; set; }
+    /// <summary>
+    ///   Follow-up zinciri — null ise root job, set ise parent job'un cli_session_id'si
+    ///   --resume olarak forward edilir. Aynı thread_id altında kalır.
+    /// </summary>
+    public Guid? ParentJobId { get; set; }
 }

@@ -246,7 +246,10 @@ public class AltarisDbContext : DbContext
             e.Property(x => x.ClaimedBy).HasColumnName("claimed_by");
             e.Property(x => x.ClaimedAt).HasColumnName("claimed_at");
             e.Property(x => x.RemoteSessionId).HasColumnName("remote_session_id");
+            e.Property(x => x.CliSessionId).HasColumnName("cli_session_id");
+            e.Property(x => x.ParentJobId).HasColumnName("parent_job_id");
             e.HasIndex(x => new { x.TenantId, x.CreatedAt });
+            e.HasIndex(x => x.ParentJobId);
         });
 
         modelBuilder.Entity<DataSource>(e =>

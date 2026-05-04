@@ -37,6 +37,7 @@ public static class ExecutiveBrainEndpoints
         app.MapGet   ("/api/v1/executive-brain/jobs/{id:guid}/stream",  StreamJob).RequireAuthorization();
         app.MapPost  ("/api/v1/executive-brain/jobs/{id:guid}/cancel",  CancelJob).RequireAuthorization();
         app.MapPost  ("/api/v1/executive-brain/jobs/{id:guid}/retry",   RetryJob).RequireAuthorization();
+        app.MapPost  ("/api/v1/executive-brain/jobs/{id:guid}/followup",FollowupJob).RequireAuthorization();
 
         // Agent CRUD
         app.MapGet   ("/api/v1/executive-brain/agents",                 ListAgents).RequireAuthorization();
@@ -474,7 +475,7 @@ public static class ExecutiveBrainEndpoints
             .Skip(Math.Max(skip, 0))
             .Take(Math.Clamp(take, 1, 200))
             .Select(j => new {
-                j.Id, j.UserId, j.AgentId, j.ThreadId, j.Question, j.Status,
+                j.Id, j.UserId, j.AgentId, j.ThreadId, j.ParentJobId, j.Question, j.Status,
                 j.ScheduledFor, j.StartedAt, j.CompletedAt, j.CreatedAt,
                 hasError = j.ErrorText != null
             })
@@ -615,6 +616,54 @@ public static class ExecutiveBrainEndpoints
         j.CompletedAt = null;
         await db.SaveChangesAsync();
         return Results.Ok(new { id = j.Id, status = j.Status });
+    }
+
+    public record FollowupRequest(string Question);
+
+    /// <summary>
+    ///   Tamamlanmış bir job'a follow-up soru ekler. Yeni job aynı thread_id altında,
+    ///   parent_job_id = orijinal job; worker `--resume &lt;cli_session_id&gt;` ile
+    ///   CLI konuşma context'ini uzatır. Provider/agent/vault kararları parent'tan miras.
+    /// </summary>
+    private static async Task<IResult> FollowupJob(
+        Guid id, FollowupRequest req, AltarisDbContext db, ITenantContext tc,
+        Altaris.Infrastructure.Permissions.CapabilityResolver caps, HttpContext http)
+    {
+        if (tc.TenantId is null) return Results.Forbid();
+        var deny = await Altaris.Api.Permissions.CapabilityHttpExtensions.RequireCapabilityAsync(
+            http, caps, Altaris.Domain.Permissions.Capabilities.ExecutiveBrainUse);
+        if (deny is not null) return deny;
+        if (string.IsNullOrWhiteSpace(req.Question))
+            return Results.BadRequest(new { error = "question_required" });
+
+        var parent = await db.ExecutiveJobs.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tc.TenantId);
+        if (parent is null) return Results.NotFound();
+        if (parent.UserId != tc.UserId &&
+            !await caps.HasAsync(Altaris.Domain.Permissions.Capabilities.ExecutiveBrainViewAllJobs))
+            return Results.Forbid();
+        // Sadece tamamlanmış job'a follow-up — running iken yeni turn ekleyemeyiz
+        if (parent.Status is not ("completed" or "failed"))
+            return Results.BadRequest(new { error = "parent_not_finished" });
+
+        var job = new Domain.Entities.ExecutiveJob
+        {
+            Id = Guid.NewGuid(),
+            TenantId = tc.TenantId.Value,
+            UserId = tc.UserId,
+            AgentId = parent.AgentId,
+            ProviderConfigId = parent.ProviderConfigId,
+            ThreadId = parent.ThreadId ?? parent.Id,
+            ParentJobId = parent.Id,
+            Question = req.Question,
+            Status = "pending",
+            CreatedAt = DateTimeOffset.UtcNow,
+        };
+        db.ExecutiveJobs.Add(job);
+        await db.SaveChangesAsync();
+
+        return Results.Accepted($"/api/v1/executive-brain/jobs/{job.Id}",
+            new { id = job.Id, status = job.Status, threadId = job.ThreadId, parentJobId = job.ParentJobId });
     }
 
     public record AskRequest(string Question, int? TopK, bool? IncludeAllVaults);

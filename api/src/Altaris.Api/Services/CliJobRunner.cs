@@ -21,7 +21,7 @@ namespace Altaris.Api.Services;
 /// </summary>
 public static class CliJobRunner
 {
-    public record RunResult(bool Success, string Answer, string? Error, string RawJson, long DurationMs);
+    public record RunResult(bool Success, string Answer, string? Error, string RawJson, long DurationMs, string? CliSessionId);
 
     /// <summary>
     ///   CLI'yi vault context'inde subprocess olarak çağırır, JSON çıktıyı parse eder.
@@ -40,10 +40,11 @@ public static class CliJobRunner
         Altaris.Infrastructure.Pty.PtySessionManager? ptyMgr = null,
         Guid? liveSessionId = null,
         Guid? liveTenantId = null,
-        Guid? liveUserId = null)
+        Guid? liveUserId = null,
+        string? resumeSessionId = null)
     {
         if (!Directory.Exists(vaultPath))
-            return new RunResult(false, "", $"vault path bulunamadı: {vaultPath}", "", 0);
+            return new RunResult(false, "", $"vault path bulunamadı: {vaultPath}", "", 0, null);
 
         var sw = Stopwatch.StartNew();
         var psi = new ProcessStartInfo
@@ -73,6 +74,14 @@ public static class CliJobRunner
         // çağrılarına otomatik onay (Bash/Edit/Write/Grep/...). Sandbox: vault
         // cwd zaten izolasyon sağlıyor, /srv/altaris/.altaris read-only mount.
         psi.ArgumentList.Add("--dangerously-skip-permissions");
+        // Follow-up: aynı CLI session'ını uzat — önceki turn'lerin tüm context'i
+        // (transcript JSONL'den) restore edilir. Provider-agnostic: Altaris CLI'nin
+        // kendi session yönetimi, alttaki Anthropic/Codex/OpenAI fark etmez.
+        if (!string.IsNullOrEmpty(resumeSessionId))
+        {
+            psi.ArgumentList.Add("--resume");
+            psi.ArgumentList.Add(resumeSessionId);
+        }
         // Model'i flag olarak da geç — env var (ANTHROPIC_MODEL/OPENAI_MODEL)
         // OAuth path'inde dikkate alınmayabiliyor, --model authoritative.
         if (!string.IsNullOrEmpty(llmModel))
@@ -176,26 +185,49 @@ public static class CliJobRunner
                 {
                     try { proc.Kill(entireProcessTree: true); } catch { /* ignore */ }
                     return new RunResult(false, "", $"timeout ({timeout.TotalSeconds}sn)",
-                        stdoutSb.ToString(), sw.ElapsedMilliseconds);
+                        stdoutSb.ToString(), sw.ElapsedMilliseconds, null);
                 }
             }
             catch (Exception ex)
             {
-                return new RunResult(false, "", $"subprocess başlatılamadı: {ex.Message}", "", sw.ElapsedMilliseconds);
+                return new RunResult(false, "", $"subprocess başlatılamadı: {ex.Message}", "", sw.ElapsedMilliseconds, null);
             }
 
             sw.Stop();
             var raw = stdoutSb.ToString().Trim();
             if (string.IsNullOrEmpty(raw))
-                return new RunResult(false, "", $"CLI boş çıktı (exit={proc.ExitCode}, stderr={stderrSb})", "", sw.ElapsedMilliseconds);
+                return new RunResult(false, "", $"CLI boş çıktı (exit={proc.ExitCode}, stderr={stderrSb})", "", sw.ElapsedMilliseconds, null);
 
             try
             {
-                // stream-json: her satır bir event JSON. Final cevap için
-                // sondan başa doğru tara, type=='result' eventini bul.
+                // stream-json: her satır bir event JSON.
+                //  - İlk `system.init` event'i → session_id (follow-up için saklanacak)
+                //  - Son `result` event'i → final answer / is_error flag
                 var lines = raw.Split('\n');
+                string? cliSessionId = null;
                 string? resultText = null;
                 bool isError = false;
+
+                // Forward pass: ilk system.init'ten session_id yakala
+                foreach (var rawLine in lines)
+                {
+                    var line = rawLine.Trim();
+                    if (!line.StartsWith("{")) continue;
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(line);
+                        var root = doc.RootElement;
+                        if (!root.TryGetProperty("type", out var tEl)) continue;
+                        if (tEl.GetString() != "system") continue;
+                        if (!root.TryGetProperty("subtype", out var stEl) || stEl.GetString() != "init") continue;
+                        if (root.TryGetProperty("session_id", out var sidEl))
+                            cliSessionId = sidEl.GetString();
+                        break;
+                    }
+                    catch (JsonException) { /* skip */ }
+                }
+
+                // Reverse pass: result event
                 for (var i = lines.Length - 1; i >= 0; i--)
                 {
                     var line = lines[i].Trim();
@@ -216,14 +248,14 @@ public static class CliJobRunner
                     catch (JsonException) { /* skip malformed */ }
                 }
                 if (resultText is null)
-                    return new RunResult(false, "", $"CLI sonuç event'i bulunamadı (exit={proc.ExitCode})", raw, sw.ElapsedMilliseconds);
+                    return new RunResult(false, "", $"CLI sonuç event'i bulunamadı (exit={proc.ExitCode})", raw, sw.ElapsedMilliseconds, cliSessionId);
                 if (isError)
-                    return new RunResult(false, "", resultText, raw, sw.ElapsedMilliseconds);
-                return new RunResult(true, resultText, null, raw, sw.ElapsedMilliseconds);
+                    return new RunResult(false, "", resultText, raw, sw.ElapsedMilliseconds, cliSessionId);
+                return new RunResult(true, resultText, null, raw, sw.ElapsedMilliseconds, cliSessionId);
             }
             catch (Exception ex)
             {
-                return new RunResult(false, "", $"Stream parse fail: {ex.Message}", raw, sw.ElapsedMilliseconds);
+                return new RunResult(false, "", $"Stream parse fail: {ex.Message}", raw, sw.ElapsedMilliseconds, null);
             }
         }
         finally

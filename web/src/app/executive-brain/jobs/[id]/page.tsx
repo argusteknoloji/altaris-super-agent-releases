@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, use } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { fmtDateTimeTR } from "@/lib/datetime";
@@ -39,9 +40,37 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function JobDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const router = useRouter();
   const [job, setJob] = useState<Job | null>(null);
   const [thread, setThread] = useState<ThreadJob[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  const [followup, setFollowup] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sendErr, setSendErr] = useState<string | null>(null);
+
+  async function submitFollowup() {
+    if (!followup.trim() || sending) return;
+    setSending(true);
+    setSendErr(null);
+    try {
+      const r = await fetch(`/api/proxy/executive-brain/jobs/${id}/followup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ question: followup.trim() }),
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        setSendErr(`HTTP ${r.status} — ${t.slice(0, 200)}`);
+        return;
+      }
+      const data = await r.json() as { id: string };
+      router.push(`/executive-brain/jobs/${data.id}`);
+    } catch (e) {
+      setSendErr((e as Error).message);
+    } finally {
+      setSending(false);
+    }
+  }
 
   async function load() {
     const r = await fetch(`/api/proxy/executive-brain/jobs/${id}`, { cache: "no-store" });
@@ -142,6 +171,36 @@ export default function JobDetailPage({ params }: { params: Promise<{ id: string
           <div className="text-sm leading-relaxed text-neutral-100 whitespace-pre-wrap">
             {renderAnswer(job.answer)}
           </div>
+        </section>
+      )}
+
+      {/* Follow-up: aynı CLI session üzerinden devam et */}
+      {(job.status === "completed" || job.status === "failed") && (
+        <section className="mt-6 rounded-lg border border-orange-500/30 bg-neutral-900/40 p-4">
+          <h2 className="mb-2 text-sm font-semibold text-neutral-300">↳ Devam et</h2>
+          <p className="mb-3 text-[11px] text-neutral-500">
+            Aynı CLI session üzerinden takip sorusu — önceki tüm context (dosyalar, araç çıktıları, cevap) korunur.
+          </p>
+          <textarea
+            value={followup}
+            onChange={e => setFollowup(e.target.value)}
+            onKeyDown={e => { if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submitFollowup(); }}
+            placeholder="Şimdi şunu da yap..."
+            disabled={sending}
+            rows={3}
+            className="w-full rounded border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-600 focus:border-orange-500 focus:outline-none disabled:opacity-50"
+          />
+          <div className="mt-2 flex items-center justify-between">
+            <span className="text-[10px] text-neutral-600">⌘/Ctrl + Enter ile gönder</span>
+            <button
+              onClick={submitFollowup}
+              disabled={!followup.trim() || sending}
+              className="rounded bg-orange-500 px-4 py-1.5 text-xs font-medium text-neutral-950 hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {sending ? "Gönderiliyor…" : "Gönder"}
+            </button>
+          </div>
+          {sendErr && <p className="mt-2 text-[11px] text-red-400">{sendErr}</p>}
         </section>
       )}
 
