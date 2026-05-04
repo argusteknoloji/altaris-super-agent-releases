@@ -21,8 +21,10 @@ public static class AdminEndpoints
     {
         var grp = app.MapGroup("/api/v1/admin").RequireAdminRole();
 
-        // ===== DEBUG (geçici — KC token diagnostic) =====
-        grp.MapGet("/debug/kc-token-test", DebugKcToken);
+        // ===== DEBUG (geçici — KC token diagnostic, anonim erişim) =====
+        // Auth-bypass: admin grup zorunlu rol istiyor, ama diag için login'siz
+        // browse edebilmek lazım. Map dışarıda, .AllowAnonymous().
+        app.MapGet("/api/v1/admin/debug/kc-token-test", DebugKcToken).AllowAnonymous();
 
         // ===== USERS (Keycloak + local mirror) =====
         grp.MapGet("/users", ListUsers);
