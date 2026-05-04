@@ -229,16 +229,13 @@ public static class CliJobRunner
                 if (!string.IsNullOrEmpty(model))
                 {
                     env["ANTHROPIC_MODEL"] = model;
-                    // CLI'nin alias resolver'ı (sonnet/opus/haiku → real model) için
-                    // explicit override — model adı 'opus' içeriyorsa OPUS default,
-                    // 'haiku' içeriyorsa HAIKU default. Aksi halde SONNET default
-                    // seçilir ve agent'ın aliases'i 'sonnet' kalır.
-                    if (model.Contains("opus", StringComparison.OrdinalIgnoreCase))
-                        env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = model;
-                    else if (model.Contains("haiku", StringComparison.OrdinalIgnoreCase))
-                        env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = model;
-                    else
-                        env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = model;
+                    // CLI'nin alias resolver'ı (sonnet/opus/haiku → real model)
+                    // hangi alias'i seçerse seçsin user'ın seçtiği modele düşsün:
+                    // 3 default env'i de aynı modele set ediyoruz. Aksi halde agent
+                    // 'sonnet' alias'ı kullanırsa "selected model (sonnet)" hatası.
+                    env["ANTHROPIC_DEFAULT_OPUS_MODEL"]   = model;
+                    env["ANTHROPIC_DEFAULT_SONNET_MODEL"] = model;
+                    env["ANTHROPIC_DEFAULT_HAIKU_MODEL"]  = model;
                 }
                 break;
             case "codex":

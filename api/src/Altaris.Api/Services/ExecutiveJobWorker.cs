@@ -209,7 +209,7 @@ public class ExecutiveJobWorker : BackgroundService
                 Id = sessionId,
                 TenantId = job.TenantId,
                 UserId = job.UserId ?? Guid.Empty,
-                Source = "executive-brain-job",
+                Source = "executive-brain-job",   // CHECK constraint relaxed in startup migration
                 Provider = prov.Provider,
                 Model = llmModel,
                 Title = $"Job {job.Id.ToString()[..8]} · {job.Question[..Math.Min(40, job.Question.Length)]}",
