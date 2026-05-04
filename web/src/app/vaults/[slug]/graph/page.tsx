@@ -142,8 +142,27 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
         );
 
         function paint() {
+          // Her frame'de canvas hâlâ DOM'da ve geçerli mi check; stale-ctx yakala
+          const live = canvasRef.current;
+          if (!live || !live.isConnected) { cancelled = true; return; }
+          // Boyutu her zaman bbox'tan oku (sub-pixel oynamalara karşı dayanıklı)
+          const r = live.getBoundingClientRect();
+          const w = r.width, h = r.height;
+          if (w <= 0 || h <= 0) return;
+          const targetW = Math.round(w * dpr);
+          const targetH = Math.round(h * dpr);
+          if (live.width !== targetW || live.height !== targetH) {
+            live.width  = targetW;
+            live.height = targetH;
+          }
+          // Transform her frame uygulanır — canvas.width set'i transformu sıfırlar.
+          // Performance maliyeti ihmal edilebilir (matrix set), buna karşılık
+          // 'transform stale → koordinatlar bozuk → black' bug'ı tamamen kapanır.
+          ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
+          cssW = w; cssH = h;
+
           ctx!.fillStyle = "#0a0a0a";
-          ctx!.fillRect(0, 0, cssW, cssH);
+          ctx!.fillRect(0, 0, w, h);
           ctx!.strokeStyle = "rgba(148,163,184,0.18)";
           ctx!.lineWidth = 1;
           for (const l of links) {
@@ -153,11 +172,11 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
           }
           ctx!.font = "11px ui-monospace, Menlo, monospace";
           for (const n of nodeMap.values()) {
-            const r = 4 + Math.min(8, Math.sqrt(n.degree) * 2.5);
+            const rad = 4 + Math.min(8, Math.sqrt(n.degree) * 2.5);
             ctx!.fillStyle = colorFor(n.node.group);
-            ctx!.beginPath(); ctx!.arc(n.x, n.y, r, 0, Math.PI * 2); ctx!.fill();
+            ctx!.beginPath(); ctx!.arc(n.x, n.y, rad, 0, Math.PI * 2); ctx!.fill();
             ctx!.fillStyle = "#cbd5e1";
-            ctx!.fillText(n.node.label, n.x + r + 2, n.y + 4);
+            ctx!.fillText(n.node.label, n.x + rad + 2, n.y + 4);
           }
         }
 
@@ -186,12 +205,21 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
             l.t.vx -= fx; l.t.vy -= fy;
           }
           const cx2 = cssW / 2, cy2 = cssH / 2;
+          const PAD = 24;
           for (const n of arr) {
             n.vx += (cx2 - n.x) * CENTER_K;
             n.vy += (cy2 - n.y) * CENTER_K;
             n.vx *= DAMPING; n.vy *= DAMPING;
             if (n.fx !== undefined && n.fy !== undefined) { n.x = n.fx; n.y = n.fy; }
             else { n.x += n.vx; n.y += n.vy; }
+            // Hard clamp — node hiçbir koşulda görünür alan dışına kaçmaz
+            // (NaN, infinite velocity, vb. patolojik durumlara karşı backstop)
+            if (!Number.isFinite(n.x)) n.x = cx2;
+            if (!Number.isFinite(n.y)) n.y = cy2;
+            if (n.x < PAD) { n.x = PAD; n.vx = 0; }
+            else if (n.x > cssW - PAD) { n.x = cssW - PAD; n.vx = 0; }
+            if (n.y < PAD) { n.y = PAD; n.vy = 0; }
+            else if (n.y > cssH - PAD) { n.y = cssH - PAD; n.vy = 0; }
           }
         }
 
