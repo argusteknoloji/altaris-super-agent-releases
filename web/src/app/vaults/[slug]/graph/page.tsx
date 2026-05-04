@@ -109,6 +109,13 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
         const LINK_K    = 0.04;
         const CENTER_K  = 0.005;
         const DAMPING   = 0.85;
+        // d3-force standardı: alpha 1 → 0.001 (~300 tick / ~5s @60fps), sonra dur.
+        // Convergence olmazsa center force + repulsion mikro-oscillation üretir
+        // ve noktalar sonsuza kadar dönmeye devam eder.
+        const ALPHA_DECAY = 0.0228;
+        const ALPHA_MIN   = 0.001;
+        let alpha = 1;
+        let running = false;
 
         let dragging: Sim | null = null;
         const onDown = (ev: MouseEvent) => {
@@ -120,7 +127,7 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
             const d = (n.x - mx) ** 2 + (n.y - my) ** 2;
             if (d < bestD) { bestD = d; pick = n; }
           }
-          if (pick) { dragging = pick; pick.fx = mx; pick.fy = my; }
+          if (pick) { dragging = pick; pick.fx = mx; pick.fy = my; reheat(0.3); }
         };
         const onMove = (ev: MouseEvent) => {
           if (!dragging) return;
@@ -182,6 +189,8 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
 
         function step() {
           const arr = Array.from(nodeMap.values());
+          // Tüm kuvvetler alpha ile ölçeklenir → simülasyon zamanla "soğur".
+          // alpha 0'a yaklaşırken hareket sıfıra düşer, mikro-oscillation kapanır.
           // Coulomb repulsion
           for (let i = 0; i < arr.length; i++) {
             for (let j = i + 1; j < arr.length; j++) {
@@ -189,7 +198,7 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
               const dx = a.x - b.x, dy = a.y - b.y;
               let d2 = dx * dx + dy * dy;
               if (d2 < 1) d2 = 1;
-              const f = REPULSION / d2;
+              const f = (REPULSION / d2) * alpha;
               const d = Math.sqrt(d2);
               const fx = (dx / d) * f, fy = (dy / d) * f;
               a.vx += fx; a.vy += fy;
@@ -199,7 +208,7 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
           for (const l of links) {
             const dx = l.t.x - l.s.x, dy = l.t.y - l.s.y;
             const d = Math.sqrt(dx * dx + dy * dy) || 1;
-            const f = (d - LINK_LEN) * LINK_K;
+            const f = (d - LINK_LEN) * LINK_K * alpha;
             const fx = (dx / d) * f, fy = (dy / d) * f;
             l.s.vx += fx; l.s.vy += fy;
             l.t.vx -= fx; l.t.vy -= fy;
@@ -207,8 +216,8 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
           const cx2 = cssW / 2, cy2 = cssH / 2;
           const PAD = 24;
           for (const n of arr) {
-            n.vx += (cx2 - n.x) * CENTER_K;
-            n.vy += (cy2 - n.y) * CENTER_K;
+            n.vx += (cx2 - n.x) * CENTER_K * alpha;
+            n.vy += (cy2 - n.y) * CENTER_K * alpha;
             n.vx *= DAMPING; n.vy *= DAMPING;
             if (n.fx !== undefined && n.fy !== undefined) { n.x = n.fx; n.y = n.fy; }
             else { n.x += n.vx; n.y += n.vy; }
@@ -224,20 +233,37 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
         }
 
         function tick() {
-          if (cancelled) return;
+          if (cancelled) { running = false; return; }
           step();
           paint();
+          // d3 alpha decay: alpha += (0 - alpha) * decay  ≡  alpha *= (1 - decay)
+          alpha += (0 - alpha) * ALPHA_DECAY;
+          if (alpha < ALPHA_MIN) {
+            // Convergence — son frame zaten çizildi, rAF'ı durdur. CPU 0'a iner.
+            running = false;
+            return;
+          }
           raf = requestAnimationFrame(tick);
         }
-        // İlk frame'i hemen çiz ki resize fit sonrası boş canvas görünmesin
+        function reheat(target: number) {
+          if (alpha < target) alpha = target;
+          if (!running && !cancelled) {
+            running = true;
+            raf = requestAnimationFrame(tick);
+          }
+        }
+        // İlk frame'i hemen çiz, sonra simülasyonu başlat.
         paint();
+        running = true;
         raf = requestAnimationFrame(tick);
 
         // Resize handling — ResizeObserver, per-tick yerine event-driven.
-        // Boyut değişince anında applyResize + paint → black flash yok.
+        // Boyut değişince applyResize + paint (sim durmuşsa da görsel güncel).
+        // Layout'a uyum sağlasın diye hafif bir reheat de çağırılır.
         ro = new ResizeObserver(() => {
           applyResize();
           paint();
+          reheat(0.1);
         });
         ro.observe(canvas);
         cleanups.push(() => ro?.disconnect());
