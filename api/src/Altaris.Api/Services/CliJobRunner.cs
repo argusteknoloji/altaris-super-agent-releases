@@ -61,7 +61,13 @@ public static class CliJobRunner
         };
         psi.ArgumentList.Add("-p");
         psi.ArgumentList.Add(prompt);
-        psi.ArgumentList.Add("--output-format=json");
+        // stream-json: her olay (system/assistant/tool_use/tool_result/result)
+        // satır satır anında stdout'a → live PTY preview canlı çalışıyor görüntü
+        // verir + final 'result' event'inden cevabı parse ediyoruz.
+        psi.ArgumentList.Add("--output-format=stream-json");
+        psi.ArgumentList.Add("--include-partial-messages");
+        // CLI bayrağı: stream-json input format opsiyonel — biz tek prompt'ta
+        // çalıştırdığımız için --input-format text default, ekleme yapmıyoruz.
         // Server-side subprocess: kullanıcı interaktif onay veremez. Tüm tool
         // çağrılarına otomatik onay (Bash/Edit/Write/Grep/...). Sandbox: vault
         // cwd zaten izolasyon sağlıyor, /srv/altaris/.altaris read-only mount.
@@ -184,21 +190,39 @@ public static class CliJobRunner
 
             try
             {
-                // CLI son satırı tam JSON. Multi-line varsa son non-empty parse.
-                var lastLine = raw.Split('\n').Reverse()
-                    .FirstOrDefault(l => l.TrimStart().StartsWith("{"));
-                using var doc = JsonDocument.Parse(lastLine ?? raw);
-                var root = doc.RootElement;
-                var isError = root.TryGetProperty("is_error", out var ie) && ie.GetBoolean();
-                var result  = root.TryGetProperty("result", out var r) ? (r.GetString() ?? "") : "";
-
+                // stream-json: her satır bir event JSON. Final cevap için
+                // sondan başa doğru tara, type=='result' eventini bul.
+                var lines = raw.Split('\n');
+                string? resultText = null;
+                bool isError = false;
+                for (var i = lines.Length - 1; i >= 0; i--)
+                {
+                    var line = lines[i].Trim();
+                    if (!line.StartsWith("{")) continue;
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(line);
+                        var root = doc.RootElement;
+                        if (!root.TryGetProperty("type", out var tEl)) continue;
+                        var t = tEl.GetString();
+                        if (t == "result")
+                        {
+                            isError = root.TryGetProperty("is_error", out var ie) && ie.GetBoolean();
+                            resultText = root.TryGetProperty("result", out var r) ? (r.GetString() ?? "") : "";
+                            break;
+                        }
+                    }
+                    catch (JsonException) { /* skip malformed */ }
+                }
+                if (resultText is null)
+                    return new RunResult(false, "", $"CLI sonuç event'i bulunamadı (exit={proc.ExitCode})", raw, sw.ElapsedMilliseconds);
                 if (isError)
-                    return new RunResult(false, "", result, raw, sw.ElapsedMilliseconds);
-                return new RunResult(true, result, null, raw, sw.ElapsedMilliseconds);
+                    return new RunResult(false, "", resultText, raw, sw.ElapsedMilliseconds);
+                return new RunResult(true, resultText, null, raw, sw.ElapsedMilliseconds);
             }
-            catch (JsonException ex)
+            catch (Exception ex)
             {
-                return new RunResult(false, "", $"JSON parse fail: {ex.Message}", raw, sw.ElapsedMilliseconds);
+                return new RunResult(false, "", $"Stream parse fail: {ex.Message}", raw, sw.ElapsedMilliseconds);
             }
         }
         finally

@@ -3,6 +3,57 @@
 import { useEffect, useRef, useState } from "react";
 
 /**
+ *  CLI stream-json event'lerini xterm.js'de okunaklı render eder.
+ *  Each event tek satırlık JSON: {type:'system'|'assistant'|'tool_use'|'tool_result'|'result', ...}
+ *  Renkli badge + kısa özet, full JSON'i değil.
+ */
+function renderCliEvent(term: import("@xterm/xterm").Terminal, raw: string) {
+  const trimmed = raw.trim();
+  if (!trimmed) return;
+  if (!trimmed.startsWith("{")) {
+    // JSON değil — düz text (CLI banner, stderr vb), ham yaz
+    term.write(raw);
+    return;
+  }
+  try {
+    const e = JSON.parse(trimmed) as { type?: string; subtype?: string; message?: { content?: Array<{ type: string; text?: string; name?: string; input?: unknown }> }; tool_use_id?: string; content?: unknown; result?: string; is_error?: boolean };
+    const t = e.type;
+    if (t === "system") {
+      term.writeln(`\x1b[2m\x1b[36m▸ system\x1b[0m \x1b[2m${e.subtype ?? ""}\x1b[0m`);
+    } else if (t === "assistant" && e.message?.content) {
+      for (const part of e.message.content) {
+        if (part.type === "text" && part.text) {
+          term.write(`\x1b[37m${part.text}\x1b[0m`);
+        } else if (part.type === "tool_use" && part.name) {
+          const inp = part.input ? JSON.stringify(part.input).slice(0, 80) : "";
+          term.writeln(`\r\n\x1b[36m⚙ ${part.name}\x1b[0m \x1b[2m${inp}${inp.length >= 80 ? "…" : ""}\x1b[0m`);
+        } else if (part.type === "thinking" && (part as { thinking?: string }).thinking) {
+          term.writeln(`\r\n\x1b[2m\x1b[33m🧠 ${(part as { thinking?: string }).thinking?.slice(0, 200) ?? ""}\x1b[0m`);
+        }
+      }
+    } else if (t === "user" && e.message?.content) {
+      // Tool result genelde 'user' tipinde gelir
+      for (const part of e.message.content) {
+        if (part.type === "tool_result") {
+          const txt = typeof (part as { content?: string }).content === "string"
+            ? (part as { content?: string }).content!
+            : "";
+          const preview = txt.slice(0, 200).replace(/\n/g, " ");
+          term.writeln(`  \x1b[2m↳ ${preview}${txt.length > 200 ? "…" : ""}\x1b[0m`);
+        }
+      }
+    } else if (t === "result") {
+      const ok = !e.is_error;
+      const tag = ok ? "\x1b[32m✓ done\x1b[0m" : "\x1b[31m✗ error\x1b[0m";
+      term.writeln(`\r\n${tag}`);
+    }
+  } catch {
+    // JSON parse fail — ham göster
+    term.write(raw);
+  }
+}
+
+/**
  *  Read-only xterm.js viewer attached to a PtySession via /ws/pty/watch.
  *  Reuses the same WS protocol as the remote-control viewer:
  *    server → client: { type: "out", data: "..." } stdout chunks
@@ -62,7 +113,10 @@ export default function JobLiveTerminal({ sessionId }: { sessionId: string }) {
       ws.onmessage = ev => {
         try {
           const msg = JSON.parse(ev.data);
-          if (msg.type === "out" && typeof msg.data === "string") term.write(msg.data);
+          if (msg.type === "out" && typeof msg.data === "string") {
+            // CLI stream-json çıktısı: her satır JSON event. İnsan okunaklı render
+            renderCliEvent(term, msg.data);
+          }
           else if (msg.type === "info") term.writeln(`\r\n\x1b[2m[${msg.text}]\x1b[0m`);
           else if (msg.type === "error") term.writeln(`\r\n\x1b[31m[${msg.message}]\x1b[0m`);
         } catch { /* ignore */ }
