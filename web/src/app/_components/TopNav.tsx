@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
 import PresenceBadge from "./PresenceBadge";
 import TenantSwitcher from "./TenantSwitcher";
+import VersionBadge from "./VersionBadge";
 
 type Props = {
   email?: string | null;
@@ -67,6 +68,7 @@ export default function TopNav({ email, tenantSlug, roles = [] }: Props) {
         </nav>
       </div>
       <div className="flex items-center gap-2 sm:gap-3 text-xs">
+        <div className="hidden lg:block"><VersionBadge /></div>
         <div className="hidden md:block"><TenantSwitcher /></div>
         <div className="hidden sm:block"><PresenceBadge /></div>
         {email && (
@@ -135,17 +137,18 @@ export default function TopNav({ email, tenantSlug, roles = [] }: Props) {
                 );
               })}
             </nav>
-            <div className="mt-4 flex flex-col gap-2 border-t border-neutral-800 pt-4 sm:hidden">
-              <div><TenantSwitcher /></div>
-              <div><PresenceBadge /></div>
+            <div className="mt-4 flex flex-col gap-2 border-t border-neutral-800 pt-4 lg:hidden">
+              <div><VersionBadge /></div>
+              <div className="sm:hidden"><TenantSwitcher /></div>
+              <div className="sm:hidden"><PresenceBadge /></div>
               {email && (
-                <Link href="/account/security" className="text-xs text-neutral-400 hover:text-orange-400 truncate">
+                <Link href="/account/security" className="sm:hidden text-xs text-neutral-400 hover:text-orange-400 truncate">
                   {email}
                 </Link>
               )}
               <a
                 href="/api/auth/full-signout"
-                className="rounded-md border border-neutral-800 px-3 py-2 text-center text-xs text-neutral-300 hover:bg-neutral-900"
+                className="sm:hidden rounded-md border border-neutral-800 px-3 py-2 text-center text-xs text-neutral-300 hover:bg-neutral-900"
               >
                 Çıkış
               </a>

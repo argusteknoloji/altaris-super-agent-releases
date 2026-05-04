@@ -3,8 +3,10 @@ import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 // ── Build-time constants ──────────────────────────────────────────────────
-// Sürüm + git SHA + build timestamp; dashboard'da küçük badge ile gösterilir
-// (deploy doğrulama). Build sırasında package.json + git rev-parse okunur.
+// Sürüm + build numarası + git SHA + build timestamp. TopNav'da rozet ile
+// gösterilir; her deploy'da yeni numara → kullanıcı hangi sürümün canlı
+// olduğunu anında görür. Build numarası CI'da otomatik artar
+// (GITHUB_RUN_NUMBER), lokal dev'de commit sayısı.
 function readPkgVersion(): string {
   try {
     const pkg = JSON.parse(readFileSync("./package.json", "utf8"));
@@ -17,7 +19,18 @@ function readGitSha(): string {
   try { return execSync("git rev-parse --short HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim(); }
   catch { return "dev"; }
 }
-const BUILD_VERSION = readPkgVersion();
+function readBuildNumber(): string {
+  // CI'da: GITHUB_RUN_NUMBER her workflow run'da +1 (kalıcı, deterministik).
+  // Lokal: git commit count → her commit'le artar, package.json'a el sürmeden
+  // versiyon otomatik ilerler.
+  if (process.env.GITHUB_RUN_NUMBER) return process.env.GITHUB_RUN_NUMBER;
+  try { return execSync("git rev-list --count HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim(); }
+  catch { return "0"; }
+}
+const PKG_VERSION   = readPkgVersion();
+const BUILD_NUMBER  = readBuildNumber();
+// SemVer build metadata (+ ile ayrılır, sürüm sırasını etkilemez)
+const BUILD_VERSION = `${PKG_VERSION}+build.${BUILD_NUMBER}`;
 const BUILD_SHA     = readGitSha();
 const BUILD_TIME    = new Date().toISOString();
 
@@ -27,6 +40,7 @@ const config: NextConfig = {
   poweredByHeader: false,
   env: {
     NEXT_PUBLIC_BUILD_VERSION: BUILD_VERSION,
+    NEXT_PUBLIC_BUILD_NUMBER:  BUILD_NUMBER,
     NEXT_PUBLIC_BUILD_SHA:     BUILD_SHA,
     NEXT_PUBLIC_BUILD_TIME:    BUILD_TIME,
   },

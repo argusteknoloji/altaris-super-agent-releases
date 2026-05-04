@@ -85,29 +85,7 @@ export default async function Dashboard() {
         </table>
       </div>
 
-      {/* Build version badge — deploy doğrulama */}
-      <BuildBadge />
+      {/* Build sürüm rozeti TopNav'a taşındı — VersionBadge.tsx */}
     </main>
-  );
-}
-
-function BuildBadge() {
-  const ver  = process.env.NEXT_PUBLIC_BUILD_VERSION ?? "?";
-  const sha  = process.env.NEXT_PUBLIC_BUILD_SHA     ?? "?";
-  const time = process.env.NEXT_PUBLIC_BUILD_TIME    ?? "";
-  const timeFmt = time ? new Date(time).toLocaleString("tr-TR", {
-    year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit"
-  }) : "?";
-  return (
-    <div className="mt-8 flex items-center gap-3 text-[10px] text-neutral-500 font-mono">
-      <span className="rounded bg-neutral-900 border border-neutral-800 px-2 py-0.5">
-        web · v{ver}
-      </span>
-      <span className="rounded bg-neutral-900 border border-neutral-800 px-2 py-0.5">
-        sha · {sha}
-      </span>
-      <span className="text-neutral-600">build {timeFmt}</span>
-    </div>
   );
 }
