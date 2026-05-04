@@ -15,7 +15,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="tr">
       <body className="bg-neutral-950 text-neutral-100 antialiased min-h-screen">
-        {showNav && <TopNav email={session?.user?.email ?? null} tenantSlug={session?.tenantSlug ?? null} />}
+        {showNav && <TopNav email={session?.user?.email ?? null} tenantSlug={session?.tenantSlug ?? null} roles={session?.roles ?? []} />}
         {children}
       </body>
     </html>

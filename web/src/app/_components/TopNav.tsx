@@ -9,20 +9,25 @@ import TenantSwitcher from "./TenantSwitcher";
 type Props = {
   email?: string | null;
   tenantSlug?: string | null;
+  roles?: string[];
 };
 
-const LINKS: Array<{ href: string; label: string; match: (p: string) => boolean }> = [
+type NavLink = { href: string; label: string; match: (p: string) => boolean; adminOnly?: boolean };
+
+const ALL_LINKS: NavLink[] = [
   { href: "/dashboard",       label: "Panel",          match: p => p.startsWith("/dashboard") },
   { href: "/executive-brain", label: "🧠 Beyin",       match: p => p.startsWith("/executive-brain") },
   { href: "/chat",            label: "Chat",           match: p => p.startsWith("/chat") },
   { href: "/vaults",          label: "Vaults",         match: p => p.startsWith("/vaults") },
   { href: "/remote-control",  label: "Remote Control", match: p => p.startsWith("/remote-control") },
   { href: "/terminal",        label: "Terminal",       match: p => p.startsWith("/terminal") },
-  { href: "/admin",           label: "Admin",          match: p => p.startsWith("/admin") },
+  { href: "/admin",           label: "Admin",          match: p => p.startsWith("/admin"), adminOnly: true },
   { href: "/setup",           label: "CLI Kurulum",    match: p => p.startsWith("/setup") }
 ];
 
-export default function TopNav({ email, tenantSlug }: Props) {
+export default function TopNav({ email, tenantSlug, roles = [] }: Props) {
+  const isAdmin = roles.includes("tenant_admin") || roles.includes("platform_admin");
+  const LINKS = ALL_LINKS.filter(l => !l.adminOnly || isAdmin);
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 

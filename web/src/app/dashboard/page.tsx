@@ -29,6 +29,8 @@ export default async function Dashboard() {
 
   const token = session.accessToken;
   const tenantSlug = session.tenantSlug;
+  const roles = session.roles ?? [];
+  const isAdmin = roles.includes("tenant_admin") || roles.includes("platform_admin");
   const sessions = token ? await getSessions(token) : [];
 
   return (
@@ -39,9 +41,11 @@ export default async function Dashboard() {
           <p className="text-xs text-neutral-400">Tenant: <span className="font-mono">{tenantSlug ?? "—"}</span></p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <a href="/admin" className="rounded-md border border-neutral-700 px-4 py-2 text-sm font-medium text-neutral-200 hover:bg-neutral-800">
-            Admin
-          </a>
+          {isAdmin && (
+            <a href="/admin" className="rounded-md border border-neutral-700 px-4 py-2 text-sm font-medium text-neutral-200 hover:bg-neutral-800">
+              Admin
+            </a>
+          )}
           <a href="/terminal" className="rounded-md border border-neutral-700 px-4 py-2 text-sm font-medium text-neutral-200 hover:bg-neutral-800">
             Remote terminal
           </a>
