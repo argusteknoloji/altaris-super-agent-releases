@@ -82,10 +82,15 @@ public static class ExecutiveBrainEndpoints
         var deny = await Altaris.Api.Permissions.CapabilityHttpExtensions.RequireCapabilityAsync(
             http, caps, Altaris.Domain.Permissions.Capabilities.ExecutiveBrainUse);
         if (deny is not null) return deny;
-        var rows = await db.ExecutiveAgents.AsNoTracking()
-            .Where(a => a.TenantId == tc.TenantId)
-            .OrderBy(a => a.Name)
-            .ToListAsync();
+        // Üye: sadece kendi yarattığı agent'lar; admin: hepsi.
+        IQueryable<Domain.Entities.ExecutiveAgent> q = db.ExecutiveAgents.AsNoTracking()
+            .Where(a => a.TenantId == tc.TenantId);
+        if (!Altaris.Api.Permissions.OwnershipAuth.IsAdmin(http))
+        {
+            if (tc.UserId is null) return Results.Ok(Array.Empty<AgentDto>());
+            q = q.Where(a => a.CreatedBy == tc.UserId);
+        }
+        var rows = await q.OrderBy(a => a.Name).ToListAsync();
         return Results.Ok(rows.Select(ToDto));
     }
 
@@ -98,6 +103,7 @@ public static class ExecutiveBrainEndpoints
         if (deny is not null) return deny;
         var a = await db.ExecutiveAgents.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tc.TenantId);
         if (a is null) return Results.NotFound();
+        if (!Altaris.Api.Permissions.OwnershipAuth.OwnsOrAdmin(http, tc, a.CreatedBy)) return Results.NotFound();
         return Results.Ok(ToDto(a));
     }
 
@@ -168,6 +174,7 @@ public static class ExecutiveBrainEndpoints
 
         var a = await db.ExecutiveAgents.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tc.TenantId);
         if (a is null) return Results.NotFound();
+        if (!Altaris.Api.Permissions.OwnershipAuth.OwnsOrAdmin(http, tc, a.CreatedBy)) return Results.Forbid();
 
         if (!string.IsNullOrWhiteSpace(req.Name))         a.Name = req.Name.Trim();
         if (req.Description is not null)                  a.Description = req.Description;
@@ -197,6 +204,7 @@ public static class ExecutiveBrainEndpoints
 
         var a = await db.ExecutiveAgents.FirstOrDefaultAsync(x => x.Id == id && x.TenantId == tc.TenantId);
         if (a is null) return Results.NotFound();
+        if (!Altaris.Api.Permissions.OwnershipAuth.OwnsOrAdmin(http, tc, a.CreatedBy)) return Results.Forbid();
         db.ExecutiveAgents.Remove(a);
         await db.SaveChangesAsync();
         return Results.NoContent();
@@ -305,6 +313,19 @@ public static class ExecutiveBrainEndpoints
         if (deny is not null) return deny;
         if (string.IsNullOrWhiteSpace(req.Question))
             return Results.BadRequest(new { error = "question_required" });
+
+        // Agent verildiyse: kullanıcının ona erişimi var mı? (kendisi yarattıysa veya admin ise)
+        if (req.AgentId is { } aid)
+        {
+            var agentOwner = await db.ExecutiveAgents.AsNoTracking()
+                .Where(a => a.Id == aid && a.TenantId == tc.TenantId)
+                .Select(a => (Guid?)a.CreatedBy)
+                .FirstOrDefaultAsync();
+            if (agentOwner is null && !await db.ExecutiveAgents.AnyAsync(a => a.Id == aid && a.TenantId == tc.TenantId))
+                return Results.NotFound(new { error = "agent_not_found" });
+            if (!Altaris.Api.Permissions.OwnershipAuth.OwnsOrAdmin(http, tc, agentOwner))
+                return Results.Forbid();
+        }
 
         var job = new Domain.Entities.ExecutiveJob
         {

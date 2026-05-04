@@ -45,10 +45,12 @@ public static class VaultEndpoints
     ///   VaultStorage.SafeFilePath ile validate, .. veya / başlangıçlı path'ler reddedilir.
     /// </summary>
     private static async Task<IResult> UploadSkill(
-        string slug, HttpRequest request, ITenantContext tc, VaultStorage store,
+        string slug, HttpRequest request, AltarisDbContext db, ITenantContext tc, VaultStorage store,
+        HttpContext http,
         CancellationToken ct)
     {
         if (tc.TenantSlug is null) return Results.Forbid();
+        if (await AuthorizedVaultAsync(slug, db, tc, http, ct) is null) return Results.NotFound();
         if (!request.HasFormContentType) return Results.BadRequest(new { error = "multipart_required" });
 
         var form = await request.ReadFormAsync(ct);
@@ -119,12 +121,19 @@ public static class VaultEndpoints
 
     // ─── REST ────────────────────────────────────────────────────────────────
 
-    private static async Task<IResult> ListVaults(AltarisDbContext db, ITenantContext tc, VaultStorage store)
+    private static async Task<IResult> ListVaults(AltarisDbContext db, ITenantContext tc, VaultStorage store, HttpContext http)
     {
         if (tc.TenantId is null) return Results.Forbid();
-        // LEFT JOIN — owner_user_id nullable, ayrıca user silinmiş olabilir
+        var isAdmin = Permissions.OwnershipAuth.IsAdmin(http);
+        // Üye: sadece kendi vault'larını; admin: tenant'ın hepsini.
+        IQueryable<Vault> baseQ = db.Vaults.Where(v => v.TenantId == tc.TenantId);
+        if (!isAdmin)
+        {
+            if (tc.UserId is null) return Results.Ok(Array.Empty<object>());
+            baseQ = baseQ.Where(v => v.OwnerUserId == tc.UserId);
+        }
         var rows = await (
-            from v in db.Vaults.Where(v => v.TenantId == tc.TenantId)
+            from v in baseQ
             join u in db.Users on v.OwnerUserId equals u.Id into uj
             from u in uj.DefaultIfEmpty()
             orderby v.UpdatedAt descending
@@ -135,6 +144,20 @@ public static class VaultEndpoints
                 owner = u == null ? null : new { id = u.Id, email = u.Email }
             }).ToListAsync();
         return Results.Ok(rows);
+    }
+
+    /// <summary>
+    ///   Vault'u tenant + ownership filtre'inden geçirir. null dönüyorsa
+    ///   ya yok ya yetkin yok — endpoint NotFound dönmeli (var/yok ifşa olmasın).
+    /// </summary>
+    private static async Task<Vault?> AuthorizedVaultAsync(
+        string slug, AltarisDbContext db, ITenantContext tc, HttpContext http, CancellationToken ct = default)
+    {
+        if (tc.TenantId is null) return null;
+        var v = await db.Vaults.AsNoTracking()
+            .FirstOrDefaultAsync(x => x.TenantId == tc.TenantId && x.Slug == slug, ct);
+        if (v is null) return null;
+        return Permissions.OwnershipAuth.OwnsOrAdmin(http, tc, v.OwnerUserId) ? v : null;
     }
 
     public record CreateVaultRequest(string Slug, string Name);
@@ -203,28 +226,30 @@ public static class VaultEndpoints
     }
 
     private static async Task<IResult> DeleteVault(
-        string slug, AltarisDbContext db, ITenantContext tc, VaultStorage store)
+        string slug, AltarisDbContext db, ITenantContext tc, VaultStorage store, HttpContext http)
     {
         if (tc.TenantId is null || tc.TenantSlug is null) return Results.Forbid();
         var v = await db.Vaults.FirstOrDefaultAsync(x => x.TenantId == tc.TenantId && x.Slug == slug);
         if (v is null) return Results.NotFound();
-        if (v.OwnerUserId != tc.UserId) return Results.Forbid();   // only owner
+        if (!Permissions.OwnershipAuth.OwnsOrAdmin(http, tc, v.OwnerUserId)) return Results.Forbid();
         try { store.DeleteVault(tc.TenantSlug, v.Slug); } catch { }
         db.Vaults.Remove(v);
         await db.SaveChangesAsync();
         return Results.NoContent();
     }
 
-    private static IResult GetTree(string slug, ITenantContext tc, VaultStorage store)
+    private static async Task<IResult> GetTree(string slug, AltarisDbContext db, ITenantContext tc, VaultStorage store, HttpContext http)
     {
         if (tc.TenantSlug is null) return Results.Forbid();
+        if (await AuthorizedVaultAsync(slug, db, tc, http) is null) return Results.NotFound();
         if (!store.VaultExists(tc.TenantSlug, slug)) return Results.NotFound();
         return Results.Ok(store.List(tc.TenantSlug, slug).OrderBy(f => f.Path).ToList());
     }
 
-    private static async Task<IResult> GetFile(string slug, string path, ITenantContext tc, VaultStorage store, CancellationToken ct)
+    private static async Task<IResult> GetFile(string slug, string path, AltarisDbContext db, ITenantContext tc, VaultStorage store, HttpContext http, CancellationToken ct)
     {
         if (tc.TenantSlug is null) return Results.Forbid();
+        if (await AuthorizedVaultAsync(slug, db, tc, http, ct) is null) return Results.NotFound();
         try
         {
             var content = await store.ReadTextAsync(tc.TenantSlug, slug, path, ct);
@@ -254,9 +279,11 @@ public static class VaultEndpoints
         string slug, PutFileRequest body, AltarisDbContext db, ITenantContext tc,
         VaultStorage store,
         IServiceScopeFactory scopeFactory,
+        HttpContext http,
         CancellationToken ct)
     {
         if (tc.TenantId is null || tc.TenantSlug is null) return Results.Forbid();
+        if (await AuthorizedVaultAsync(slug, db, tc, http, ct) is null) return Results.NotFound();
         if (!store.VaultExists(tc.TenantSlug, slug)) return Results.NotFound();
 
         // Conflict detection — if the client sent a parentChecksum it must match
@@ -376,9 +403,10 @@ public static class VaultEndpoints
     ///   diff local against server before issuing PUTs (saves bandwidth and
     ///   surfaces the conflict candidates upfront).
     /// </summary>
-    private static IResult GetManifest(string slug, ITenantContext tc, VaultStorage store)
+    private static async Task<IResult> GetManifest(string slug, AltarisDbContext db, ITenantContext tc, VaultStorage store, HttpContext http)
     {
         if (tc.TenantSlug is null) return Results.Forbid();
+        if (await AuthorizedVaultAsync(slug, db, tc, http) is null) return Results.NotFound();
         if (!store.VaultExists(tc.TenantSlug, slug)) return Results.NotFound();
         var rows = store.List(tc.TenantSlug, slug)
             .Select(f => new {
@@ -394,12 +422,12 @@ public static class VaultEndpoints
     public record PatchVaultRequest(string? Visibility, string? Name);
 
     private static async Task<IResult> PatchVault(
-        string slug, PatchVaultRequest body, AltarisDbContext db, ITenantContext tc, CancellationToken ct)
+        string slug, PatchVaultRequest body, AltarisDbContext db, ITenantContext tc, HttpContext http, CancellationToken ct)
     {
         if (tc.TenantId is null) return Results.Forbid();
         var v = await db.Vaults.FirstOrDefaultAsync(x => x.TenantId == tc.TenantId && x.Slug == slug, ct);
         if (v is null) return Results.NotFound();
-        if (v.OwnerUserId != tc.UserId) return Results.Forbid();   // only owner
+        if (!Permissions.OwnershipAuth.OwnsOrAdmin(http, tc, v.OwnerUserId)) return Results.Forbid();
 
         if (!string.IsNullOrWhiteSpace(body.Visibility))
         {
@@ -417,9 +445,10 @@ public static class VaultEndpoints
     }
 
     private static async Task<IResult> DeleteFile(
-        string slug, string path, AltarisDbContext db, ITenantContext tc, VaultStorage store, CancellationToken ct)
+        string slug, string path, AltarisDbContext db, ITenantContext tc, VaultStorage store, HttpContext http, CancellationToken ct)
     {
         if (tc.TenantId is null || tc.TenantSlug is null) return Results.Forbid();
+        if (await AuthorizedVaultAsync(slug, db, tc, http, ct) is null) return Results.NotFound();
         try { store.Delete(tc.TenantSlug, slug, path); }
         catch (InvalidOperationException ex) { return Results.BadRequest(new { error = ex.Message }); }
         catch (FileNotFoundException) { return Results.NotFound(); }
@@ -446,14 +475,13 @@ public static class VaultEndpoints
     ///   ts_headline picks the most relevant snippet for each hit; the trigram
     ///   index gives us fuzzy fallback when the user mistypes.
     /// </summary>
-    private static async Task<IResult> Search(string slug, string q, AltarisDbContext db, ITenantContext tc, VaultStorage store, int limit = 50, CancellationToken ct = default)
+    private static async Task<IResult> Search(string slug, string q, AltarisDbContext db, ITenantContext tc, VaultStorage store, HttpContext http, int limit = 50, CancellationToken ct = default)
     {
         if (tc.TenantId is null || tc.TenantSlug is null) return Results.Forbid();
         if (!store.VaultExists(tc.TenantSlug, slug)) return Results.NotFound();
         if (string.IsNullOrWhiteSpace(q)) return Results.Ok(Array.Empty<object>());
 
-        var v = await db.Vaults.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.TenantId == tc.TenantId && x.Slug == slug, ct);
+        var v = await AuthorizedVaultAsync(slug, db, tc, http, ct);
         if (v is null) return Results.NotFound();
 
         var sql = @"
@@ -593,9 +621,10 @@ public static class VaultEndpoints
         return hits;
     }
 
-    private static IResult Graph(string slug, ITenantContext tc, VaultStorage store)
+    private static async Task<IResult> Graph(string slug, AltarisDbContext db, ITenantContext tc, VaultStorage store, HttpContext http)
     {
         if (tc.TenantSlug is null) return Results.Forbid();
+        if (await AuthorizedVaultAsync(slug, db, tc, http) is null) return Results.NotFound();
         if (!store.VaultExists(tc.TenantSlug, slug)) return Results.NotFound();
         return Results.Ok(store.BuildGraph(tc.TenantSlug, slug));
     }
@@ -635,11 +664,11 @@ public static class VaultEndpoints
         string slug, string q, AltarisDbContext db, ITenantContext tc,
         Altaris.Infrastructure.Embeddings.EmbeddingClient client,
         Altaris.Infrastructure.Embeddings.EmbeddingIndexer indexer,
+        HttpContext http,
         int k = 10, CancellationToken ct = default)
     {
         if (tc.TenantId is null) return Results.Forbid();
-        var v = await db.Vaults.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.TenantId == tc.TenantId && x.Slug == slug, ct);
+        var v = await AuthorizedVaultAsync(slug, db, tc, http, ct);
         if (v is null) return Results.NotFound();
         if (string.IsNullOrWhiteSpace(q)) return Results.Ok(Array.Empty<SemanticHitDto>());
 
@@ -668,12 +697,7 @@ public static class VaultEndpoints
         CancellationToken ct)
     {
         if (tc.TenantId is null || tc.TenantSlug is null) return Results.Forbid();
-        // Reindex tenant-wide pahalı bir işlem — sadece tenant_admin (vault.delete capability'si) yapabilir.
-        var deny = await Altaris.Api.Permissions.CapabilityHttpExtensions.RequireCapabilityAsync(
-            http, caps, Altaris.Domain.Permissions.Capabilities.VaultDelete, ct);
-        if (deny is not null) return deny;
-        var v = await db.Vaults.AsNoTracking()
-            .FirstOrDefaultAsync(x => x.TenantId == tc.TenantId && x.Slug == slug, ct);
+        var v = await AuthorizedVaultAsync(slug, db, tc, http, ct);
         if (v is null) return Results.NotFound();
         var prov = await ResolveEmbeddingProvider(db, tc, ct);
         if (prov is null)
