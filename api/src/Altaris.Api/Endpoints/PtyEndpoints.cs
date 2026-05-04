@@ -48,6 +48,22 @@ public static class PtyEndpoints
         // ?command=<path>   → spawn an explicit absolute-path executable (admin)
         var requested = (ctx.Request.Query["command"].ToString() ?? "altaris").Trim().ToLowerInvariant();
         var titleHint = (ctx.Request.Query["title"].ToString() ?? "").Trim();
+        var vaultSlug = (ctx.Request.Query["vault"].ToString() ?? "").Trim().ToLowerInvariant();
+
+        // Vault verildiyse cwd'yi vault path'ine çevir; yoksa user erişimini de doğrula.
+        string? vaultCwd = null;
+        if (!string.IsNullOrEmpty(vaultSlug))
+        {
+            var v = await db.Vaults.AsNoTracking().FirstOrDefaultAsync(
+                x => x.TenantId == tenant.TenantId && x.Slug == vaultSlug);
+            if (v is null) { ctx.Response.StatusCode = 404; return; }
+            // Owner veya admin değilse kapat
+            if (!Permissions.OwnershipAuth.OwnsOrAdmin(ctx, tenant, v.OwnerUserId))
+            { ctx.Response.StatusCode = 403; return; }
+            var root = Environment.GetEnvironmentVariable("ALTARIS_VAULTS_ROOT") ?? "/srv/altaris/vaults";
+            vaultCwd = Path.Combine(root, tenant.TenantSlug, vaultSlug);
+            if (!Directory.Exists(vaultCwd)) vaultCwd = null;
+        }
 
         string fileName;
         string args;
@@ -112,11 +128,16 @@ public static class PtyEndpoints
             FileName = spawnFile, Arguments = spawnArgs,
             RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
             UseShellExecute = false, CreateNoWindow = true,
-            WorkingDirectory = Environment.GetEnvironmentVariable("HOME") ?? "/tmp"
+            WorkingDirectory = vaultCwd ?? Environment.GetEnvironmentVariable("HOME") ?? "/tmp"
         };
         psi.Environment["TERM"] = "xterm-256color";
         psi.Environment["ALTARIS_REMOTE"] = "1";
         psi.Environment["ALTARIS_SESSION_ID"] = session.Id.ToString();
+        if (vaultCwd is not null)
+        {
+            psi.Environment["ALTARIS_VAULT_SLUG"] = vaultSlug;
+            psi.Environment["ALTARIS_VAULT_PATH"] = vaultCwd;
+        }
         // Tag bootstrap so the CLI can opt-out of duplicate work / banners.
         psi.Environment["ALTARIS_PARENT"] = "web-pty";
         psi.Environment["FORCE_COLOR"] = "1";
