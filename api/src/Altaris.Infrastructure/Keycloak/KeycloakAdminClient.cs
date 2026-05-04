@@ -78,6 +78,26 @@ public class KeycloakAdminClient
         return req;
     }
 
+    /// <summary>
+    ///   AuthedAsync + Send + 401-retry. Cached admin token bayatlamış olabilir
+    ///   (KC restart, secret rotate). 401 alınca cache'i invalidate edip yeni
+    ///   token'la bir kere daha dener.
+    /// </summary>
+    private async Task<HttpResponseMessage> SendAuthedAsync(
+        HttpMethod method, string path, object? body, CancellationToken ct)
+    {
+        var req = await AuthedAsync(method, path, body, ct);
+        var resp = await _http.SendAsync(req, ct);
+        if (resp.StatusCode != System.Net.HttpStatusCode.Unauthorized) return resp;
+
+        // Cache'i bust et — bir sonraki GetAdminToken yeni token alır
+        resp.Dispose();
+        lock (_tokenLock) { _cachedToken = null; _tokenExpiresAt = DateTimeOffset.MinValue; }
+
+        var retry = await AuthedAsync(method, path, body, ct);
+        return await _http.SendAsync(retry, ct);
+    }
+
     public async Task<List<KeycloakUser>> ListUsersByTenantAsync(string tenantSlug, int max = 200, CancellationToken ct = default)
     {
         var req = await AuthedAsync(HttpMethod.Get, $"/users?max={max}&q=tenant_id:{Uri.EscapeDataString(tenantSlug)}", null, ct);
@@ -104,8 +124,7 @@ public class KeycloakAdminClient
             }
         };
 
-        var req = await AuthedAsync(HttpMethod.Post, "/users", payload, ct);
-        using var resp = await _http.SendAsync(req, ct);
+        using var resp = await SendAuthedAsync(HttpMethod.Post, "/users", payload, ct);
         if (!resp.IsSuccessStatusCode)
         {
             var err = await resp.Content.ReadAsStringAsync(ct);
