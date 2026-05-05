@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using Altaris.Domain.Entities;
 using Altaris.Infrastructure.MultiTenancy;
@@ -5,6 +6,12 @@ using Altaris.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace Altaris.Api.Endpoints;
+
+/// <summary>
+///   Marker tipi — ILogger&lt;JitRefreshLogCategory&gt; için kategori adı sağlar.
+///   Static endpoint sınıfı ILogger&lt;Self&gt; alamadığı için ayrı bir public tip.
+/// </summary>
+public sealed class JitRefreshLogCategory { }
 
 /// <summary>
 ///   Session detail + transcript endpoints (own + admin views).
@@ -29,22 +36,66 @@ public static class SessionEndpoints
         // Used by altaris CLI bootstrap so users don't have to export env vars.
         // ?provider=lmstudio narrows by type; otherwise the tenant's default
         // (or first enabled) is returned. Writes a terminal.bootstrap audit row.
+        //
+        // JIT OAuth refresh: bootstrap path (CLI ALTARIS_OAUTH_TOKEN env) RT'yi
+        // CLI'a vermiyor → CLI in-session refresh yapamıyor. Background sweep
+        // (CodexTokenRefreshWorker) proaktif yeniliyor ama 5 dk poll aralığı
+        // race window bırakıyor: o aralıkta /active çağrılırsa stale token
+        // dönüp CLI'da 401 patlatıyordu. Burada response döndürmeden önce
+        // expired-or-soon olanı senkron yeniliyoruz; refresh fail ise 503 dön
+        // ki kullanıcı silently 401 spam'i yerine net hata görsün.
         app.MapGet("/api/v1/providers/active", async (
-            AltarisDbContext db, ITenantContext tc, HttpContext ctx, string? provider, Guid? id) =>
+            AltarisDbContext db, ITenantContext tc, HttpContext ctx,
+            IHttpClientFactory http, ILogger<JitRefreshLogCategory> log,
+            string? provider, Guid? id) =>
         {
             if (tc.TenantId is null) return Results.Forbid();
             var q = db.ProviderConfigs.Where(p => p.TenantId == tc.TenantId && p.Enabled);
             if (id.HasValue) q = q.Where(p => p.Id == id.Value);
             if (!string.IsNullOrEmpty(provider)) q = q.Where(p => p.Provider == provider);
+            // Entity (tracking) — RefreshOneAsync DB güncellemek için tracked entity bekliyor.
             var row = await q
                 .OrderByDescending(p => p.IsDefault)
                 .ThenBy(p => p.Provider).ThenBy(p => p.Name)
-                .Select(p => new {
-                    p.Id, p.Provider, p.Name, p.BaseUrl, p.ApiKeyEnc, p.DefaultModel, p.IsDefault,
-                    p.AuthKind, p.AccountId, p.AccessTokenExpiresAt
-                })
                 .FirstOrDefaultAsync();
             if (row is null) return Results.NotFound(new { error = "no enabled provider configured" });
+
+            // ── JIT refresh (anthropic + codex OAuth) ─────────────────────
+            if (row.AuthKind == "oauth"
+                && (row.Provider == "anthropic" || row.Provider == "codex"))
+            {
+                var soon = DateTimeOffset.UtcNow.AddMinutes(5);
+                var expired = row.AccessTokenExpiresAt is null
+                            || row.AccessTokenExpiresAt < soon;
+                if (expired)
+                {
+                    var ok = await JitRefreshOAuthAsync(row, db, http, log);
+                    if (!ok)
+                    {
+                        // RT muhtemelen revoke veya provider IdP down. 503 + audit:
+                        // CLI tarafı stale token alıp 401 spam yapmasın, kullanıcı
+                        // "Anthropic'i web panelden yeniden bağlayın" mesajı görsün.
+                        db.AuditEvents.Add(new Domain.Entities.AuditEvent
+                        {
+                            TenantId = tc.TenantId, UserId = tc.UserId,
+                            Actor = tc.UserEmail ?? "unknown",
+                            Action = "providers.oauth.refresh_failed",
+                            ResourceType = "provider_config", ResourceId = row.Id.ToString(),
+                            Ip = ctx.Connection.RemoteIpAddress?.ToString(),
+                            UserAgent = ctx.Request.Headers.UserAgent.ToString(),
+                            Payload = JsonSerializer.Serialize(new { provider = row.Provider }),
+                            OccurredAt = DateTimeOffset.UtcNow
+                        });
+                        await db.SaveChangesAsync();
+                        return Results.Problem(
+                            statusCode: 503,
+                            title: "provider_oauth_refresh_failed",
+                            detail: $"{row.Provider} OAuth token süresi doldu, otomatik yenileme başarısız. " +
+                                    $"Web panelden provider'ı yeniden bağlayın (/admin/providers).");
+                    }
+                    // RefreshOneAsync tracked entity'i in-place güncelledi → row taze.
+                }
+            }
 
             db.AuditEvents.Add(new Domain.Entities.AuditEvent
             {
@@ -84,6 +135,52 @@ public static class SessionEndpoints
            .AddEndpointFilter(AdminGuard);
 
         return app;
+    }
+
+    // Per-provider in-process semaphore: aynı provider_config_id için paralel
+    // /providers/active çağrıları tek refresh'te birleşsin (race + idempotency).
+    // Multi-instance API'ye geçilirse redis distributed lock'a taşınır — tek
+    // instance setup'ta (mevcut prod) bu yeterli ve maliyetsiz.
+    private static readonly ConcurrentDictionary<Guid, SemaphoreSlim> _refreshLocks = new();
+
+    private static async Task<bool> JitRefreshOAuthAsync(
+        ProviderConfig row, AltarisDbContext db,
+        IHttpClientFactory http, ILogger<JitRefreshLogCategory> log)
+    {
+        var sem = _refreshLocks.GetOrAdd(row.Id, _ => new SemaphoreSlim(1, 1));
+        await sem.WaitAsync();
+        try
+        {
+            // Lock alındıktan sonra DB'yi tekrar oku — başka bir request bizden
+            // önce refresh etmiş olabilir. EF'in change tracker'ı row'u zaten
+            // tutuyor; AccessTokenExpiresAt yeniden valid ise erken çık.
+            await db.Entry(row).ReloadAsync();
+            if (row.AccessTokenExpiresAt is { } exp
+                && exp > DateTimeOffset.UtcNow.AddMinutes(5))
+            {
+                return true;
+            }
+
+            var ok = row.Provider.ToLowerInvariant() switch
+            {
+                "anthropic" => await AnthropicTokenRefresher.RefreshOneAsync(row, db, http),
+                "codex"     => await CodexTokenRefresher.RefreshOneAsync(row, db, http),
+                _           => false,
+            };
+            if (!ok)
+            {
+                log.LogWarning("JIT OAuth refresh failed: {Provider} {Id} ({Name})",
+                    row.Provider, row.Id, row.Name);
+                return false;
+            }
+            log.LogInformation("JIT OAuth refresh ok: {Provider} {Id} ({Name})",
+                row.Provider, row.Id, row.Name);
+            return true;
+        }
+        finally
+        {
+            sem.Release();
+        }
     }
 
     private static async ValueTask<object?> AdminGuard(EndpointFilterInvocationContext ctx, EndpointFilterDelegate next)
