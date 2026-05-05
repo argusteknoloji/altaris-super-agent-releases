@@ -51,48 +51,44 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
         if (!ctx) { setError("Canvas 2D context alinamadi"); return; }
         const dpr = window.devicePixelRatio || 1;
 
-        // Layout settle bekle — flex parent ilk birkaç frame 0 boyut verebilir.
+        // Layout settle bekle — flex parent ilk frame'lerde 0 boyut verebilir
         let waitFrames = 0;
-        let rect = canvas.getBoundingClientRect();
-        while ((rect.width === 0 || rect.height === 0) && waitFrames < 30) {
+        let bbox = canvas.getBoundingClientRect();
+        while ((bbox.width === 0 || bbox.height === 0) && waitFrames < 30) {
           await new Promise<void>(r => requestAnimationFrame(() => r()));
           if (cancelled) return;
-          rect = canvas.getBoundingClientRect();
+          bbox = canvas.getBoundingClientRect();
           waitFrames++;
         }
-        if (rect.width === 0 || rect.height === 0) {
-          setError("Canvas boyutu alınamadı (layout 500ms içinde settle olmadı)");
+        if (bbox.width === 0 || bbox.height === 0) {
+          setError("Canvas boyutu alınamadı");
           return;
         }
 
-        // Resize sadece ResizeObserver tetiklediğinde — per-tick fit yok.
-        // Tek seferde set + transform; sonraki resize'larda da paintNow() ile
-        // anında redraw → kararlı, flash yok.
-        let cssW = 0, cssH = 0;
+        let cssW = bbox.width, cssH = bbox.height;
         const applyResize = () => {
           const r = canvas.getBoundingClientRect();
-          const w = r.width, h = r.height;
-          if (w === 0 || h === 0) return;
-          // Sub-pixel oynamayı yut — sadece tam pixel değişince re-init
-          const targetW = Math.round(w * dpr);
-          const targetH = Math.round(h * dpr);
-          if (canvas.width !== targetW || canvas.height !== targetH) {
-            canvas.width  = targetW;
-            canvas.height = targetH;
-            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          if (r.width === 0 || r.height === 0) return;
+          const tw = Math.round(r.width * dpr);
+          const th = Math.round(r.height * dpr);
+          if (canvas.width !== tw || canvas.height !== th) {
+            canvas.width = tw;
+            canvas.height = th;
           }
-          cssW = w; cssH = h;
+          cssW = r.width; cssH = r.height;
         };
         applyResize();
 
-        // Build sim nodes — merkezle
+        // ── World-coord simulation (canvas clamp YOK; pan/zoom view ile yapılıyor)
+        const N = data.nodes.length;
+        const R0 = Math.sqrt(Math.max(1, N)) * 28;  // initial spread radius
         const nodeMap = new Map<string, Sim>();
-        const cx0 = cssW / 2, cy0 = cssH / 2;
         for (const n of data.nodes) {
+          const a = Math.random() * Math.PI * 2;
+          const r = Math.sqrt(Math.random()) * R0;
           nodeMap.set(n.id, {
             node: n, degree: 0,
-            x: cx0 + (Math.random() - 0.5) * 400,
-            y: cy0 + (Math.random() - 0.5) * 400,
+            x: Math.cos(a) * r, y: Math.sin(a) * r,
             vx: 0, vy: 0
           });
         }
@@ -103,108 +99,147 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
         const links = data.edges
           .map(e => ({ s: nodeMap.get(e.source)!, t: nodeMap.get(e.target)! }))
           .filter(l => l.s && l.t);
+        const arr = Array.from(nodeMap.values());
 
-        const REPULSION = 4500;
-        const LINK_LEN  = 90;
-        const LINK_K    = 0.04;
-        const CENTER_K  = 0.005;
-        const DAMPING   = 0.85;
-        // d3-force standardı: alpha 1 → 0.001 (~300 tick / ~5s @60fps), sonra dur.
-        // Convergence olmazsa center force + repulsion mikro-oscillation üretir
-        // ve noktalar sonsuza kadar dönmeye devam eder.
-        const ALPHA_DECAY = 0.0228;
-        const ALPHA_MIN   = 0.001;
+        // ── Force constants (d3-style alpha cooling — sim sonsuza kadar koşmaz)
+        const REPULSION      = 900;
+        const REPULSION_CAP  = 80;     // node fly-away guard
+        const LINK_LEN       = 60;
+        const LINK_K         = 0.45;
+        const CENTER_K       = 0.025;
+        const VELOCITY_DECAY = 0.55;
+        const ALPHA_DECAY    = 1 - Math.pow(0.001, 1 / 280);  // ~280 tick'te ~0.001
+        const ALPHA_MIN      = 0.005;
         let alpha = 1;
-        let running = false;
 
-        let dragging: Sim | null = null;
-        const onDown = (ev: MouseEvent) => {
-          const rect = canvas.getBoundingClientRect();
-          const mx = ev.clientX - rect.left, my = ev.clientY - rect.top;
-          let pick: Sim | null = null;
-          let bestD = 16 * 16;
-          for (const n of nodeMap.values()) {
-            const d = (n.x - mx) ** 2 + (n.y - my) ** 2;
-            if (d < bestD) { bestD = d; pick = n; }
+        const radiusOf = (n: Sim) => 3 + Math.min(22, Math.sqrt(n.degree) * 2.4);
+
+        // ── View transform (pan + zoom)
+        const view = { tx: cssW / 2, ty: cssH / 2, scale: 1 };
+        let didFinalFit = false;
+
+        function computeBBox() {
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          for (const n of arr) {
+            if (n.x < minX) minX = n.x; if (n.y < minY) minY = n.y;
+            if (n.x > maxX) maxX = n.x; if (n.y > maxY) maxY = n.y;
           }
-          if (pick) { dragging = pick; pick.fx = mx; pick.fy = my; reheat(0.3); }
+          if (!Number.isFinite(minX)) return null;
+          return { minX, minY, maxX, maxY };
+        }
+        function fitView(maxScale = 1.4, padPx = 80) {
+          const b = computeBBox();
+          if (!b) return;
+          const w = Math.max(1, b.maxX - b.minX);
+          const h = Math.max(1, b.maxY - b.minY);
+          const sx = (cssW - padPx * 2) / w;
+          const sy = (cssH - padPx * 2) / h;
+          const s = Math.max(0.05, Math.min(maxScale, Math.min(sx, sy)));
+          view.scale = s;
+          view.tx = cssW / 2 - ((b.minX + b.maxX) / 2) * s;
+          view.ty = cssH / 2 - ((b.minY + b.maxY) / 2) * s;
+        }
+
+        // ── Mouse: drag node OR pan empty space; wheel zoom anchored at cursor
+        let dragging: Sim | null = null;
+        let panning = false;
+        let lastSx = 0, lastSy = 0;
+
+        const screenToWorld = (sx: number, sy: number) => ({
+          x: (sx - view.tx) / view.scale,
+          y: (sy - view.ty) / view.scale
+        });
+
+        const pickAt = (sx: number, sy: number): Sim | null => {
+          const w = screenToWorld(sx, sy);
+          const tol = 5 / view.scale;
+          let pick: Sim | null = null;
+          let bestD = Infinity;
+          for (const n of arr) {
+            const dx = n.x - w.x, dy = n.y - w.y;
+            const d2 = dx * dx + dy * dy;
+            const r = radiusOf(n) + tol;
+            if (d2 < r * r && d2 < bestD) { bestD = d2; pick = n; }
+          }
+          return pick;
+        };
+
+        const onDown = (ev: MouseEvent) => {
+          const r = canvas.getBoundingClientRect();
+          const sx = ev.clientX - r.left, sy = ev.clientY - r.top;
+          const hit = pickAt(sx, sy);
+          if (hit) {
+            dragging = hit;
+            const w = screenToWorld(sx, sy);
+            hit.fx = w.x; hit.fy = w.y;
+            alpha = Math.max(alpha, 0.25);   // reheat: çekildiğinde komşular tekrar yerleşsin
+            canvas.style.cursor = "grabbing";
+          } else {
+            panning = true;
+            lastSx = sx; lastSy = sy;
+            canvas.style.cursor = "grabbing";
+          }
         };
         const onMove = (ev: MouseEvent) => {
-          if (!dragging) return;
-          const rect = canvas.getBoundingClientRect();
-          dragging.fx = ev.clientX - rect.left;
-          dragging.fy = ev.clientY - rect.top;
+          const r = canvas.getBoundingClientRect();
+          const sx = ev.clientX - r.left, sy = ev.clientY - r.top;
+          if (dragging) {
+            const w = screenToWorld(sx, sy);
+            dragging.fx = w.x; dragging.fy = w.y;
+          } else if (panning) {
+            view.tx += sx - lastSx;
+            view.ty += sy - lastSy;
+            lastSx = sx; lastSy = sy;
+          }
         };
         const onUp = () => {
           if (dragging) { dragging.fx = undefined; dragging.fy = undefined; }
           dragging = null;
+          panning = false;
+          canvas.style.cursor = "grab";
         };
+        const onWheel = (ev: WheelEvent) => {
+          ev.preventDefault();
+          const r = canvas.getBoundingClientRect();
+          const sx = ev.clientX - r.left, sy = ev.clientY - r.top;
+          const w = screenToWorld(sx, sy);
+          const factor = Math.exp(-ev.deltaY * 0.0018);
+          const ns = Math.min(8, Math.max(0.05, view.scale * factor));
+          view.scale = ns;
+          view.tx = sx - w.x * ns;
+          view.ty = sy - w.y * ns;
+        };
+
         canvas.addEventListener("mousedown", onDown);
         canvas.addEventListener("mousemove", onMove);
         window.addEventListener("mouseup", onUp);
+        canvas.addEventListener("wheel", onWheel, { passive: false });
         cleanups.push(
           () => canvas.removeEventListener("mousedown", onDown),
           () => canvas.removeEventListener("mousemove", onMove),
           () => window.removeEventListener("mouseup", onUp),
+          () => canvas.removeEventListener("wheel", onWheel),
         );
 
-        function paint() {
-          // Her frame'de canvas hâlâ DOM'da ve geçerli mi check; stale-ctx yakala
-          const live = canvasRef.current;
-          if (!live || !live.isConnected) { cancelled = true; return; }
-          // Boyutu her zaman bbox'tan oku (sub-pixel oynamalara karşı dayanıklı)
-          const r = live.getBoundingClientRect();
-          const w = r.width, h = r.height;
-          if (w <= 0 || h <= 0) return;
-          const targetW = Math.round(w * dpr);
-          const targetH = Math.round(h * dpr);
-          if (live.width !== targetW || live.height !== targetH) {
-            live.width  = targetW;
-            live.height = targetH;
-          }
-          // Transform her frame uygulanır — canvas.width set'i transformu sıfırlar.
-          // Performance maliyeti ihmal edilebilir (matrix set), buna karşılık
-          // 'transform stale → koordinatlar bozuk → black' bug'ı tamamen kapanır.
-          ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
-          cssW = w; cssH = h;
-
-          ctx!.fillStyle = "#0a0a0a";
-          ctx!.fillRect(0, 0, w, h);
-          ctx!.strokeStyle = "rgba(148,163,184,0.18)";
-          ctx!.lineWidth = 1;
-          for (const l of links) {
-            ctx!.beginPath();
-            ctx!.moveTo(l.s.x, l.s.y); ctx!.lineTo(l.t.x, l.t.y);
-            ctx!.stroke();
-          }
-          ctx!.font = "11px ui-monospace, Menlo, monospace";
-          for (const n of nodeMap.values()) {
-            const rad = 4 + Math.min(8, Math.sqrt(n.degree) * 2.5);
-            ctx!.fillStyle = colorFor(n.node.group);
-            ctx!.beginPath(); ctx!.arc(n.x, n.y, rad, 0, Math.PI * 2); ctx!.fill();
-            ctx!.fillStyle = "#cbd5e1";
-            ctx!.fillText(n.node.label, n.x + rad + 2, n.y + 4);
-          }
-        }
-
         function step() {
-          const arr = Array.from(nodeMap.values());
-          // Tüm kuvvetler alpha ile ölçeklenir → simülasyon zamanla "soğur".
-          // alpha 0'a yaklaşırken hareket sıfıra düşer, mikro-oscillation kapanır.
-          // Coulomb repulsion
+          if (alpha < ALPHA_MIN) return;
+          // Coulomb repulsion (O(n²); 631 node = ~200K pair/tick)
           for (let i = 0; i < arr.length; i++) {
+            const a = arr[i];
             for (let j = i + 1; j < arr.length; j++) {
-              const a = arr[i], b = arr[j];
+              const b = arr[j];
               const dx = a.x - b.x, dy = a.y - b.y;
               let d2 = dx * dx + dy * dy;
-              if (d2 < 1) d2 = 1;
-              const f = (REPULSION / d2) * alpha;
+              if (d2 < 0.01) d2 = 0.01;
               const d = Math.sqrt(d2);
+              let f = (REPULSION * alpha) / d2;
+              if (f > REPULSION_CAP) f = REPULSION_CAP;
               const fx = (dx / d) * f, fy = (dy / d) * f;
               a.vx += fx; a.vy += fy;
               b.vx -= fx; b.vy -= fy;
             }
           }
+          // Link spring (Hooke's law, hedef uzunluk LINK_LEN)
           for (const l of links) {
             const dx = l.t.x - l.s.x, dy = l.t.y - l.s.y;
             const d = Math.sqrt(dx * dx + dy * dy) || 1;
@@ -213,57 +248,100 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
             l.s.vx += fx; l.s.vy += fy;
             l.t.vx -= fx; l.t.vy -= fy;
           }
-          const cx2 = cssW / 2, cy2 = cssH / 2;
-          const PAD = 24;
+          // Mild center gravity (world origin'e doğru — graph kümesi merkezde dursun)
           for (const n of arr) {
-            n.vx += (cx2 - n.x) * CENTER_K * alpha;
-            n.vy += (cy2 - n.y) * CENTER_K * alpha;
-            n.vx *= DAMPING; n.vy *= DAMPING;
-            if (n.fx !== undefined && n.fy !== undefined) { n.x = n.fx; n.y = n.fy; }
-            else { n.x += n.vx; n.y += n.vy; }
-            // Hard clamp — node hiçbir koşulda görünür alan dışına kaçmaz
-            // (NaN, infinite velocity, vb. patolojik durumlara karşı backstop)
-            if (!Number.isFinite(n.x)) n.x = cx2;
-            if (!Number.isFinite(n.y)) n.y = cy2;
-            if (n.x < PAD) { n.x = PAD; n.vx = 0; }
-            else if (n.x > cssW - PAD) { n.x = cssW - PAD; n.vx = 0; }
-            if (n.y < PAD) { n.y = PAD; n.vy = 0; }
-            else if (n.y > cssH - PAD) { n.y = cssH - PAD; n.vy = 0; }
+            n.vx += (-n.x) * CENTER_K * alpha;
+            n.vy += (-n.y) * CENTER_K * alpha;
+            n.vx *= VELOCITY_DECAY;
+            n.vy *= VELOCITY_DECAY;
+            if (n.fx !== undefined && n.fy !== undefined) {
+              n.x = n.fx; n.y = n.fy; n.vx = 0; n.vy = 0;
+            } else {
+              n.x += n.vx; n.y += n.vy;
+            }
+            if (!Number.isFinite(n.x)) n.x = 0;
+            if (!Number.isFinite(n.y)) n.y = 0;
+          }
+          // Cooling
+          alpha += (0 - alpha) * ALPHA_DECAY;
+        }
+
+        function paint() {
+          const live = canvasRef.current;
+          if (!live || !live.isConnected) { cancelled = true; return; }
+          const r = live.getBoundingClientRect();
+          const w = r.width, h = r.height;
+          if (w <= 0 || h <= 0) return;
+          const tw = Math.round(w * dpr), th = Math.round(h * dpr);
+          if (live.width !== tw || live.height !== th) {
+            live.width = tw; live.height = th;
+          }
+          cssW = w; cssH = h;
+
+          // Background (identity transform)
+          ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
+          ctx!.fillStyle = "#0a0a0a";
+          ctx!.fillRect(0, 0, w, h);
+
+          // World transform → edges + circles draw in world coords
+          ctx!.setTransform(dpr * view.scale, 0, 0, dpr * view.scale, dpr * view.tx, dpr * view.ty);
+
+          // Edges — tek path, hızlı
+          ctx!.strokeStyle = "rgba(148,163,184,0.22)";
+          ctx!.lineWidth = Math.max(0.4, 1 / view.scale);
+          ctx!.beginPath();
+          for (const l of links) {
+            ctx!.moveTo(l.s.x, l.s.y);
+            ctx!.lineTo(l.t.x, l.t.y);
+          }
+          ctx!.stroke();
+
+          // Nodes
+          for (const n of arr) {
+            const rad = radiusOf(n);
+            ctx!.fillStyle = colorFor(n.node.group);
+            ctx!.beginPath();
+            ctx!.arc(n.x, n.y, rad, 0, Math.PI * 2);
+            ctx!.fill();
+          }
+
+          // Labels — screen space (zoom-invariant). Yakınlaşmadan SADECE büyük node'lar.
+          ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
+          ctx!.font = "11px ui-monospace, Menlo, monospace";
+          ctx!.fillStyle = "#cbd5e1";
+          const showAll = view.scale > 1.4;
+          const minRadiusForLabel = showAll ? 0 : 9;
+          for (const n of arr) {
+            const rad = radiusOf(n);
+            if (rad < minRadiusForLabel) continue;
+            const sx = n.x * view.scale + view.tx;
+            const sy = n.y * view.scale + view.ty;
+            // Görünür alan dışındakileri atla — büyük graph'larda label maliyetini düşürür
+            if (sx < -50 || sy < -50 || sx > cssW + 200 || sy > cssH + 50) continue;
+            ctx!.fillText(n.node.label, sx + rad + 3, sy + 4);
           }
         }
 
         function tick() {
-          if (cancelled) { running = false; return; }
+          if (cancelled) return;
           step();
-          paint();
-          // d3 alpha decay: alpha += (0 - alpha) * decay  ≡  alpha *= (1 - decay)
-          alpha += (0 - alpha) * ALPHA_DECAY;
-          if (alpha < ALPHA_MIN) {
-            // Convergence — son frame zaten çizildi, rAF'ı durdur. CPU 0'a iner.
-            running = false;
-            return;
+          // Alpha yeterince soğuduğunda son bir auto-fit → örnek görseldeki "compact" görünüm
+          if (!didFinalFit && alpha < 0.05) {
+            fitView(1.2, 90);
+            didFinalFit = true;
           }
+          paint();
           raf = requestAnimationFrame(tick);
         }
-        function reheat(target: number) {
-          if (alpha < target) alpha = target;
-          if (!running && !cancelled) {
-            running = true;
-            raf = requestAnimationFrame(tick);
-          }
-        }
-        // İlk frame'i hemen çiz, sonra simülasyonu başlat.
+
+        // İlk fit — random spread'i de kapsasın ki başlangıçta her şey ekranda olsun
+        fitView(1.4, 80);
         paint();
-        running = true;
         raf = requestAnimationFrame(tick);
 
-        // Resize handling — ResizeObserver, per-tick yerine event-driven.
-        // Boyut değişince applyResize + paint (sim durmuşsa da görsel güncel).
-        // Layout'a uyum sağlasın diye hafif bir reheat de çağırılır.
         ro = new ResizeObserver(() => {
           applyResize();
           paint();
-          reheat(0.1);
         });
         ro.observe(canvas);
         cleanups.push(() => ro?.disconnect());
@@ -286,6 +364,7 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
           <Link href={`/vaults/${slug}`} className="text-xs text-neutral-400 hover:text-orange-400">← Dosyalar</Link>
           <h1 className="text-base font-semibold">{slug} · graph</h1>
           {stats && <span className="text-xs text-neutral-500">{stats.nodes} node · {stats.edges} edge</span>}
+          <span className="text-[10px] text-neutral-600">scroll = zoom · drag boş alan = pan · drag node = taşı</span>
         </div>
         <div className="flex items-center gap-3 text-xs">
           {Object.entries(COLORS).map(([k, v]) => (

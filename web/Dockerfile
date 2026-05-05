@@ -11,11 +11,15 @@ WORKDIR /app
 RUN corepack enable
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-# CI'dan inject edilen versiyon (build-images.yml — github.run_number ile auto-bump).
-# next.config.ts ALTARIS_VERSION env'i NEXT_PUBLIC_BUILD_VERSION'a yansıtır →
-# dashboard badge + homepage + katalog hep aynı kaynaktan beslenir.
-ARG ALTARIS_VERSION=
-ENV ALTARIS_VERSION=$ALTARIS_VERSION
+# CI'dan inject edilen build numarası ve git SHA. .dockerignore .git'i hariç
+# tuttuğu için container içinde git komutu çalışmaz; CI runner'da var olan
+# GITHUB_RUN_NUMBER + GITHUB_SHA env var'larını --build-arg ile alıp Docker
+# build container'ına ENV olarak yansıtıyoruz. next.config.ts bunları okur →
+# NEXT_PUBLIC_BUILD_VERSION = "{pkgVersion}+build.{N}" formatında üretir.
+ARG GITHUB_RUN_NUMBER=
+ARG GITHUB_SHA=
+ENV GITHUB_RUN_NUMBER=$GITHUB_RUN_NUMBER
+ENV GITHUB_SHA=$GITHUB_SHA
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 

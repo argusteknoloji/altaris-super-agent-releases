@@ -101,11 +101,14 @@ jobs:
           cache-to: type=gha,scope=${{ matrix.service }},mode=max
           # linux/amd64 yeterli — DigitalOcean droplet x86_64.
           platforms: linux/amd64
-          # Web image'ı için versiyon inject — github.run_number monoton artar,
-          # her main push'ta benzersiz versiyon: dashboard + homepage badge'i değişir.
-          # API Dockerfile'ı bu ARG'ı görmez, harmless.
+          # next.config.ts GITHUB_RUN_NUMBER + GITHUB_SHA env'lerini okuyup
+          # NEXT_PUBLIC_BUILD_VERSION'a "{pkgVersion}+build.{N}" formatında
+          # yansıtır. .dockerignore .git'i hariç tuttuğu için container içinde
+          # git komutu çalışmaz; bu nedenle CI değerlerini build-arg olarak
+          # geçiriyoruz. API Dockerfile'ı bu ARG'ları görmez, harmless.
           build-args: |
-            ALTARIS_VERSION=0.1.0-alpha.${{ github.run_number }}
+            GITHUB_RUN_NUMBER=${{ github.run_number }}
+            GITHUB_SHA=${{ github.sha }}
 
       - name: Summary
         if: steps.gate.outputs.skip == 'false'
