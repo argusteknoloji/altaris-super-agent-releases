@@ -111,16 +111,25 @@ export default function VaultGraph({ nodes, edges, onNodeOpen }: Props) {
   // ── Init cytoscape once ───────────────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current) return;
-    const cy = cytoscape({
-      container: containerRef.current,
-      elements,
-      wheelSensitivity: 0.25,
-      minZoom: 0.05,
-      // 8× iken Cytoscape canvas rendering'i siyah frame üretebiliyordu (texture
-      // / projection sınırı). 4× pratikte bütün label'ları okunaklı yapıyor,
-      // daha fazlasına ihtiyaç olursa kullanıcı zaten node'a tıklayıp dosyayı
-      // açabilir.
-      maxZoom: 4,
+    // Bulk elements ile init: bir tane bile orphan referans varsa Cytoscape
+    // throw ediyor ve tüm component "Application error: client-side exception"
+    // olarak çöküyor. Önce sadece nodes ile init et (her zaman güvenli),
+    // sonra edge'leri tek tek batch içinde ekle — invalid edge skip edilir,
+    // diğerleri normal davranır.
+    const nodeEls = elements.filter(el => el.group === "nodes");
+    const edgeEls = elements.filter(el => el.group === "edges");
+    let cy: Core;
+    try {
+      cy = cytoscape({
+        container: containerRef.current,
+        elements: nodeEls,
+        wheelSensitivity: 0.25,
+        minZoom: 0.05,
+        // 8× iken Cytoscape canvas rendering'i siyah frame üretebiliyordu (texture
+        // / projection sınırı). 4× pratikte bütün label'ları okunaklı yapıyor,
+        // daha fazlasına ihtiyaç olursa kullanıcı zaten node'a tıklayıp dosyayı
+        // açabilir.
+        maxZoom: 4,
       style: [
         {
           selector: "node",
@@ -176,6 +185,20 @@ export default function VaultGraph({ nodes, edges, onNodeOpen }: Props) {
         },
       ],
       layout: { name: "preset" }, // run fcose explicitly below
+      });
+    } catch (err) {
+      console.error("[VaultGraph] cytoscape init failed:", err);
+      return;
+    }
+
+    // Edge'leri ayrı bir batch'te tek tek ekle — orphan source/target olan
+    // varsa skip edilir (Cytoscape "nonexistent source X" throw ediyordu →
+    // app-wide client-side exception). nodeIds zaten elements memo'da
+    // filtrelendi ama defansif: per-element try/catch.
+    cy.batch(() => {
+      for (const el of edgeEls) {
+        try { cy.add(el); } catch { /* invalid edge — skip */ }
+      }
     });
     cyRef.current = cy;
 

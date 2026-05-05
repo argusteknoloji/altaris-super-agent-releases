@@ -135,6 +135,9 @@ function LocalGraphMini({
     hop1.forEach(n => (adj.get(n) ?? new Set()).forEach(nn => scope.add(nn)));
 
     const nodeMap = new Map(nodes.map(n => [n.id, n]));
+    // Sadece **gerçekten elements'a giren** node id'leri üzerinden edge filter
+    // — scope'ta var ama nodeMap'te olmayan id'ler için orphan oluşmasın.
+    const addedNodeIds = new Set<string>();
     const elements: ElementDefinition[] = [];
     for (const id of scope) {
       const n = nodeMap.get(id);
@@ -149,10 +152,11 @@ function LocalGraphMini({
           isCenter: id === centerNodeId,
         },
       });
+      addedNodeIds.add(n.id);
     }
     let edgeCounter = 0;
     for (const e of edges) {
-      if (scope.has(e.source) && scope.has(e.target)) {
+      if (addedNodeIds.has(e.source) && addedNodeIds.has(e.target) && e.source !== e.target) {
         elements.push({
           group: "edges",
           data: { id: `me${edgeCounter++}`, source: e.source, target: e.target },
