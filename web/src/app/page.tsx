@@ -107,7 +107,7 @@ export default async function HomePage() {
               <span className="text-[#3a342d]">·</span>
               <span>{d.nav.live}</span>
               <span className="text-[#3a342d]">/</span>
-              <span className="text-[#9b9285]">{d.footer.edition}</span>
+              <span className="text-[#9b9285]">v{process.env.NEXT_PUBLIC_BUILD_VERSION ?? "0.0.0"}</span>
             </div>
             <div className="flex items-center gap-5">
               <Link

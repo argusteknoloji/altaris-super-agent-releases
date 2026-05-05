@@ -335,12 +335,18 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
           }
         }
 
+        let tickCount = 0;
         function tick() {
           if (cancelled) return;
           step();
-          // Sim DURDUKTAN sonra fit et — alpha < 0.05'te fit edip de sim'in
-          // 0.005'e kadar drift etmesi cluster'ı viewport dışına kaydırıyordu
-          // (black screen). ALPHA_MIN'de sim donmuş hâldeyken pozisyon stabil.
+          tickCount++;
+          // Sim koşarken kullanıcı pan/zoom yapmadıysa periyodik tracking-fit:
+          // node'lar drift etse de view onları takip eder, ASLA off-screen olmaz.
+          // dragging/panning aktifken fit yapma — kullanıcının view'ına saygı.
+          if (!didFinalFit && !dragging && !panning && tickCount % 30 === 0) {
+            fitView(1.4, 80);
+          }
+          // Sim donduğunda nihai compact fit
           if (!didFinalFit && alpha < ALPHA_MIN) {
             if (fitView(1.2, 90)) didFinalFit = true;
           }
