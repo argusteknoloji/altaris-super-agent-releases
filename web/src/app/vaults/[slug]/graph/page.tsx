@@ -13,6 +13,7 @@ import dynamic from "next/dynamic";
 
 type Node = { id: string; label: string; path: string | null; group: string };
 type Edge = { source: string; target: string };
+type TreeEntry = { path: string; bytes: number; modifiedUtc: string };
 
 // Cytoscape only runs in the browser — dynamic import + ssr: false so the
 // page shell renders instantly and the heavy graph engine streams in.
@@ -30,18 +31,29 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<{ nodes: Node[]; edges: Edge[] } | null>(null);
+  const [tree, setTree] = useState<TreeEntry[]>([]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const r = await fetch(`/api/proxy/vaults/${slug}/graph`, { cache: "no-store" });
-        if (!r.ok) {
-          if (!cancelled) setError(await r.text());
+        // Graph + tree paralel — node click resolve için tree gerekiyor
+        // (BuildGraph bazı node'larda path=null döndürüyor; tree üzerinde
+        // basename / id eşleşmesi ile gerçek dosyaya gidebiliyoruz).
+        const [gR, tR] = await Promise.all([
+          fetch(`/api/proxy/vaults/${slug}/graph`, { cache: "no-store" }),
+          fetch(`/api/proxy/vaults/${slug}/tree`,  { cache: "no-store" }),
+        ]);
+        if (!gR.ok) {
+          if (!cancelled) setError(await gR.text());
           return;
         }
-        const json = (await r.json()) as { nodes: Node[]; edges: Edge[] };
+        const json = (await gR.json()) as { nodes: Node[]; edges: Edge[] };
         if (!cancelled) setData(json);
+        if (tR.ok) {
+          const t = (await tR.json()) as TreeEntry[];
+          if (!cancelled) setTree(t);
+        }
       } catch (e) {
         if (!cancelled) setError((e as Error).message);
       }
@@ -50,6 +62,29 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
       cancelled = true;
     };
   }, [slug]);
+
+  // Best-effort node → vault dosyası eşleştirici. Öncelik:
+  //   1. node.path varsa onu kullan
+  //   2. tree'de exact path match (id veya `${id}.md`)
+  //   3. tree'de basename match (label veya id'nin son segment'i)
+  //   4. .md tahmini olarak id'yi gönder — vault page yine 404 mesajı gösterir
+  function resolveNodeToPath(info: { id: string; label: string; path: string | null }): string | null {
+    if (info.path) return info.path;
+    const candidates = tree.map(t => t.path);
+    const tryKeys = [info.id, `${info.id}.md`, info.label, `${info.label}.md`];
+    for (const k of tryKeys) {
+      const exact = candidates.find(p => p === k);
+      if (exact) return exact;
+    }
+    const targets = [info.id, info.label].filter(Boolean).map(s => s.toLowerCase());
+    const baseMatch = candidates.find(p => {
+      const base = (p.split("/").pop() ?? "").replace(/\.(md|markdown)$/i, "").toLowerCase();
+      return targets.includes(base);
+    });
+    if (baseMatch) return baseMatch;
+    if (info.id) return /\.(md|markdown)$/i.test(info.id) ? info.id : `${info.id}.md`;
+    return null;
+  }
 
   return (
     <div className="flex h-[calc(100vh-3rem)] flex-col">
@@ -82,11 +117,10 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
           <VaultGraph
             nodes={data.nodes}
             edges={data.edges}
-            onNodeOpen={(path) => {
-              // Vault dosya görüntüleyicisine yönlendir; orada ilgili dosya açılır.
-              // path null olan synthetic node'lar (kategoriler vb.) onNodeOpen'a
-              // gönderilmeden önce VaultGraph'ta filtrelenir.
-              router.push(`/vaults/${slug}?file=${encodeURIComponent(path)}`);
+            onNodeOpen={(info) => {
+              const target = resolveNodeToPath(info);
+              if (!target) return;
+              router.push(`/vaults/${slug}?file=${encodeURIComponent(target)}`);
             }}
           />
         )}

@@ -220,8 +220,21 @@ function LocalGraphMini({
     cy.fit(undefined, 12);
 
     cy.on("tap", "node", (evt: cytoscape.EventObject) => {
-      const path = (evt.target as NodeSingular).data("path");
-      if (path) onOpenFile(path);
+      const node = evt.target as NodeSingular;
+      const direct = node.data("path");
+      if (direct) { onOpenFile(direct); return; }
+      // Path null fallback: id/label'a göre paths içinde basename eşleşmesi
+      const idStr = node.id();
+      const label = node.data("label") ?? "";
+      const tryKeys = [idStr, `${idStr}.md`, label, `${label}.md`];
+      const exact = paths.find(p => tryKeys.includes(p));
+      if (exact) { onOpenFile(exact); return; }
+      const targets = [idStr, label].filter(Boolean).map((s: string) => s.toLowerCase());
+      const base = paths.find(p => {
+        const b = (p.split("/").pop() ?? "").replace(/\.(md|markdown)$/i, "").toLowerCase();
+        return targets.includes(b);
+      });
+      if (base) onOpenFile(base);
     });
 
     return () => {

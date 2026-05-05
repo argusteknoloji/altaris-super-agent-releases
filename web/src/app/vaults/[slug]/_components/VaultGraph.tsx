@@ -17,7 +17,12 @@ type Edge = { source: string; target: string };
 interface Props {
   nodes: Node[];
   edges: Edge[];
-  onNodeOpen?: (path: string) => void;
+  /**
+   * Bir node'a tıklayınca tetiklenir. Parent path null olsa bile id/label
+   * bilgisinden tree üzerinde best-effort eşleşme yapabilir, bu yüzden
+   * tüm node info gönderiyoruz.
+   */
+  onNodeOpen?: (info: { id: string; label: string; path: string | null }) => void;
 }
 
 const COLORS: Record<string, string> = {
@@ -106,7 +111,11 @@ export default function VaultGraph({ nodes, edges, onNodeOpen }: Props) {
       elements,
       wheelSensitivity: 0.25,
       minZoom: 0.05,
-      maxZoom: 8,
+      // 8× iken Cytoscape canvas rendering'i siyah frame üretebiliyordu (texture
+      // / projection sınırı). 4× pratikte bütün label'ları okunaklı yapıyor,
+      // daha fazlasına ihtiyaç olursa kullanıcı zaten node'a tıklayıp dosyayı
+      // açabilir.
+      maxZoom: 4,
       style: [
         {
           selector: "node",
@@ -197,9 +206,16 @@ export default function VaultGraph({ nodes, edges, onNodeOpen }: Props) {
     });
 
     // ── Click → dosyaya git ───────────────────────────────────────────────
+    // Path null olsa bile (synthetic kategoriler / orphan etiketler) parent'a
+    // bilgi gönder; parent tree üzerinden id/label ile dosya tahmini yapabilir.
     cy.on("tap", "node", (evt: cytoscape.EventObject) => {
-      const path = (evt.target as NodeSingular).data("path");
-      if (path && onNodeOpen) onNodeOpen(path);
+      if (!onNodeOpen) return;
+      const node = evt.target as NodeSingular;
+      onNodeOpen({
+        id: node.id(),
+        label: node.data("label") ?? "",
+        path: node.data("path") ?? null,
+      });
     });
 
     // ── Sağ tık → local graph (focus mode) ────────────────────────────────
