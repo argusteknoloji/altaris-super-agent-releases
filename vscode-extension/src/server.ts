@@ -30,9 +30,29 @@ interface JsonRpcResponse {
 export interface McpServer {
   port: number;
   close(): Promise<void>;
+  /** Bağlı tüm MCP client'lara JSON-RPC notification gönder (id'siz). */
+  broadcast(method: string, params?: Record<string, unknown>): void;
 }
 
-export async function startMcpServer(authToken: string, log: (msg: string) => void): Promise<McpServer> {
+/**
+ * CLI'dan gelen Altaris-spesifik notification'ları işleyen handler'lar.
+ * Server bunları method ismine göre dispatch eder.
+ */
+export interface NotificationHandlers {
+  onModel?(model: string): void;
+  onTokens?(input: number, output: number): void;
+  onConnection?(state: 'connected' | 'disconnected', servers: number): void;
+  onTaskStart?(id: string, title: string, cancellable?: boolean): void;
+  onTaskUpdate?(id: string, progress?: number, detail?: string): void;
+  onTaskComplete?(id: string, title: string, detail?: string, actions?: Array<{ id: string; label: string }>): void;
+  onTaskError?(id: string, title: string, detail?: string): void;
+}
+
+export async function startMcpServer(
+  authToken: string,
+  log: (msg: string) => void,
+  handlers: NotificationHandlers = {},
+): Promise<McpServer> {
   const httpServer = http.createServer();
   const wss = new WebSocketServer({ noServer: true });
 
@@ -114,6 +134,7 @@ export async function startMcpServer(authToken: string, log: (msg: string) => vo
         if (req.method.startsWith("notifications/") || req.method === "ide_connected") {
           // Notifications: id ya yok ya da null — yanıt göndermiyoruz.
           log(`notification: ${req.method}`);
+          dispatchNotification(req.method, req.params, handlers, log);
           return;
         }
 
@@ -145,8 +166,18 @@ export async function startMcpServer(authToken: string, log: (msg: string) => vo
   const port = addr.port;
   log(`MCP server listening on 127.0.0.1:${port}`);
 
+  const broadcast = (method: string, params?: Record<string, unknown>): void => {
+    const msg = JSON.stringify({ jsonrpc: "2.0", method, params });
+    for (const client of wss.clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        try { client.send(msg); } catch { /* drop */ }
+      }
+    }
+  };
+
   return {
     port,
+    broadcast,
     async close() {
       await new Promise<void>(resolve => {
         wss.clients.forEach(c => c.terminate());
@@ -154,4 +185,40 @@ export async function startMcpServer(authToken: string, log: (msg: string) => vo
       });
     },
   };
+}
+
+function dispatchNotification(
+  method: string,
+  params: Record<string, unknown> | undefined,
+  h: NotificationHandlers,
+  log: (msg: string) => void,
+): void {
+  try {
+    const p = params ?? {};
+    switch (method) {
+      case "notifications/altaris/model":
+        h.onModel?.(String(p.model ?? "?"));
+        return;
+      case "notifications/altaris/tokens":
+        h.onTokens?.(Number(p.input ?? 0), Number(p.output ?? 0));
+        return;
+      case "notifications/altaris/connection":
+        h.onConnection?.(
+          (p.state === "connected" ? "connected" : "disconnected"),
+          Number(p.servers ?? 0),
+        );
+        return;
+      case "notifications/altaris/task": {
+        const id = String(p.id ?? "");
+        const status = String(p.status ?? "");
+        if (status === "started") h.onTaskStart?.(id, String(p.title ?? ""), Boolean(p.cancellable));
+        else if (status === "progress") h.onTaskUpdate?.(id, p.progress as number | undefined, p.detail as string | undefined);
+        else if (status === "complete") h.onTaskComplete?.(id, String(p.title ?? ""), p.detail as string | undefined, p.actions as Array<{ id: string; label: string }> | undefined);
+        else if (status === "error") h.onTaskError?.(id, String(p.title ?? ""), p.detail as string | undefined);
+        return;
+      }
+    }
+  } catch (err) {
+    log(`dispatchNotification error (${method}): ${err instanceof Error ? err.message : String(err)}`);
+  }
 }

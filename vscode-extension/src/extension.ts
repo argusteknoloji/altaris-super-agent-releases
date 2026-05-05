@@ -9,10 +9,17 @@ import {
   writeLockfile,
 } from "./lockfile";
 import { startMcpServer, McpServer } from "./server";
+import { registerStatusBar, StatusBarHandle } from "./features/status-bar";
+import { registerInlineEdit } from "./features/inline-edit";
+import { registerQuickFix } from "./features/quick-fix";
+import { registerNotifications, NotificationManager } from "./features/notifications";
+import { registerCodeLens } from "./features/code-lens";
+import { registerFileWatcher } from "./features/file-watcher";
 
 let server: McpServer | undefined;
 let lockfilePath: string | undefined;
-let statusBar: vscode.StatusBarItem | undefined;
+let statusBarHandle: StatusBarHandle | undefined;
+let notifs: NotificationManager | undefined;
 const output = vscode.window.createOutputChannel("Altaris");
 
 const log = (msg: string) => {
@@ -24,7 +31,15 @@ async function start(): Promise<void> {
   await stop();
 
   const authToken = generateAuthToken();
-  server = await startMcpServer(authToken, log);
+  server = await startMcpServer(authToken, log, {
+    onModel: m => statusBarHandle?.setModel(m),
+    onTokens: (input, output) => statusBarHandle?.setTokens({ input, output }),
+    onConnection: (state, servers) => statusBarHandle?.setConnection({ state, servers }),
+    onTaskStart: (id, title, cancellable) => notifs?.start(id, title, cancellable),
+    onTaskUpdate: (id, progress, detail) => notifs?.update(id, progress ?? 0, detail),
+    onTaskComplete: (id, title, detail, actions) => notifs?.complete(id, title, detail, actions),
+    onTaskError: (id, title, detail) => notifs?.error(id, title, detail),
+  });
 
   lockfilePath = await writeLockfile(server.port, {
     pid: process.pid,
@@ -36,7 +51,7 @@ async function start(): Promise<void> {
   });
 
   log(`Lockfile: ${lockfilePath}`);
-  updateStatusBar();
+  statusBarHandle?.setConnection({ state: "connected", servers: 1 });
 }
 
 async function stop(): Promise<void> {
@@ -48,30 +63,32 @@ async function stop(): Promise<void> {
     await server.close();
     server = undefined;
   }
-  updateStatusBar();
-}
-
-function updateStatusBar() {
-  if (!statusBar) return;
-  if (server) {
-    statusBar.text = `$(plug) Altaris :${server.port}`;
-    statusBar.tooltip = "Altaris CLI köprüsü aktif. Tıklayarak yeniden başlat.";
-  } else {
-    statusBar.text = "$(debug-disconnect) Altaris";
-    statusBar.tooltip = "Altaris köprüsü kapalı. Tıklayarak başlat.";
-  }
+  statusBarHandle?.setConnection({ state: "disconnected", servers: 0 });
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   log("Altaris extension activating");
 
-  statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  statusBar.command = "altaris.restart";
-  statusBar.show();
-  context.subscriptions.push(statusBar);
+  // ── Status bar (model · tokens · connection) ────────────────────────────
+  statusBarHandle = registerStatusBar(context);
+  context.subscriptions.push(statusBarHandle);
 
-  // Terminal profile — "+" dropdown'ında "Altaris" girişi gösterir, altaris ikonuyla yeni terminal açar.
-  // `altaris` binary'si install-shell ile PATH'e konmuş olmalı.
+  // ── Notifications (long-running task progress + completion) ──────────────
+  notifs = registerNotifications(context);
+  notifs.onAction((id, actionId) => {
+    // CLI'a kullanıcı action seçimini geri gönder
+    server?.broadcast("notifications/altaris/taskAction", { id, actionId });
+  });
+
+  // ── Feature registrations ────────────────────────────────────────────────
+  registerInlineEdit(context).forEach(d => context.subscriptions.push(d));
+  context.subscriptions.push(registerQuickFix(context));
+  context.subscriptions.push(registerCodeLens(context));
+  registerFileWatcher(context, (method, params) => server?.broadcast(method, params)).forEach(d =>
+    context.subscriptions.push(d),
+  );
+
+  // ── Terminal profile + altaris ikonu ─────────────────────────────────────
   const iconUri = vscode.Uri.file(path.join(context.extensionPath, "media", "altaris.svg"));
   context.subscriptions.push(
     vscode.window.registerTerminalProfileProvider("altaris.terminal-profile", {
@@ -95,6 +112,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     term.show();
   };
 
+  // ── Commands ─────────────────────────────────────────────────────────────
   context.subscriptions.push(
     vscode.commands.registerCommand("altaris.showStatus", () => {
       const msg = server
@@ -113,10 +131,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
       }
     }),
+    vscode.commands.registerCommand("altaris.restartBridge", async () => {
+      // status-bar quick pick'inde kullanılan alias
+      await vscode.commands.executeCommand("altaris.restart");
+    }),
+    vscode.commands.registerCommand("altaris.showOutput", () => output.show(true)),
     vscode.commands.registerCommand("altaris.openTerminal", openAltarisTerminal),
+    vscode.commands.registerCommand("altaris.switchModel", async (model?: string) => {
+      // Stub: status bar'dan tetiklenir; ileride CLI'a switch broadcast edilecek.
+      if (model) {
+        statusBarHandle?.setModel(model);
+        server?.broadcast("notifications/altaris/switchModel", { model });
+      }
+    }),
   );
 
-  // Workspace değişikliklerinde lockfile'ı güncelle (workspaceFolders alanı bayatlamasın).
+  // ── Workspace folder değişiminde restart ─────────────────────────────────
   context.subscriptions.push(
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       log("Workspace folders changed → restart");

@@ -143,15 +143,11 @@ export async function getDiagnostics(args: { uri?: string }): Promise<ToolResult
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// executeCode — şu an stub. Jupyter çalıştırma sonraki sürümde.
+// executeCode — Jupyter notebook'ta cell çalıştır (features/jupyter.ts).
 // ─────────────────────────────────────────────────────────────────────────────
 
-export async function executeCode(_args: { code: string }): Promise<ToolResult> {
-  return {
-    content: [t("executeCode bu sürümde desteklenmiyor — Jupyter entegrasyonu yakında.")],
-    isError: true,
-  };
-}
+import { executeCodeImpl } from "./features/jupyter";
+export const executeCode = executeCodeImpl;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // getCurrentSelection / getOpenEditors — context tools

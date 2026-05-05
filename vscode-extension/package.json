@@ -11,20 +11,31 @@
   "keywords": ["altaris", "argus", "ai", "agent", "cli"],
   "main": "./dist/extension.js",
   "icon": "icon.png",
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": [
+    "onStartupFinished",
+    "onNotebook:jupyter-notebook"
+  ],
   "contributes": {
     "commands": [
+      { "command": "altaris.showStatus",     "title": "Altaris: Bağlantı durumunu göster" },
+      { "command": "altaris.restart",        "title": "Altaris: Köprüyü yeniden başlat" },
+      { "command": "altaris.restartBridge",  "title": "Altaris: Köprüyü yeniden başlat (alias)" },
+      { "command": "altaris.showOutput",     "title": "Altaris: Output panelini aç" },
+      { "command": "altaris.openTerminal",   "title": "Altaris: Yeni terminal aç" },
+      { "command": "altaris.statusBar.menu", "title": "Altaris: Status menü" },
+      { "command": "altaris.switchModel",    "title": "Altaris: Model değiştir" },
+      { "command": "altaris.inlineEdit",     "title": "Altaris: Inline edit" },
+      { "command": "altaris.fixWithAi",      "title": "Altaris: Fix with AI" },
+      { "command": "altaris.lens.explain",   "title": "Altaris: Explain" },
+      { "command": "altaris.lens.test",      "title": "Altaris: Generate tests" },
+      { "command": "altaris.lens.refactor",  "title": "Altaris: Refactor" }
+    ],
+    "keybindings": [
       {
-        "command": "altaris.showStatus",
-        "title": "Altaris: Bağlantı durumunu göster"
-      },
-      {
-        "command": "altaris.restart",
-        "title": "Altaris: Köprüyü yeniden başlat"
-      },
-      {
-        "command": "altaris.openTerminal",
-        "title": "Altaris: Yeni terminal aç"
+        "command": "altaris.inlineEdit",
+        "key": "ctrl+i",
+        "mac": "cmd+i",
+        "when": "editorTextFocus"
       }
     ],
     "terminal": {
@@ -43,6 +54,22 @@
           "type": "string",
           "default": "",
           "description": "Lockfile dizini override (varsayılan: ~/.altaris/ide). Boş bırak."
+        },
+        "altaris.cli.models": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Status bar 'Switch model' quick pick'inde gösterilecek model listesi."
+        },
+        "altaris.codeLens.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Function/method üstüne 'Explain · Test · Refactor' code lens göster."
+        },
+        "altaris.fileWatcher.includeUnsaved": {
+          "type": "boolean",
+          "default": false,
+          "description": "Kaydedilmemiş değişiklikleri de CLI'a push et (debounced 500ms)."
         }
       }
     }

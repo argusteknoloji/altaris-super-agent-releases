@@ -850,27 +850,48 @@ const EXTENSION_ID =
     : 'argus.altaris'
 
 /**
- * Bundle edilmiş altaris.vsix'i bul. Release pipeline binary'nin yanına
- * extension/altaris.vsix olarak yerleştirir; dev modunda repo kökündeki
- * vscode-extension/altaris.vsix kullanılabilir.
+ * Bundle edilmiş altaris.vsix'i bul veya GitHub release'den indir.
+ *
+ * Arama sırası:
+ *  1. Binary'nin yanı (release pipeline buraya yerleştirir)
+ *  2. Symlink resolve edilmiş binary'nin yanı (dev: ~/.local/bin/altaris -> repo)
+ *  3. ~/.altaris/extension/altaris.vsix (cache)
+ *  4. Repo kökü (dev modu)
+ *  5. GitHub release'inden indir → ~/.altaris/extension/altaris.vsix
  */
-function findBundledVsix(): string | undefined {
+async function findBundledVsix(): Promise<string | undefined> {
   const fs = getFsImplementation()
-  const exeDir = (() => {
+  const realFs = await import('fs')
+  const homedir = (await import('os')).homedir()
+
+  const realExePath = (() => {
     try {
-      return resolve(process.execPath, '..')
+      return realFs.realpathSync(process.execPath)
     } catch {
-      return undefined
+      return process.execPath
     }
   })()
-  const candidates = [
-    exeDir ? join(exeDir, 'extension', 'altaris.vsix') : undefined,
-    exeDir ? join(exeDir, '..', 'extension', 'altaris.vsix') : undefined,
-    exeDir ? join(exeDir, 'altaris.vsix') : undefined,
-    // Dev fallback: repo kökünden çalışırken
-    join(getOriginalCwd(), 'vscode-extension', 'altaris.vsix'),
-    join(getOriginalCwd(), '..', 'vscode-extension', 'altaris.vsix'),
-  ].filter((p): p is string => typeof p === 'string')
+
+  const dirs = [
+    resolve(process.execPath, '..'),
+    resolve(realExePath, '..'),
+    resolve(realExePath, '..', '..'),
+  ]
+  const cacheDir = join(homedir, '.altaris', 'extension')
+  const cachePath = join(cacheDir, 'altaris.vsix')
+
+  const candidates: string[] = []
+  for (const d of dirs) {
+    candidates.push(join(d, 'extension', 'altaris.vsix'))
+    candidates.push(join(d, 'altaris.vsix'))
+    // Dev: cli/bin/altaris → ../../vscode-extension/altaris.vsix
+    candidates.push(join(d, '..', 'vscode-extension', 'altaris.vsix'))
+    candidates.push(join(d, 'vscode-extension', 'altaris.vsix'))
+  }
+  candidates.push(cachePath)
+  candidates.push(join(getOriginalCwd(), 'vscode-extension', 'altaris.vsix'))
+  candidates.push(join(getOriginalCwd(), '..', 'vscode-extension', 'altaris.vsix'))
+
   for (const p of candidates) {
     try {
       if (fs.existsSync && fs.existsSync(p)) return p
@@ -878,7 +899,39 @@ function findBundledVsix(): string | undefined {
       /* ignore */
     }
   }
-  return undefined
+
+  // Hiçbir yerel kopya yoksa GitHub release'inden indir.
+  try {
+    const url = await resolveLatestVsixUrl()
+    if (!url) return undefined
+    realFs.mkdirSync(cacheDir, { recursive: true })
+    const response = await axios.get<ArrayBuffer>(url, {
+      responseType: 'arraybuffer',
+      timeout: 30_000,
+    })
+    realFs.writeFileSync(cachePath, Buffer.from(response.data))
+    return cachePath
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * argusteknoloji/altaris-super-agent-releases'in latest release'inde
+ * altaris.vsix asset URL'ini bul. Auth gerekmiyor — public repo.
+ */
+async function resolveLatestVsixUrl(): Promise<string | undefined> {
+  try {
+    const r = await axios.get(
+      'https://api.github.com/repos/argusteknoloji/altaris-super-agent-releases/releases/latest',
+      { timeout: 10_000, headers: { Accept: 'application/vnd.github+json' } },
+    )
+    const assets = (r.data?.assets ?? []) as Array<{ name: string; browser_download_url: string }>
+    const vsix = assets.find(a => a.name === 'altaris.vsix')
+    return vsix?.browser_download_url
+  } catch {
+    return undefined
+  }
 }
 
 export async function isIDEExtensionInstalled(
@@ -922,7 +975,7 @@ async function installIDEExtension(ideType: IdeType): Promise<string | null> {
         // `code` may crash when invoked too quickly in succession
         await sleep(500)
         // Prefer bundled VSIX next to the binary; fall back to marketplace.
-        const bundledVsix = findBundledVsix()
+        const bundledVsix = await findBundledVsix()
         const installArg = bundledVsix ?? EXTENSION_ID
         const result = await execFileNoThrowWithCwd(
           command,
