@@ -23,7 +23,7 @@ interface AltarisInlineResult {
   readonly note?: string;
 }
 
-import { runAltaris, extractCodeBlock } from "./altaris-runner";
+import { runAltaris, extractCodeBlock, formatAltarisError } from "./altaris-runner";
 
 /**
  * altaris CLI'ı `altaris -p` ile çalıştır, dönen cevaptan kod bloğunu çıkar.
@@ -42,7 +42,7 @@ async function callAltaris(
 
   const result = await runAltaris(fullPrompt);
   if (result.exitCode !== 0) {
-    throw new Error(result.stderr || `altaris exit ${result.exitCode}`);
+    throw new Error(formatAltarisError(result));
   }
   const block = extractCodeBlock(result.stdout);
   const newText = block ?? result.stdout.trim();

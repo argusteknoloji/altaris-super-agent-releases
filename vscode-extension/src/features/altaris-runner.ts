@@ -60,7 +60,14 @@ export async function runAltaris(prompt: string, opts: RunOptions = {}): Promise
   return new Promise<RunResult>((resolve, reject) => {
     const child = spawn(resolveAltarisBinary(), ["-p", prompt], {
       cwd,
-      env: process.env,
+      env: {
+        ...process.env,
+        // Print modunda terminal/TTY check yapmasın, telemetri/auto-update
+        // gibi background prefetch'leri atlasın → daha hızlı + temiz exit kodu.
+        FORCE_COLOR: "0",
+        NO_COLOR: "1",
+        TERM: "dumb",
+      },
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -126,6 +133,36 @@ export async function runAltaris(prompt: string, opts: RunOptions = {}): Promise
 export function extractCodeBlock(text: string): string | null {
   const match = text.match(/```(?:[a-zA-Z0-9_-]+)?\n([\s\S]*?)```/);
   return match?.[1] ?? null;
+}
+
+/**
+ * RunResult'tan kullanıcıya gösterilecek anlamlı hata mesajı üret.
+ * stderr boşsa stdout'u inceleyip provider/auth ipuçları ekler.
+ */
+export function formatAltarisError(result: RunResult): string {
+  const parts: string[] = [];
+  parts.push(`altaris exit ${result.exitCode}`);
+
+  // Common errors → human-readable hint
+  const all = `${result.stderr}\n${result.stdout}`.toLowerCase();
+  if (all.includes("provider") && (all.includes("yetkilen") || all.includes("authoriz") || all.includes("not configured"))) {
+    parts.push("Provider yetkilendirmesi yok — `altaris login` veya `ANTHROPIC_API_KEY` set et.");
+  } else if (all.includes("model") && all.includes("not available")) {
+    parts.push("Aktif model erişilebilir değil — `/model` ile farklı model seç.");
+  } else if (all.includes("rate limit") || all.includes("429")) {
+    parts.push("Rate limit — biraz bekle.");
+  } else if (all.includes("network") || all.includes("econnrefused") || all.includes("enotfound")) {
+    parts.push("Ağ hatası — internet bağlantını kontrol et.");
+  }
+
+  // Add stderr/stdout snippets (truncated)
+  const stderr = result.stderr.trim().slice(0, 300);
+  const stdout = result.stdout.trim().slice(0, 300);
+  if (stderr) parts.push(`stderr: ${stderr}`);
+  if (!stderr && stdout) parts.push(`stdout: ${stdout}`);
+  if (!stderr && !stdout) parts.push("(stdout + stderr boş — `altaris -p \"test\"` terminalden manuel çalıştırıp deneyin)");
+
+  return parts.join("\n");
 }
 
 /**

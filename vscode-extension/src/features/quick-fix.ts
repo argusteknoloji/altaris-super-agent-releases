@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { runWithProgress, extractCodeBlock } from './altaris-runner';
+import { runWithProgress, extractCodeBlock, formatAltarisError } from './altaris-runner';
 
 const FIX_COMMAND_ID = 'altaris.fixWithAi';
 const MAX_TITLE_LENGTH = 60;
@@ -80,7 +80,7 @@ async function runAltarisFix(
 
   const result = await runWithProgress("Altaris fix önerisi hazırlanıyor…", prompt);
   if (result.exitCode !== 0) {
-    vscode.window.showErrorMessage(`Altaris fix hatası: ${result.stderr || result.exitCode}`);
+    vscode.window.showErrorMessage(`Altaris fix hatası:\n${formatAltarisError(result)}`, { modal: false });
     return;
   }
 

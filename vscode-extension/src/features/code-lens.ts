@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { runWithProgress, extractCodeBlock } from './altaris-runner';
+import { runWithProgress, extractCodeBlock, formatAltarisError } from './altaris-runner';
 
 /**
  * AltarisCodeLensProvider
@@ -124,7 +124,7 @@ async function dispatch(
         prompt,
     );
     if (result.exitCode !== 0) {
-        vscode.window.showErrorMessage(`Altaris ${action} hatası: ${result.stderr || result.exitCode}`);
+        vscode.window.showErrorMessage(`Altaris ${action} hatası:\n${formatAltarisError(result)}`, { modal: false });
         return;
     }
 
