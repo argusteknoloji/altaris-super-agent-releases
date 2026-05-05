@@ -156,7 +156,16 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [mcpModalOpen, setMcpModalOpen] = useState(false);
-  const [showPreview, setShowPreview] = useState(true);
+  // Obsidian-tarzı iki ana mod: Edit (CM6 source + light live-preview cilo)
+  // ve Read (full HTML render). Tercih localStorage'da kalıcı.
+  const [viewMode, setViewMode] = useState<"edit" | "read">("edit");
+  useEffect(() => {
+    const saved = typeof window !== "undefined" ? localStorage.getItem("altaris_md_view_mode") : null;
+    if (saved === "edit" || saved === "read") setViewMode(saved);
+  }, []);
+  useEffect(() => {
+    if (typeof window !== "undefined") localStorage.setItem("altaris_md_view_mode", viewMode);
+  }, [viewMode]);
   const isMd = activePath?.toLowerCase().endsWith(".md") ?? false;
   const langOf = (path: string | null) => {
     if (!path) return "markdown";
@@ -452,9 +461,32 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
             Graph
           </Link>
           {isMd && (
-            <button onClick={() => setShowPreview(p => !p)} className="rounded-md border border-neutral-700 px-3 py-1 text-xs text-neutral-200 hover:bg-neutral-800" title="Markdown preview'ı aç/kapa">
-              {showPreview ? "Preview kapat" : "Preview aç"}
-            </button>
+            <div className="inline-flex overflow-hidden rounded-md border border-neutral-700 text-xs">
+              <button
+                onClick={() => setViewMode("edit")}
+                className={
+                  "px-3 py-1 transition-colors " +
+                  (viewMode === "edit"
+                    ? "bg-neutral-700 text-neutral-100"
+                    : "text-neutral-400 hover:bg-neutral-800")
+                }
+                title="Düzenle modu — CM6 source + live preview"
+              >
+                Düzenle
+              </button>
+              <button
+                onClick={() => setViewMode("read")}
+                className={
+                  "px-3 py-1 border-l border-neutral-700 transition-colors " +
+                  (viewMode === "read"
+                    ? "bg-neutral-700 text-neutral-100"
+                    : "text-neutral-400 hover:bg-neutral-800")
+                }
+                title="Okuma modu — markdown render"
+              >
+                Oku
+              </button>
+            </div>
           )}
           <button onClick={quickCreateMcp} disabled={busy} className="rounded-md border border-blue-500/40 px-3 py-1 text-xs text-blue-300 hover:bg-blue-500/10" title=".mcp.json oluştur veya aç (CLI projede otomatik yükler)">
             📦 MCP
@@ -589,8 +621,16 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
           )}
           {activePath && (
             <div className="flex flex-1 overflow-hidden">
-              <div className={isMd && showPreview ? "flex-1 border-r border-neutral-800" : "flex-1"}>
-                {isMd ? (
+              {/* Markdown: Edit (CM6) ya da Read (HTML render). Tek panel,
+                  Obsidian gibi mod-tabanlı switch. Diğer dosyalar her zaman Monaco. */}
+              {isMd && viewMode === "read" ? (
+                <div
+                  className="prose prose-invert flex-1 overflow-y-auto bg-[#0a0a0a] px-8 py-6 text-sm text-neutral-200"
+                  onClick={onPreviewClick}
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }}
+                />
+              ) : isMd ? (
+                <div className="flex-1">
                   <MarkdownEditor
                     value={content}
                     onChange={setContent}
@@ -616,7 +656,9 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
                       void openFile(guess);
                     }}
                   />
-                ) : (
+                </div>
+              ) : (
+                <div className="flex-1">
                   <MonacoEditor
                     language={langOf(activePath)}
                     theme="vs-dark"
@@ -644,14 +686,7 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
                       }
                     }}
                   />
-                )}
-              </div>
-              {isMd && showPreview && (
-                <div
-                  className="prose prose-invert flex-1 overflow-y-auto bg-[#0a0a0a] px-6 py-4 text-sm text-neutral-200"
-                  onClick={onPreviewClick}
-                  dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }}
-                />
+                </div>
               )}
             </div>
           )}

@@ -24,6 +24,8 @@ import {
   type CompletionContext,
   type CompletionResult,
 } from "@codemirror/autocomplete";
+import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
+import { tags as t } from "@lezer/highlight";
 
 interface Props {
   value: string;
@@ -51,6 +53,27 @@ const wikilinkMatcher = new MatchDecorator({
     });
   },
 });
+
+// Obsidian-tarzı heading hiyerarşisi: h1/h2/h3 görünür şekilde farklı boyut.
+// CM6 markdown grammar'ı heading tag'lerini üretiyor → HighlightStyle ile
+// font-size + weight + renk uyguluyoruz. Bu "live preview" hissinin temeli;
+// kullanıcı `# Foo` yazdığı anda satır büyür.
+const markdownHighlightStyle = HighlightStyle.define([
+  { tag: t.heading1, fontSize: "1.7em", fontWeight: "700", color: "#fb923c", textDecoration: "none" },
+  { tag: t.heading2, fontSize: "1.4em", fontWeight: "700", color: "#fdba74", textDecoration: "none" },
+  { tag: t.heading3, fontSize: "1.22em", fontWeight: "600", color: "#fed7aa" },
+  { tag: t.heading4, fontSize: "1.10em", fontWeight: "600", color: "#fed7aa" },
+  { tag: t.heading5, fontSize: "1.05em", fontWeight: "600", color: "#fed7aa" },
+  { tag: t.heading6, fontSize: "1.0em", fontWeight: "600", color: "#fed7aa" },
+  { tag: t.strong, fontWeight: "700", color: "#fafafa" },
+  { tag: t.emphasis, fontStyle: "italic", color: "#e5e5e5" },
+  { tag: t.link, color: "#22d3ee", textDecoration: "underline" },
+  { tag: t.url, color: "#22d3ee" },
+  { tag: t.quote, color: "#a78bfa", fontStyle: "italic" },
+  { tag: t.strikethrough, textDecoration: "line-through", color: "#737373" },
+  { tag: t.monospace, color: "#facc15", fontFamily: "ui-monospace, Menlo, monospace" },
+  { tag: t.list, color: "#e5e5e5" },
+]);
 
 const wikilinkPlugin = ViewPlugin.fromClass(
   class {
@@ -133,6 +156,7 @@ export default function MarkdownEditor({
   const extensions = useMemo(
     () => [
       markdown({ base: markdownLanguage, addKeymap: true }),
+      syntaxHighlighting(markdownHighlightStyle),
       EditorView.lineWrapping,
       wikilinkPlugin,
       makeWikilinkClickHandler(onWikilinkClick),
