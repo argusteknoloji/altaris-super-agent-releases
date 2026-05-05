@@ -59,12 +59,6 @@
         }
       ]
     },
-    "viewsWelcome": [
-      {
-        "view": "altaris.welcome",
-        "contents": "**Altaris CLI** ↔ VS Code köprüsü\n\n[$(plug) Yeni Altaris Terminal](command:altaris.openTerminal)\n\n[$(refresh) Köprüyü yeniden başlat](command:altaris.restart)\n\n[$(output) Output panelini aç](command:altaris.showOutput)\n\n[$(symbol-color) Bağlantı durumu](command:altaris.showStatus)\n\n---\n\n**Hızlı eylemler**\n\n[$(edit) Inline edit (Cmd+I)](command:altaris.inlineEdit)\n\n[$(file) Workspace dosyası ekle](command:altaris.insertWorkspaceFile)\n\n---\n\nDokümanlar: [argus altaris docs](https://altaris.run)"
-      }
-    ],
     "menus": {
       "terminal/title/context": [
         {

@@ -19,11 +19,13 @@ import { registerSettingsSync } from "./features/settings-sync";
 import { registerFileMention } from "./features/file-mention";
 import { DiffActionTracker } from "./features/diff-actions";
 import { setDiffActionTracker } from "./tools";
+import { registerSidebar, AltarisSidebarProvider } from "./features/sidebar";
 
 let server: McpServer | undefined;
 let lockfilePath: string | undefined;
 let statusBarHandle: StatusBarHandle | undefined;
 let notifs: NotificationManager | undefined;
+let sidebar: AltarisSidebarProvider | undefined;
 const output = vscode.window.createOutputChannel("Altaris");
 
 const log = (msg: string) => {
@@ -36,9 +38,15 @@ async function start(): Promise<void> {
 
   const authToken = generateAuthToken();
   server = await startMcpServer(authToken, log, {
-    onModel: m => statusBarHandle?.setModel(m),
+    onModel: m => {
+      statusBarHandle?.setModel(m);
+      sidebar?.setStatus({ model: m });
+    },
     onTokens: (input, output) => statusBarHandle?.setTokens({ input, output }),
-    onConnection: (state, servers) => statusBarHandle?.setConnection({ state, servers }),
+    onConnection: (state, servers) => {
+      statusBarHandle?.setConnection({ state, servers });
+      sidebar?.setStatus({ connection: state });
+    },
     onTaskStart: (id, title, cancellable) => notifs?.start(id, title, cancellable),
     onTaskUpdate: (id, progress, detail) => notifs?.update(id, progress ?? 0, detail),
     onTaskComplete: (id, title, detail, actions) => notifs?.complete(id, title, detail, actions),
@@ -56,6 +64,7 @@ async function start(): Promise<void> {
 
   log(`Lockfile: ${lockfilePath}`);
   statusBarHandle?.setConnection({ state: "connected", servers: 1 });
+  sidebar?.setStatus({ connection: "connected", port: server.port });
 }
 
 async function stop(): Promise<void> {
@@ -72,6 +81,12 @@ async function stop(): Promise<void> {
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   log("Altaris extension activating");
+
+  // ── Activity Bar sidebar (TreeView) ──────────────────────────────────────
+  // Sol activity bar'da turuncu A ikonu — tıklayınca sidebar açılır.
+  // Welcome view DEĞİL, gerçek TreeView (Cursor / Claude tarzı).
+  const sidebarReg = registerSidebar(context);
+  sidebar = sidebarReg.provider;
 
   // ── Status bar (model · tokens · connection) ────────────────────────────
   statusBarHandle = registerStatusBar(context);
