@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { runWithProgress, extractCodeBlock } from './altaris-runner';
 
 const FIX_COMMAND_ID = 'altaris.fixWithAi';
 const MAX_TITLE_LENGTH = 60;
@@ -69,34 +70,64 @@ async function runAltarisFix(
 
   const snippet = buildSnippet(document, range);
   const errorMessage = diagnostic.message;
+  const language = document.languageId;
+  const lineHint = range.start.line + 1;
 
-  await vscode.window.withProgress(
-    {
-      location: vscode.ProgressLocation.Notification,
-      title: 'Altaris analyzing…',
-      cancellable: false,
-    },
-    async (progress) => {
-      progress.report({ message: 'Hata Altaris CLI\'a gönderiliyor' });
+  const prompt =
+    `Aşağıdaki ${language} kodundaki hatayı düzelt. Sadece düzeltilmiş kodu ` +
+    `fenced code block içinde döndür, açıklama yazma.\n\n` +
+    `Hata (satır ${lineHint}): ${errorMessage}\n\nKod:\n\`\`\`${language}\n${snippet}\n\`\`\``;
 
-      const prompt = `fix this error: ${errorMessage}\n\ncode:\n${snippet}`;
-      const command = `altaris -p ${escapeForShellSingleQuotes(prompt)}`;
+  const result = await runWithProgress("Altaris fix önerisi hazırlanıyor…", prompt);
+  if (result.exitCode !== 0) {
+    vscode.window.showErrorMessage(`Altaris fix hatası: ${result.stderr || result.exitCode}`);
+    return;
+  }
 
-      let terminal = vscode.window.activeTerminal;
-      if (!terminal) {
-        terminal = vscode.window.createTerminal({ name: 'Altaris Fix' });
-      }
-      terminal.show(true);
-      terminal.sendText(command, true);
+  const fixedCode = extractCodeBlock(result.stdout);
+  if (!fixedCode) {
+    vscode.window.showWarningMessage(
+      "Altaris cevabında fenced code block bulunamadı. Manuel uygula.",
+    );
+    return;
+  }
 
-      // Stub: gerçek edit roundtrip eklenince burada MCP/openDiff tetiklenecek.
-      await new Promise<void>((resolve) => setTimeout(resolve, 5000));
-    },
+  const choice = await vscode.window.showInformationMessage(
+    "Altaris fix önerisi hazır. Uygula?",
+    { modal: true, detail: fixedCode.length > 400 ? fixedCode.slice(0, 400) + "..." : fixedCode },
+    "Uygula",
+    "Diff göster",
   );
 
-  vscode.window.showInformationMessage(
-    'Altaris CLI\'ı kontrol et: kuşlandırılan düzeltme önerisi terminalde hazır.',
-  );
+  if (choice === "Uygula") {
+    const edit = new vscode.WorkspaceEdit();
+    // Snippet ±5 satır aldı; tam aralığı doğru hesaplamak için orijinal range'i
+    // genişlet (buildSnippet'e simetrik olarak).
+    const startLine = Math.max(0, range.start.line - 5);
+    const endLine = Math.min(document.lineCount - 1, range.end.line + 5);
+    const fullRange = new vscode.Range(
+      new vscode.Position(startLine, 0),
+      new vscode.Position(endLine, document.lineAt(endLine).text.length),
+    );
+    edit.replace(uri, fullRange, fixedCode);
+    await vscode.workspace.applyEdit(edit);
+    vscode.window.showInformationMessage("Altaris fix uygulandı.");
+  } else if (choice === "Diff göster") {
+    // Geçici dosya oluştur, vscode.diff ile aç
+    const original = document.getText();
+    const startLine = Math.max(0, range.start.line - 5);
+    const endLine = Math.min(document.lineCount - 1, range.end.line + 5);
+    const before = document.getText(new vscode.Range(
+      new vscode.Position(startLine, 0),
+      new vscode.Position(endLine, document.lineAt(endLine).text.length),
+    ));
+    const newDoc = original.replace(before, fixedCode);
+    const tmpUri = vscode.Uri.parse(`untitled:altaris-fix-${Date.now()}.${language}`);
+    const tmpEdit = new vscode.WorkspaceEdit();
+    tmpEdit.insert(tmpUri, new vscode.Position(0, 0), newDoc);
+    await vscode.workspace.applyEdit(tmpEdit);
+    await vscode.commands.executeCommand("vscode.diff", uri, tmpUri, "Altaris Fix");
+  }
 }
 
 export function registerQuickFix(context: vscode.ExtensionContext): vscode.Disposable {

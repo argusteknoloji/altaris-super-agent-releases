@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { runWithProgress, extractCodeBlock } from './altaris-runner';
 
 /**
  * AltarisCodeLensProvider
@@ -101,34 +102,79 @@ function buildPrompt(action: LensAction, name: string, code: string): string {
     }
 }
 
-function getOrCreateAltarisTerminal(): vscode.Terminal {
-    const existing = vscode.window.terminals.find((t) => t.name === 'Altaris');
-    if (existing) {
-        return existing;
-    }
-    return vscode.window.createTerminal({ name: 'Altaris' });
-}
-
 async function dispatch(
     action: LensAction,
     uri: vscode.Uri,
     range: vscode.Range,
     symbolName: string,
 ): Promise<void> {
-    let code = '';
+    let doc: vscode.TextDocument;
     try {
-        const doc = await vscode.workspace.openTextDocument(uri);
-        code = doc.getText(range);
-    } catch {
-        // best-effort: fall back to symbol name only
+        doc = await vscode.workspace.openTextDocument(uri);
+    } catch (err) {
+        vscode.window.showErrorMessage(`Altaris: dosya açılamadı (${(err as Error).message})`);
+        return;
+    }
+    const code = doc.getText(range);
+    const language = doc.languageId;
+    const prompt = buildPromptHeadless(action, symbolName, code, language);
+
+    const result = await runWithProgress(
+        `Altaris ${action}: ${symbolName}`,
+        prompt,
+    );
+    if (result.exitCode !== 0) {
+        vscode.window.showErrorMessage(`Altaris ${action} hatası: ${result.stderr || result.exitCode}`);
+        return;
     }
 
-    // Single-line + escape double quotes so the shell doesn't choke.
-    const flat = code.replace(/\s+/g, ' ').replace(/"/g, '\\"').trim();
-    const prompt = buildPrompt(action, symbolName, flat);
-    const terminal = getOrCreateAltarisTerminal();
-    terminal.show(true);
-    terminal.sendText(`altaris -p "${prompt}"`, true);
+    if (action === "explain") {
+        const md = await vscode.workspace.openTextDocument({
+            language: "markdown",
+            content: `# Altaris: ${symbolName}\n\n${result.stdout}`,
+        });
+        await vscode.window.showTextDocument(md, { preview: true });
+        return;
+    }
+
+    const block = extractCodeBlock(result.stdout);
+    if (!block) {
+        vscode.window.showWarningMessage(`Altaris cevabı fenced code block içermiyor.`);
+        return;
+    }
+
+    if (action === "test") {
+        const testDoc = await vscode.workspace.openTextDocument({
+            language,
+            content: block,
+        });
+        await vscode.window.showTextDocument(testDoc, { preview: true });
+        return;
+    }
+
+    // refactor: inline replace + diff göster
+    const choice = await vscode.window.showInformationMessage(
+        `Altaris refactor önerisi hazır (${symbolName}). Uygula?`,
+        { modal: true, detail: block.length > 400 ? block.slice(0, 400) + "..." : block },
+        "Uygula",
+    );
+    if (choice === "Uygula") {
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(uri, range, block);
+        await vscode.workspace.applyEdit(edit);
+        vscode.window.showInformationMessage("Altaris refactor uygulandı.");
+    }
+}
+
+function buildPromptHeadless(action: LensAction, name: string, code: string, language: string): string {
+    switch (action) {
+        case "explain":
+            return `Aşağıdaki ${language} fonksiyonu '${name}' ne yapıyor? Markdown formatında özetle. Kod:\n\`\`\`${language}\n${code}\n\`\`\``;
+        case "test":
+            return `Aşağıdaki ${language} fonksiyonu '${name}' için unit test yaz. Sadece test kodunu fenced code block içinde döndür.\n\`\`\`${language}\n${code}\n\`\`\``;
+        case "refactor":
+            return `Aşağıdaki ${language} fonksiyonu '${name}' için netlik ve performans için refactor öner. Sadece yeni kodu fenced code block içinde döndür, açıklama yazma.\n\`\`\`${language}\n${code}\n\`\`\``;
+    }
 }
 
 /**

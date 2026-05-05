@@ -23,40 +23,33 @@ interface AltarisInlineResult {
   readonly note?: string;
 }
 
+import { runAltaris, extractCodeBlock } from "./altaris-runner";
+
 /**
- * Stub: gerçekte CLI'a (MCP/HTTP) request atacak. Şimdilik seçimi
- * prompt ile sarmalayan deterministik bir placeholder döndürür.
+ * altaris CLI'ı `altaris -p` ile çalıştır, dönen cevaptan kod bloğunu çıkar.
+ * Cevap fenced code block içermiyorsa raw stdout'u kullanır.
  */
 async function callAltaris(
   prompt: string,
   selection: string,
   languageId: string,
 ): Promise<AltarisInlineResult> {
-  // TODO(faz-11.1): server.ts -> "altaris.invokePrompt" reverse-RPC çağrısı.
-  // Şimdilik sadece UI scaffolding için stub.
-  const commentToken = pickCommentToken(languageId);
-  const newText =
-    `${commentToken} altaris-inline-edit prompt: ${prompt}\n` +
-    `${commentToken} TODO: replace with altaris result\n` +
-    selection;
-  return { newText, note: 'stub (MCP roundtrip henüz bağlanmadı)' };
-}
+  const fullPrompt =
+    `Aşağıdaki ${languageId} kodunu kullanıcının isteğine göre yeniden yaz. ` +
+    `Sadece yeni kodu fenced code block içinde döndür, açıklama yazma.\n\n` +
+    `İstek: ${prompt}\n\n` +
+    `Kod:\n\`\`\`${languageId}\n${selection}\n\`\`\``;
 
-function pickCommentToken(languageId: string): string {
-  switch (languageId) {
-    case 'python':
-    case 'shellscript':
-    case 'yaml':
-    case 'ruby':
-      return '#';
-    case 'sql':
-      return '--';
-    case 'html':
-    case 'xml':
-      return '<!--';
-    default:
-      return '//';
+  const result = await runAltaris(fullPrompt);
+  if (result.exitCode !== 0) {
+    throw new Error(result.stderr || `altaris exit ${result.exitCode}`);
   }
+  const block = extractCodeBlock(result.stdout);
+  const newText = block ?? result.stdout.trim();
+  return {
+    newText,
+    note: block ? "altaris" : "altaris (raw — fenced code block bulunamadı)",
+  };
 }
 
 async function runInlineEdit(): Promise<void> {
