@@ -18,6 +18,7 @@ const MarkdownEditor = dynamic(() => import("./_components/MarkdownEditor"), {
   loading: () => <div className="flex flex-1 items-center justify-center text-xs text-neutral-500">Editor yükleniyor…</div>
 });
 const RightPanel = dynamic(() => import("./_components/RightPanel"), { ssr: false });
+const FuzzyModal = dynamic(() => import("./_components/FuzzyModal"), { ssr: false });
 
 type McpEnvRow = { key: string; value: string };
 type McpFormState = {
@@ -166,6 +167,10 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
   const [showRightPanel, setShowRightPanel] = useState(true);
   const [editorGoTo, setEditorGoTo] = useState<{ line: number; epoch: number } | null>(null);
 
+  // Cmd+O = Quick Switcher (file open), Cmd+P = Command Palette
+  const [quickSwitcherOpen, setQuickSwitcherOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
   // Obsidian-tarzı iki ana mod: Edit (CM6 source + light live-preview cilo)
   // ve Read (full HTML render). Tercih localStorage'da kalıcı.
   const [viewMode, setViewMode] = useState<"edit" | "read">("edit");
@@ -195,6 +200,27 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
   }
 
   useEffect(() => { loadTree(); /* eslint-disable-next-line */ }, [slug]);
+
+  // Klavye kısayolları — Cmd/Ctrl+O quick switcher, Cmd/Ctrl+P command palette.
+  // Her iki modal browser default'larını ezdiği için preventDefault şart.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const meta = e.metaKey || e.ctrlKey;
+      if (!meta) return;
+      const k = e.key.toLowerCase();
+      if (k === "o") {
+        e.preventDefault();
+        setPaletteOpen(false);
+        setQuickSwitcherOpen(true);
+      } else if (k === "p") {
+        e.preventDefault();
+        setQuickSwitcherOpen(false);
+        setPaletteOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // Vault graph — sağ panel için (backlinks + outgoing resolve + local graph).
   // Tek fetch; save sonrası loadTree zaten tetikleniyor, save'de bunu da yenile.
@@ -766,6 +792,107 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
           />
         )}
       </div>
+      {/* Quick Switcher (Cmd/Ctrl+O) — vault dosyalarında fuzzy search */}
+      <FuzzyModal
+        open={quickSwitcherOpen}
+        onClose={() => setQuickSwitcherOpen(false)}
+        placeholder="Dosya ara… (.md öncelikli)"
+        emptyHint="Eşleşen dosya yok."
+        items={tree
+          .map(t => {
+            const isMd2 = /\.(md|markdown)$/i.test(t.path);
+            const display = t.path.replace(/\.(md|markdown)$/i, "");
+            const dir = display.includes("/") ? display.slice(0, display.lastIndexOf("/")) : null;
+            const base = display.split("/").pop() ?? display;
+            return {
+              id: t.path,
+              label: base,
+              detail: dir ?? (isMd2 ? "" : t.path),
+              hint: isMd2 ? "md" : t.path.split(".").pop()?.toUpperCase(),
+              run: () => void openFile(t.path),
+              _md: isMd2,
+              _bytes: t.bytes,
+            };
+          })
+          // Default sıralama: .md önce, içinde modified-by-recent (bytes değil
+          // ama tree response modifiedUtc tutuyor — şimdilik md önceliği yeter).
+          .sort((a, b) => (a._md === b._md ? 0 : a._md ? -1 : 1))
+          .map(({ _md, _bytes, ...rest }) => rest)}
+      />
+      {/* Command Palette (Cmd/Ctrl+P) — vault-scoped komutlar */}
+      <FuzzyModal
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        placeholder="Komut ara…"
+        emptyHint="Eşleşen komut yok."
+        items={[
+          {
+            id: "save",
+            label: "Kaydet",
+            detail: activePath ?? "açık dosya yok",
+            hint: "Cmd+S",
+            run: () => { if (activePath) void save(); },
+          },
+          {
+            id: "open-graph",
+            label: "Graph görünümüne git",
+            hint: "→",
+            run: () => { window.location.href = `/vaults/${slug}/graph`; },
+          },
+          {
+            id: "back-vault-list",
+            label: "Vault listesine dön",
+            run: () => { window.location.href = `/vaults`; },
+          },
+          {
+            id: "view-edit",
+            label: "Düzenle moduna geç",
+            detail: "CM6 source + live preview",
+            run: () => setViewMode("edit"),
+          },
+          {
+            id: "view-read",
+            label: "Okuma moduna geç",
+            detail: "Markdown render",
+            run: () => setViewMode("read"),
+          },
+          {
+            id: "panel-toggle",
+            label: showRightPanel ? "Sağ paneli kapat" : "Sağ paneli aç",
+            detail: "Outline · Backlinks · Local graph",
+            run: () => setShowRightPanel(p => !p),
+          },
+          {
+            id: "quick-switch",
+            label: "Hızlı dosya aç",
+            hint: "Cmd+O",
+            run: () => setQuickSwitcherOpen(true),
+          },
+          {
+            id: "open-mcp",
+            label: ".mcp.json oluştur ya da aç",
+            detail: "MCP sunucusu tanımı",
+            run: () => quickCreateMcp(),
+          },
+          {
+            id: "create-skill",
+            label: "Yeni skill template'i oluştur",
+            detail: ".altaris/skills/",
+            run: () => quickCreateSkill(),
+          },
+          {
+            id: "reload-tree",
+            label: "Dosya ağacını yenile",
+            run: () => void loadTree(),
+          },
+          {
+            id: "reload-graph",
+            label: "Vault graph'ı yenile",
+            detail: "Backlinks + local graph",
+            run: () => void loadVaultGraph(),
+          },
+        ]}
+      />
       {mcpModalOpen && (
         <McpServerModal
           onClose={() => setMcpModalOpen(false)}
