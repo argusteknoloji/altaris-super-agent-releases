@@ -595,6 +595,26 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
                     value={content}
                     onChange={setContent}
                     onSave={save}
+                    vaultFiles={tree.map(t => t.path)}
+                    onWikilinkClick={(target) => {
+                      // [[Page]] → vault'ta bul:
+                      // 1. exact path match (alt klasör dahil): "Page.md" veya "Page"
+                      // 2. basename match: */Page.md
+                      // 3. eşleşme yoksa target.md olarak openFile çağır → API 404 dönerse
+                      //    kullanıcı "yeni dosya oluştur" akışına yönlendirilir (ileri faz).
+                      const t = target.trim();
+                      const candidates = tree.map(x => x.path);
+                      const exact = candidates.find(p => p === t || p === `${t}.md`);
+                      if (exact) { void openFile(exact); return; }
+                      const baseMatch = candidates.find(p => {
+                        const base = (p.split('/').pop() ?? '').replace(/\.(md|markdown)$/i, '');
+                        return base.toLowerCase() === t.toLowerCase();
+                      });
+                      if (baseMatch) { void openFile(baseMatch); return; }
+                      // Fallback: tahmini path. openFile 404'te error mesajı gösterir.
+                      const guess = /\.(md|markdown)$/i.test(t) ? t : `${t}.md`;
+                      void openFile(guess);
+                    }}
                   />
                 ) : (
                   <MonacoEditor
