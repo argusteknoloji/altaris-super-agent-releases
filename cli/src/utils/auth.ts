@@ -1396,8 +1396,43 @@ async function handleOAuth401ErrorImpl(
 ): Promise<boolean> {
   // Clear caches and re-read from keychain (async — sync read blocks ~100ms/call)
   clearOAuthTokenCache()
-  const currentTokens = await getClaudeAIOAuthTokensAsync()
 
+  // Argus env-var modu: bootstrap ALTARIS_OAUTH_TOKEN'a snapshot yazmıştı.
+  // CLI refreshToken görmüyor (RT server-side kalır). 401 olunca API'ye
+  // re-bootstrap atıp DB'deki taze token'ı (PR-1 JIT refresh tetikler) çek,
+  // env'i overwrite et, retry'a izin ver. Bu olmadan kullanıcı token rotasyonu
+  // sırasında her zaman bir 401 görür.
+  if (
+    process.env.ALTARIS_OAUTH_TOKEN &&
+    process.env.ALTARIS_OAUTH_TOKEN === failedAccessToken
+  ) {
+    const { rebootstrapClaudeProvider } = await import('../argus/bootstrap.js')
+    const result = await rebootstrapClaudeProvider(failedAccessToken)
+    if (result.ok) {
+      logEvent('argus_oauth_401_recovered_via_rebootstrap', {})
+      // Memoized getClaudeAIOAuthTokens cache'ini temizle ki sonraki okuma
+      // güncel ALTARIS_OAUTH_TOKEN env'ini görsün.
+      clearOAuthTokenCache()
+      return true
+    }
+    if (result.reason === 'refresh_failed') {
+      // RT revoke veya IdP down. Kullanıcıya net mesaj — sessiz 401 spam'i
+      // yerine ne yapması gerektiğini söyle.
+      const webBase = process.env.ALTARIS_WEB_BASE ?? 'https://altarisplatform.com'
+      process.stderr.write(
+        chalk.yellow(
+          `\n⚠ Anthropic OAuth refresh başarısız: ${result.detail}\n` +
+            `   Web panelden Anthropic provider'ını yeniden bağlayın:\n` +
+            `   ${webBase}/admin/providers\n\n`,
+        ),
+      )
+      logEvent('argus_oauth_refresh_revoked', {})
+    }
+    return false
+  }
+
+  // Native Claude.ai OAuth (developer mod): keychain + RT mevcut, refresh çalışır.
+  const currentTokens = await getClaudeAIOAuthTokensAsync()
   if (!currentTokens?.refreshToken) {
     return false
   }

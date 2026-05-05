@@ -86,6 +86,104 @@ export async function fetchActiveProvider(token: string, opts?: { id?: string; p
   return fetchJson<ActiveProvider>(`/api/v1/providers/active${suffix}`, token);
 }
 
+// 401 recovery için detaylı sonuç ayrımı: API 503 + provider_oauth_refresh_failed
+// dönerse kullanıcıya net mesaj basabilelim, network hatasıyla karıştırmayalım.
+export type FetchActiveDetailed =
+  | { kind: "ok"; data: ActiveProvider }
+  | { kind: "refresh_failed"; detail: string }
+  | { kind: "not_found" }
+  | { kind: "unauthorized" }
+  | { kind: "network" };
+
+export async function fetchActiveProviderDetailed(
+  token: string,
+  opts: { id?: string; provider?: string } = {},
+): Promise<FetchActiveDetailed> {
+  const qs = new URLSearchParams();
+  if (opts.id) qs.set("id", opts.id);
+  if (opts.provider) qs.set("provider", opts.provider);
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const r = await fetch(`${getApiBase()}/api/v1/providers/active${suffix}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+      signal: ctrl.signal,
+    });
+    if (r.status === 503) {
+      // API JIT refresh tried + failed (RT revoke / IdP down). Title alanı
+      // "provider_oauth_refresh_failed" → bunu UX'te ayırt et.
+      try {
+        const body = (await r.json()) as { title?: string; detail?: string };
+        if (body.title === "provider_oauth_refresh_failed") {
+          return { kind: "refresh_failed", detail: body.detail ?? "OAuth refresh failed" };
+        }
+      } catch {
+        /* JSON parse fail → generic network */
+      }
+      return { kind: "network" };
+    }
+    if (r.status === 401 || r.status === 403) return { kind: "unauthorized" };
+    if (r.status === 404) return { kind: "not_found" };
+    if (!r.ok) return { kind: "network" };
+    const data = (await r.json()) as ActiveProvider;
+    return { kind: "ok", data };
+  } catch {
+    return { kind: "network" };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * 401 anında çağrılır: API'den fresh access_token çek (PR-1 JIT refresh
+ * tetiklenir), ALTARIS_OAUTH_TOKEN env'ini overwrite et, fresh token'ı dön.
+ *
+ * Env-var modunda CLI refreshToken görmediği için in-session refresh yapamıyor;
+ * tek çare API'ye yeniden /providers/active çağrısı atmak.
+ */
+export type RebootstrapResult =
+  | { ok: true; freshToken: string }
+  | { ok: false; reason: "no_token" | "no_active" | "no_access_token" | "network" }
+  | { ok: false; reason: "refresh_failed"; detail: string };
+
+export async function rebootstrapClaudeProvider(failedAccessToken: string): Promise<RebootstrapResult> {
+  if (process.env.ALTARIS_BOOTSTRAP_DISABLE === "1") return { ok: false, reason: "no_token" };
+  const token = await readToken();
+  if (!token) return { ok: false, reason: "no_token" };
+
+  // Pinned id öncelikli (kullanıcı /provider ile seçtiyse onu yenile);
+  // yoksa provider=anthropic ile tenant default'unu çek.
+  const pinned = getLastProviderId();
+  let result = pinned
+    ? await fetchActiveProviderDetailed(token, { id: pinned })
+    : await fetchActiveProviderDetailed(token, { provider: "anthropic" });
+
+  // Pinned id artık geçersizse fallback'e düş (silinmiş, disable edilmiş, vb.)
+  if (result.kind === "not_found" && pinned) {
+    result = await fetchActiveProviderDetailed(token, { provider: "anthropic" });
+  }
+
+  if (result.kind === "refresh_failed") return { ok: false, reason: "refresh_failed", detail: result.detail };
+  if (result.kind === "not_found")       return { ok: false, reason: "no_active" };
+  if (result.kind === "unauthorized")    return { ok: false, reason: "no_token" };
+  if (result.kind === "network")         return { ok: false, reason: "network" };
+
+  const active = result.data;
+  if (!active.apiKey) return { ok: false, reason: "no_access_token" };
+
+  // Aynı stale token tekrar geldiyse refresh sahiden olmamış → fail döndür ki
+  // caller sonsuz retry'a girmesin.
+  if (active.apiKey === failedAccessToken) {
+    return { ok: false, reason: "refresh_failed", detail: "API stale aynı token'ı döndürdü" };
+  }
+
+  // Env'i FORCE overwrite et — bootstrap setIfMissing kullanıyor, biz
+  // zaten set olan token'ı yenilemek istiyoruz.
+  applyProvider(active, { force: true });
+  return { ok: true, freshToken: active.apiKey };
+}
+
 export async function fetchProviderList(token: string): Promise<ProviderListItem[] | null> {
   return fetchJson<ProviderListItem[]>(`/api/v1/providers`, token);
 }
