@@ -186,11 +186,26 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
 
   useEffect(() => { loadTree(); /* eslint-disable-next-line */ }, [slug]);
 
-  // Vault yüklenince Altaris.md varsa otomatik aç — Obsidian-tarzı landing page.
-  // Sadece ilk render'da; kullanıcı başka bir dosya açtıysa onu ezme.
+  // Vault yüklenince varsayılan dosyayı aç:
+  //   1. URL ?file=X varsa onu (graph view'den tıklamış olabilir)
+  //   2. Yoksa Altaris.md (Obsidian-tarzı landing page)
+  // Sadece ilk render'da; kullanıcı manuel başka dosya açtıysa onu ezme.
   const didAutoOpenRef = useRef(false);
   useEffect(() => {
     if (didAutoOpenRef.current || activePath || tree.length === 0) return;
+    // URL query'sini browser API ile oku — useSearchParams çağırmak için
+    // Suspense boundary gerekiyor; tek seferlik bootstrap için window yeterli.
+    const fromQuery = typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("file")
+      : null;
+    if (fromQuery) {
+      const target = tree.find(t => t.path === fromQuery);
+      if (target) {
+        didAutoOpenRef.current = true;
+        void openFile(target.path);
+        return;
+      }
+    }
     const landing = tree.find(t => t.path === "Altaris.md");
     if (landing) {
       didAutoOpenRef.current = true;
