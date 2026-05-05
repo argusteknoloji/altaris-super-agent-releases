@@ -1,0 +1,91 @@
+name: Publish VS Code extension
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Yayınlanacak versiyon ("auto" ise package.json okunur)'
+        required: true
+        default: 'auto'
+        type: string
+      dry-run:
+        description: 'Sadece paketle, marketplace yayını yapma'
+        required: true
+        default: false
+        type: boolean
+
+jobs:
+  publish:
+    name: Publish to VS Code Marketplace
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vscode-extension
+    outputs:
+      version: ${{ steps.resolve-version.outputs.version }}
+      marketplace_url: ${{ steps.resolve-version.outputs.marketplace_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build extension bundle
+        run: bun esbuild.js
+
+      - name: Resolve version
+        id: resolve-version
+        run: |
+          INPUT_VERSION="${{ inputs.version }}"
+          if [ "$INPUT_VERSION" = "auto" ] || [ -z "$INPUT_VERSION" ]; then
+            VERSION=$(node -p "require('./package.json').version")
+          else
+            VERSION="$INPUT_VERSION"
+          fi
+          PUBLISHER=$(node -p "require('./package.json').publisher")
+          NAME=$(node -p "require('./package.json').name")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "marketplace_url=https://marketplace.visualstudio.com/items?itemName=${PUBLISHER}.${NAME}" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: $VERSION"
+          echo "Publisher.Name: ${PUBLISHER}.${NAME}"
+
+      - name: Package VSIX (dry-run)
+        if: ${{ inputs.dry-run == true }}
+        run: |
+          npx --yes @vscode/vsce package --no-dependencies -o altaris.vsix
+          ls -la altaris.vsix
+
+      - name: Upload VSIX artifact (dry-run)
+        if: ${{ inputs.dry-run == true }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: altaris-vsix-${{ steps.resolve-version.outputs.version }}
+          path: vscode-extension/altaris.vsix
+          if-no-files-found: error
+
+      - name: Publish to Marketplace
+        if: ${{ inputs.dry-run != true }}
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo "::error::VSCE_PAT secret tanımlı değil. Repo Settings → Secrets → VSCE_PAT ekleyin."
+            exit 1
+          fi
+          npx --yes @vscode/vsce publish --no-dependencies --pat "$VSCE_PAT"
+
+      - name: Summary
+        run: |
+          {
+            echo "## VS Code extension publish"
+            echo ""
+            echo "- Version: \`${{ steps.resolve-version.outputs.version }}\`"
+            echo "- Dry-run: \`${{ inputs.dry-run }}\`"
+            echo "- Marketplace: ${{ steps.resolve-version.outputs.marketplace_url }}"
+          } >> "$GITHUB_STEP_SUMMARY"

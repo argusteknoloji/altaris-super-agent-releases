@@ -28,7 +28,10 @@
       { "command": "altaris.fixWithAi",      "title": "Altaris: Fix with AI" },
       { "command": "altaris.lens.explain",   "title": "Altaris: Explain" },
       { "command": "altaris.lens.test",      "title": "Altaris: Generate tests" },
-      { "command": "altaris.lens.refactor",  "title": "Altaris: Refactor" }
+      { "command": "altaris.lens.refactor",  "title": "Altaris: Refactor" },
+      { "command": "altaris.insertWorkspaceFile", "title": "Altaris: Workspace dosyası ekle (@)" },
+      { "command": "altaris.diff.accept",    "title": "Altaris: Diff'i kabul et" },
+      { "command": "altaris.diff.reject",    "title": "Altaris: Diff'i reddet" }
     ],
     "keybindings": [
       {
@@ -36,6 +39,11 @@
         "key": "ctrl+i",
         "mac": "cmd+i",
         "when": "editorTextFocus"
+      },
+      {
+        "command": "altaris.insertWorkspaceFile",
+        "key": "shift+ctrl+2",
+        "mac": "shift+cmd+2"
       }
     ],
     "terminal": {
@@ -79,7 +87,8 @@
     "typecheck": "tsc -p . --noEmit",
     "watch": "node esbuild.js --watch",
     "package": "npm run build && vsce package --no-dependencies -o altaris.vsix",
-    "publish": "npm run build && vsce publish --no-dependencies"
+    "publish": "npm run build && vsce publish --no-dependencies",
+    "test": "bun test test/"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

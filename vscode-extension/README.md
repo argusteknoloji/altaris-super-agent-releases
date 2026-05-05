@@ -38,3 +38,15 @@ npm run build
 ```bash
 npm run package   # altaris.vsix üretir
 ```
+
+## Marketplace yayını (maintainer için)
+
+1. https://aka.ms/vscode-create-publisher → publisher 'argus' oluştur
+2. Azure DevOps → User settings → Personal access tokens → Marketplace (Publish) scope → token üret
+3. GitHub repo → Settings → Secrets → New: name=`VSCE_PAT`, value=token
+4. Actions → "Publish VS Code extension" → Run workflow → version: auto → Run
+
+İlk yayında bir kez `vsce login argus` lokalden de yapılmalı (CI'da headless).
+Versiyon bump: package.json `version` alanını manuel arttır, sonra workflow tetikle.
+Patch publish: `vsce publish patch`, minor: `vsce publish minor`.
+

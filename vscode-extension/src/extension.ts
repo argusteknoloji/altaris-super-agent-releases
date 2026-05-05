@@ -15,6 +15,10 @@ import { registerQuickFix } from "./features/quick-fix";
 import { registerNotifications, NotificationManager } from "./features/notifications";
 import { registerCodeLens } from "./features/code-lens";
 import { registerFileWatcher } from "./features/file-watcher";
+import { registerSettingsSync } from "./features/settings-sync";
+import { registerFileMention } from "./features/file-mention";
+import { DiffActionTracker } from "./features/diff-actions";
+import { setDiffActionTracker } from "./tools";
 
 let server: McpServer | undefined;
 let lockfilePath: string | undefined;
@@ -87,6 +91,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   registerFileWatcher(context, (method, params) => server?.broadcast(method, params)).forEach(d =>
     context.subscriptions.push(d),
   );
+
+  // Settings sync — VS Code config'leri CLI'a notification olarak push.
+  registerSettingsSync(context, (method, params) =>
+    server?.broadcast(method, params as Record<string, unknown> | undefined),
+  ).forEach(d => context.subscriptions.push(d));
+
+  // Workspace file picker (Cmd+Shift+2) — quick pick ile @-mention path yapıştır.
+  registerFileMention(context).forEach(d => context.subscriptions.push(d));
+
+  // Inline diff accept/reject UX — tools.openDiff bu tracker'a track() çağırır.
+  const diffTracker = new DiffActionTracker(context);
+  setDiffActionTracker(diffTracker);
+  context.subscriptions.push(diffTracker);
 
   // ── Terminal profile + altaris ikonu ─────────────────────────────────────
   const iconUri = vscode.Uri.file(path.join(context.extensionPath, "media", "altaris.svg"));

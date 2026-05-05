@@ -187,7 +187,7 @@ export async function startMcpServer(
   };
 }
 
-function dispatchNotification(
+export function dispatchNotification(
   method: string,
   params: Record<string, unknown> | undefined,
   h: NotificationHandlers,

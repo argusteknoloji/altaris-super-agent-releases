@@ -39,6 +39,14 @@ interface OpenDiffArgs {
 
 const activeDiffTabs = new Map<string, vscode.Disposable[]>();
 
+// Inline accept/reject UX için diff-actions.ts tracker'ına optional bağlantı.
+// extension.ts activate() içinde setDiffActionTracker(tracker) ile inject edilir.
+import type { DiffActionTracker } from "./features/diff-actions";
+let diffTracker: DiffActionTracker | undefined;
+export function setDiffActionTracker(tracker: DiffActionTracker): void {
+  diffTracker = tracker;
+}
+
 export async function openDiff(args: OpenDiffArgs): Promise<ToolResult> {
   const { old_file_path, new_file_contents, tab_name } = args;
 
@@ -93,6 +101,27 @@ export async function openDiff(args: OpenDiffArgs): Promise<ToolResult> {
     );
 
     activeDiffTabs.set(tab_name, disposables);
+
+    // Inline accept/reject UX (diff-actions.ts tracker varsa).
+    diffTracker?.track(tab_name, {
+      onAccept: async () => {
+        try {
+          const doc = await vscode.workspace.openTextDocument(tmpFile);
+          await doc.save();
+        } catch {
+          // Save event'i tetiklenmezse manuel resolve.
+          cleanup();
+          resolve({ content: [t("FILE_SAVED"), t(new_file_contents)] });
+        }
+      },
+      onReject: async () => {
+        for (const group of vscode.window.tabGroups.all) {
+          for (const tab of group.tabs) {
+            if (tab.label === tab_name) await vscode.window.tabGroups.close(tab);
+          }
+        }
+      },
+    });
   });
 }
 
