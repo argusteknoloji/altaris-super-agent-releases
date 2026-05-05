@@ -17,6 +17,38 @@ public static class VaultScaffold
 
     private static IEnumerable<SeedFile> Files(string vaultName) => new[]
     {
+        // Vault landing page — web UI bu kasayı açtığında ilk olarak Altaris.md'yi
+        // gösterir (varsa). README.md ops belgesi olarak kalır; Altaris.md
+        // kullanıcının vault'a girince ilk gördüğü "kapı" sayfası.
+        new SeedFile("Altaris.md", $@"# {vaultName}
+
+Bu kasaya hoş geldin. Markdown ile not al, `[[wikilink]]` ile bağla, sağ
+üstteki **Graph** ile bağlantıları görselleştir.
+
+## Hızlı başlangıç
+
+- **Yeni not:** sol panelden `+ Dosya` ile bir `.md` aç.
+- **Bağlantı:** içeride `[[Note Adi]]` yaz; otomatik tamamlama gelir,
+  Cmd/Ctrl + click ile hedefe gider.
+- **Edit / Oku:** üstteki segment butonu ile düzenleme ve okuma modları
+  arasında geçiş yap. Tercih oturuma kaydedilir.
+- **Kaydet:** Cmd/Ctrl + S.
+
+## Yapı
+
+- `wiki/` — kalıcı bilgi (entities, concepts, decisions, meetings, comparisons)
+- `agents/`, `skills/`, `commands/`, `hooks/` — vault-scoped agentic katman
+- `_templates/` — not şablonları (Templater veya `/template` komutu)
+- `_attachments/` — gömülü medya
+
+## Sonraki adım
+
+İlk kalıcı notunu aç:
+
+`wiki/concepts/[[ilk-not]].md`
+
+Buraya yazdığın her şey vault graph'ında görünecek.
+"),
         new SeedFile("README.md", $@"# {vaultName}
 
 Argus Altaris bilgi kasası — Obsidian uyumlu, sunucu tarafı yönetilen,

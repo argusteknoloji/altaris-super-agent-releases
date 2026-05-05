@@ -186,6 +186,19 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
 
   useEffect(() => { loadTree(); /* eslint-disable-next-line */ }, [slug]);
 
+  // Vault yüklenince Altaris.md varsa otomatik aç — Obsidian-tarzı landing page.
+  // Sadece ilk render'da; kullanıcı başka bir dosya açtıysa onu ezme.
+  const didAutoOpenRef = useRef(false);
+  useEffect(() => {
+    if (didAutoOpenRef.current || activePath || tree.length === 0) return;
+    const landing = tree.find(t => t.path === "Altaris.md");
+    if (landing) {
+      didAutoOpenRef.current = true;
+      void openFile(landing.path);
+    }
+    /* eslint-disable-next-line */
+  }, [tree]);
+
   async function openFile(path: string, line?: number) {
     setError(null);
     const r = await fetch(`/api/proxy/vaults/${slug}/file?path=${encodeURIComponent(path)}`, { cache: "no-store" });
