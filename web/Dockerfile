@@ -11,6 +11,11 @@ WORKDIR /app
 RUN corepack enable
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# CI'dan inject edilen versiyon (build-images.yml — github.run_number ile auto-bump).
+# next.config.ts ALTARIS_VERSION env'i NEXT_PUBLIC_BUILD_VERSION'a yansıtır →
+# dashboard badge + homepage + katalog hep aynı kaynaktan beslenir.
+ARG ALTARIS_VERSION=
+ENV ALTARIS_VERSION=$ALTARIS_VERSION
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm build
 

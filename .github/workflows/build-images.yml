@@ -101,6 +101,11 @@ jobs:
           cache-to: type=gha,scope=${{ matrix.service }},mode=max
           # linux/amd64 yeterli — DigitalOcean droplet x86_64.
           platforms: linux/amd64
+          # Web image'ı için versiyon inject — github.run_number monoton artar,
+          # her main push'ta benzersiz versiyon: dashboard + homepage badge'i değişir.
+          # API Dockerfile'ı bu ARG'ı görmez, harmless.
+          build-args: |
+            ALTARIS_VERSION=0.1.0-alpha.${{ github.run_number }}
 
       - name: Summary
         if: steps.gate.outputs.skip == 'false'

@@ -239,7 +239,7 @@ export default function KatalogPage() {
               <div className="text-[#3a342d]">argusteknoloji.com</div>
             </div>
             <div className="space-y-1 text-right">
-              <div className="text-[#ddd8d0]">v0.1.0-alpha</div>
+              <div className="text-[#ddd8d0]">v{process.env.NEXT_PUBLIC_BUILD_VERSION ?? "0.0.0"}</div>
               <div className="text-[#3a342d]">© argus teknoloji</div>
             </div>
           </div>
@@ -680,7 +680,7 @@ export default function KatalogPage() {
           </div>
 
           <div className="absolute bottom-12 left-12 right-12 flex items-end justify-between text-[10px] uppercase tracking-[0.28em] text-[#6b6358] md:bottom-16 md:left-24 md:right-24">
-            <div>edition 01 · 2026 · v0.1.0-alpha</div>
+            <div>edition 01 · 2026 · v{process.env.NEXT_PUBLIC_BUILD_VERSION ?? "0.0.0"}</div>
             <div>© argus teknoloji · altaris</div>
           </div>
         </section>

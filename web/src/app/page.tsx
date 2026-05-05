@@ -197,7 +197,7 @@ export default async function HomePage() {
           >
             <span>argus.altaris</span>
             <span className="h-12 w-px bg-[#3a342d]" />
-            <span>v0.1.0-α</span>
+            <span>v{process.env.NEXT_PUBLIC_BUILD_VERSION ?? "0.0.0"}</span>
           </div>
         </section>
 

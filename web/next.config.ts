@@ -3,10 +3,8 @@ import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 // ── Build-time constants ──────────────────────────────────────────────────
-// Sürüm + build numarası + git SHA + build timestamp. TopNav'da rozet ile
-// gösterilir; her deploy'da yeni numara → kullanıcı hangi sürümün canlı
-// olduğunu anında görür. Build numarası CI'da otomatik artar
-// (GITHUB_RUN_NUMBER), lokal dev'de commit sayısı.
+// Sürüm + git SHA + build timestamp; dashboard'da küçük badge ile gösterilir
+// (deploy doğrulama). Build sırasında package.json + git rev-parse okunur.
 function readPkgVersion(): string {
   try {
     const pkg = JSON.parse(readFileSync("./package.json", "utf8"));
@@ -19,18 +17,23 @@ function readGitSha(): string {
   try { return execSync("git rev-parse --short HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim(); }
   catch { return "dev"; }
 }
-function readBuildNumber(): string {
-  // CI'da: GITHUB_RUN_NUMBER her workflow run'da +1 (kalıcı, deterministik).
-  // Lokal: git commit count → her commit'le artar, package.json'a el sürmeden
-  // versiyon otomatik ilerler.
-  if (process.env.GITHUB_RUN_NUMBER) return process.env.GITHUB_RUN_NUMBER;
+function readGitCommitCount(): string | null {
+  // .git yoksa (Docker context'inde olduğu gibi) null → fallback'e düşer
   try { return execSync("git rev-list --count HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim(); }
-  catch { return "0"; }
+  catch { return null; }
 }
-const PKG_VERSION   = readPkgVersion();
-const BUILD_NUMBER  = readBuildNumber();
-// SemVer build metadata (+ ile ayrılır, sürüm sırasını etkilemez)
-const BUILD_VERSION = `${PKG_VERSION}+build.${BUILD_NUMBER}`;
+function computeVersion(): string {
+  // Öncelik:
+  //   1) ALTARIS_VERSION env var — CI build-images.yml --build-arg ile inject eder
+  //      (her main push'ta github.run_number ile auto-bump)
+  //   2) Git commit count tabanlı dinamik versiyon — lokal dev / .git mevcut
+  //   3) package.json version — son fallback
+  if (process.env.ALTARIS_VERSION) return process.env.ALTARIS_VERSION;
+  const count = readGitCommitCount();
+  if (count) return `0.1.0-alpha.${count}`;
+  return readPkgVersion();
+}
+const BUILD_VERSION = computeVersion();
 const BUILD_SHA     = readGitSha();
 const BUILD_TIME    = new Date().toISOString();
 
@@ -40,7 +43,6 @@ const config: NextConfig = {
   poweredByHeader: false,
   env: {
     NEXT_PUBLIC_BUILD_VERSION: BUILD_VERSION,
-    NEXT_PUBLIC_BUILD_NUMBER:  BUILD_NUMBER,
     NEXT_PUBLIC_BUILD_SHA:     BUILD_SHA,
     NEXT_PUBLIC_BUILD_TIME:    BUILD_TIME,
   },
