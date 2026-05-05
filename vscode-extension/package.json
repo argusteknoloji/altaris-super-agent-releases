@@ -45,7 +45,7 @@
         {
           "id": "altaris-sidebar",
           "title": "Altaris",
-          "icon": "./media/altaris.svg"
+          "icon": "./media/altaris-mono.svg"
         }
       ]
     },
@@ -54,7 +54,7 @@
         {
           "id": "altaris.welcome",
           "name": "Altaris",
-          "icon": "./media/altaris.svg",
+          "icon": "./media/altaris-mono.svg",
           "contextualTitle": "Altaris"
         }
       ]
