@@ -165,9 +165,11 @@ export default function VaultGraph({ nodes, edges, onNodeOpen }: Props) {
     });
     cyRef.current = cy;
 
+    // fcose layout options @types/cytoscape'in base LayoutOptions tipinde yok;
+    // cast ile geçiriyoruz. Runtime'da fcose.register cytoscape'e bu name'i
+    // tanıtıyor, parametreler doğru iletiliyor.
     cy.layout({
       name: "fcose",
-      // @ts-expect-error — fcose options not in cytoscape's base type
       quality: "default",
       randomize: true,
       animate: false,
@@ -179,13 +181,13 @@ export default function VaultGraph({ nodes, edges, onNodeOpen }: Props) {
       nodeSeparation: 75,
       packComponents: true,
       nestingFactor: 0.1,
-    }).run();
+    } as cytoscape.LayoutOptions).run();
 
     cy.fit(undefined, 60);
 
     // ── Hover highlight (Obsidian-tarzı) ──────────────────────────────────
-    cy.on("mouseover", "node", (evt) => {
-      const node = evt.target;
+    cy.on("mouseover", "node", (evt: cytoscape.EventObject) => {
+      const node = evt.target as NodeSingular;
       cy.elements().addClass("faded");
       const neigh = node.closedNeighborhood();
       neigh.removeClass("faded").addClass("highlighted");
@@ -195,19 +197,19 @@ export default function VaultGraph({ nodes, edges, onNodeOpen }: Props) {
     });
 
     // ── Click → dosyaya git ───────────────────────────────────────────────
-    cy.on("tap", "node", (evt) => {
-      const path = evt.target.data("path");
+    cy.on("tap", "node", (evt: cytoscape.EventObject) => {
+      const path = (evt.target as NodeSingular).data("path");
       if (path && onNodeOpen) onNodeOpen(path);
     });
 
     // ── Sağ tık → local graph (focus mode) ────────────────────────────────
-    cy.on("cxttap", "node", (evt) => {
-      const id = evt.target.id();
+    cy.on("cxttap", "node", (evt: cytoscape.EventObject) => {
+      const id = (evt.target as NodeSingular).id();
       setSettings((s) => ({ ...s, focusNode: s.focusNode === id ? null : id }));
     });
 
     // Boş alana sağ tık → focus modu kapat
-    cy.on("cxttap", (evt) => {
+    cy.on("cxttap", (evt: cytoscape.EventObject) => {
       if (evt.target === cy) {
         setSettings((s) => ({ ...s, focusNode: null }));
       }
@@ -227,7 +229,7 @@ export default function VaultGraph({ nodes, edges, onNodeOpen }: Props) {
 
     cy.batch(() => {
       // 1. Group visibility
-      cy.nodes().forEach((n) => {
+      cy.nodes().forEach((n: NodeSingular) => {
         const cat = n.data("category");
         const groupHidden = settings.hiddenGroups.has(cat);
         if (groupHidden) n.addClass("hidden");
@@ -251,7 +253,7 @@ export default function VaultGraph({ nodes, edges, onNodeOpen }: Props) {
       cy.elements().removeClass("faded");
       if (settings.search) {
         const q = settings.search;
-        const matches = cy.nodes().filter((n) =>
+        const matches = cy.nodes().filter((n: NodeSingular) =>
           (n.data("label") ?? "").toLowerCase().includes(q),
         );
         if (matches.length > 0) {

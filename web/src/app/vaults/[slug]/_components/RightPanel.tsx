@@ -210,18 +210,17 @@ function LocalGraphMini({
 
     cy.layout({
       name: "fcose",
-      // @ts-expect-error fcose options
       animate: false,
       randomize: true,
       nodeRepulsion: () => 3000,
       idealEdgeLength: () => 50,
       gravity: 0.4,
-    }).run();
+    } as cytoscape.LayoutOptions).run();
 
     cy.fit(undefined, 12);
 
-    cy.on("tap", "node", (evt) => {
-      const path = evt.target.data("path");
+    cy.on("tap", "node", (evt: cytoscape.EventObject) => {
+      const path = (evt.target as NodeSingular).data("path");
       if (path) onOpenFile(path);
     });
 
