@@ -306,6 +306,18 @@ export function applyProvider(p: ActiveProvider, opts?: { force?: boolean }): st
 export async function argusBootstrap(): Promise<void> {
   if (process.env.ALTARIS_BOOTSTRAP_DISABLE === "1") return;
   const debug = process.env.ALTARIS_BOOTSTRAP_DEBUG === "1";
+
+  // VS Code extension güncelleme kontrolü (günde 1 kez, async fire-and-forget).
+  // Provider bootstrap'ı bloklamasın diye await etmiyoruz.
+  void (async () => {
+    try {
+      const { checkExtensionUpdateOnce } = await import("../utils/ide.js");
+      await checkExtensionUpdateOnce();
+    } catch {
+      /* fail silently */
+    }
+  })();
+
   try {
     const token = await readToken();
     if (!token) { if (debug) process.stderr.write("[altaris-bootstrap] no token\n"); return; }

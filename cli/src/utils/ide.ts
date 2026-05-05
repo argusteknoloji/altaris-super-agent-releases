@@ -917,20 +917,115 @@ async function findBundledVsix(): Promise<string | undefined> {
 }
 
 /**
- * argusteknoloji/altaris-super-agent-releases'in latest release'inde
- * altaris.vsix asset URL'ini bul. Auth gerekmiyor — public repo.
+ * argusteknoloji/altaris-super-agent-releases'in latest release'indeki
+ * altaris.vsix asset URL'ini ve VSIX versiyonunu bul. Auth gerekmiyor — public repo.
+ *
+ * Versiyon stratejisi:
+ *  1. Versioned asset (`altaris-X.Y.Z.vsix`) varsa, ondan parse et.
+ *  2. Yoksa release tag'inden (`v0.1.0-alpha.49`) çıkar.
  */
-async function resolveLatestVsixUrl(): Promise<string | undefined> {
+interface LatestVsixInfo {
+  url: string
+  version: string
+}
+
+async function resolveLatestVsix(): Promise<LatestVsixInfo | undefined> {
   try {
     const r = await axios.get(
       'https://api.github.com/repos/argusteknoloji/altaris-super-agent-releases/releases/latest',
       { timeout: 10_000, headers: { Accept: 'application/vnd.github+json' } },
     )
+    const tag = String(r.data?.tag_name ?? '')
     const assets = (r.data?.assets ?? []) as Array<{ name: string; browser_download_url: string }>
-    const vsix = assets.find(a => a.name === 'altaris.vsix')
-    return vsix?.browser_download_url
+    const latestPointer = assets.find(a => a.name === 'altaris.vsix')
+    if (!latestPointer) return undefined
+    const versioned = assets.find(a => /^altaris-\d/.test(a.name))
+    let version: string | undefined
+    if (versioned) {
+      version = versioned.name.replace(/^altaris-/, '').replace(/\.vsix$/, '')
+    } else if (tag) {
+      version = tag.replace(/^v/, '')
+    }
+    if (!version) return undefined
+    return { url: latestPointer.browser_download_url, version }
   } catch {
     return undefined
+  }
+}
+
+// Backward-compat shim — bazı yerler hala URL bekliyor olabilir.
+async function resolveLatestVsixUrl(): Promise<string | undefined> {
+  const info = await resolveLatestVsix()
+  return info?.url
+}
+
+/**
+ * Tolerant semver karşılaştırma. `lt` semver paketini dene; başarısız olursa
+ * (prerelease/farklı format) basit dotted-string karşılaştırması yap.
+ */
+function versionLt(a: string, b: string): boolean {
+  try {
+    return lt(a, b)
+  } catch {
+    // Fallback: 0.1.42 vs 0.1.43 gibi basit kıyas
+    const pa = a.split(/[.-]/).map(s => parseInt(s, 10) || 0)
+    const pb = b.split(/[.-]/).map(s => parseInt(s, 10) || 0)
+    const len = Math.max(pa.length, pb.length)
+    for (let i = 0; i < len; i++) {
+      const x = pa[i] ?? 0
+      const y = pb[i] ?? 0
+      if (x < y) return true
+      if (x > y) return false
+    }
+    return false
+  }
+}
+
+/**
+ * Faz 21D: günde bir kez yeni VSIX sürümü kontrolü. Update varsa stderr'e bilgi
+ * notu yazar; otomatik install yapmaz (kullanıcı kontrolünde olsun).
+ *
+ * Cache: ~/.altaris/extension-update-checked (timestamp tutar)
+ */
+export async function checkExtensionUpdateOnce(): Promise<void> {
+  try {
+    const realFs = await import('fs')
+    const homedir = (await import('os')).homedir()
+    const cacheFile = join(homedir, '.altaris', 'extension-update-checked')
+    const now = Date.now()
+    let lastCheck = 0
+    try {
+      const raw = realFs.readFileSync(cacheFile, 'utf-8')
+      lastCheck = parseInt(raw, 10) || 0
+    } catch { /* yok */ }
+    if (now - lastCheck < 24 * 3600 * 1000) return // günde 1
+
+    realFs.mkdirSync(join(homedir, '.altaris'), { recursive: true })
+    realFs.writeFileSync(cacheFile, String(now))
+
+    // Latest VSIX bilgisini çek
+    const latest = await resolveLatestVsix()
+    if (!latest) return
+
+    // Tüm VS Code-uyumlu IDE'lerde kurulu sürümü tara
+    const ideTypes: IdeType[] = ['vscode', 'cursor', 'windsurf']
+    for (const ideType of ideTypes) {
+      try {
+        const command = await getVSCodeIDECommand(ideType)
+        if (!command) continue
+        const installed = await getInstalledVSCodeExtensionVersion(command)
+        if (!installed) continue
+        if (versionLt(installed, latest.version)) {
+          process.stderr.write(
+            `\n⚡ Altaris VS Code extension güncellemesi mevcut: ${installed} → ${latest.version}\n` +
+            `   Güncellemek için: altaris shell-install --with-vscode\n\n`,
+          )
+          return // tek IDE için bilgi yeter
+        }
+      } catch { /* ignore */ }
+    }
+  } catch {
+    // sessizce geç — auto-check kullanıcı için kritik değil
   }
 }
 
@@ -970,8 +1065,12 @@ async function installIDEExtension(ideType: IdeType): Promise<string | null> {
         return await installFromArtifactory(command)
       }
       let version = await getInstalledVSCodeExtensionVersion(command)
-      // If it's not installed or the version is older than the one we have bundled,
-      if (!version || lt(version, getClaudeCodeVersion())) {
+      // Versiyon karşılaştırması: latest VSIX'i GitHub release'den çek
+      // (CLI version'ı ile karşılaştırma YANLIŞ — farklı semver zincirleri).
+      const latest = await resolveLatestVsix()
+      const latestVersion = latest?.version
+      const needsInstall = !version || (latestVersion ? versionLt(version, latestVersion) : false)
+      if (needsInstall) {
         // `code` may crash when invoked too quickly in succession
         await sleep(500)
         // Prefer bundled VSIX next to the binary; fall back to marketplace.
@@ -987,9 +1086,9 @@ async function installIDEExtension(ideType: IdeType): Promise<string | null> {
         if (result.code !== 0) {
           throw new Error(`${result.code}: ${result.error} ${result.stderr}`)
         }
-        version = getClaudeCodeVersion()
+        version = latestVersion ?? version ?? '?'
       }
-      return version
+      return version ?? null
     }
   }
   // No automatic installation for JetBrains IDEs as it is not supported in native

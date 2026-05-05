@@ -21,7 +21,14 @@
       { "command": "altaris.restart",        "title": "Altaris: Köprüyü yeniden başlat" },
       { "command": "altaris.restartBridge",  "title": "Altaris: Köprüyü yeniden başlat (alias)" },
       { "command": "altaris.showOutput",     "title": "Altaris: Output panelini aç" },
-      { "command": "altaris.openTerminal",   "title": "Altaris: Yeni terminal aç" },
+      {
+        "command": "altaris.openTerminal",
+        "title": "Altaris: Yeni terminal aç",
+        "icon": {
+          "light": "./media/altaris.svg",
+          "dark": "./media/altaris.svg"
+        }
+      },
       { "command": "altaris.statusBar.menu", "title": "Altaris: Status menü" },
       { "command": "altaris.switchModel",    "title": "Altaris: Model değiştir" },
       { "command": "altaris.inlineEdit",     "title": "Altaris: Inline edit" },
@@ -33,6 +40,52 @@
       { "command": "altaris.diff.accept",    "title": "Altaris: Diff'i kabul et" },
       { "command": "altaris.diff.reject",    "title": "Altaris: Diff'i reddet" }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "altaris-sidebar",
+          "title": "Altaris",
+          "icon": "./media/altaris.svg"
+        }
+      ]
+    },
+    "views": {
+      "altaris-sidebar": [
+        {
+          "id": "altaris.welcome",
+          "name": "Altaris",
+          "icon": "./media/altaris.svg",
+          "contextualTitle": "Altaris"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "altaris.welcome",
+        "contents": "**Altaris CLI** ↔ VS Code köprüsü\n\n[$(plug) Yeni Altaris Terminal](command:altaris.openTerminal)\n\n[$(refresh) Köprüyü yeniden başlat](command:altaris.restart)\n\n[$(output) Output panelini aç](command:altaris.showOutput)\n\n[$(symbol-color) Bağlantı durumu](command:altaris.showStatus)\n\n---\n\n**Hızlı eylemler**\n\n[$(edit) Inline edit (Cmd+I)](command:altaris.inlineEdit)\n\n[$(file) Workspace dosyası ekle](command:altaris.insertWorkspaceFile)\n\n---\n\nDokümanlar: [argus altaris docs](https://altaris.run)"
+      }
+    ],
+    "menus": {
+      "terminal/title/context": [
+        {
+          "command": "altaris.openTerminal",
+          "group": "navigation@1"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "altaris.openTerminal",
+          "when": "view == terminal",
+          "group": "navigation@1"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "altaris.openTerminal",
+          "group": "navigation@99"
+        }
+      ]
+    },
     "keybindings": [
       {
         "command": "altaris.inlineEdit",
@@ -84,9 +137,10 @@
   },
   "scripts": {
     "build": "node esbuild.js",
+    "prebuild": "bun run scripts/bump.ts || true",
     "typecheck": "tsc -p . --noEmit",
     "watch": "node esbuild.js --watch",
-    "package": "npm run build && vsce package --no-dependencies -o altaris.vsix",
+    "package": "npm run build && vsce package --no-dependencies -o altaris.vsix && node -e \"const fs=require('fs'); const v=require('./package.json').version; fs.copyFileSync('altaris.vsix', 'altaris-'+v+'.vsix')\"",
     "publish": "npm run build && vsce publish --no-dependencies",
     "test": "bun test test/"
   },

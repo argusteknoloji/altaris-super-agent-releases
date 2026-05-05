@@ -99,14 +99,26 @@ jobs:
         with: { bun-version: latest }
       - name: Install deps
         run: bun install --frozen-lockfile
+      - name: Bump VSIX version (CI — no ALTARIS_NO_VERSION_BUMP gate)
+        id: bump
+        run: |
+          version=$(bun run scripts/bump.ts | tail -n1)
+          echo "version=$version" >> $GITHUB_OUTPUT
+          echo "Bumped vscode-extension to $version"
       - name: Bundle (esbuild)
         run: bun esbuild.js
-      - name: Package VSIX
-        run: bun ./node_modules/@vscode/vsce/vsce package --no-dependencies --skip-license -o altaris.vsix
+      - name: Package VSIX (versioned + latest pointer)
+        run: |
+          bun ./node_modules/@vscode/vsce/vsce package --no-dependencies --skip-license -o altaris.vsix
+          v="${{ steps.bump.outputs.version }}"
+          cp altaris.vsix "altaris-${v}.vsix"
+          ls -la altaris*.vsix
       - uses: actions/upload-artifact@v4
         with:
           name: altaris-vsix
-          path: vscode-extension/altaris.vsix
+          path: |
+            vscode-extension/altaris.vsix
+            vscode-extension/altaris-*.vsix
 
   publish:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
@@ -138,10 +150,15 @@ jobs:
             if [ -z "$src" ]; then echo "MISSING $name" >&2; exit 1; fi
             cp "$src" "flat/$name"
           done
-          # VSIX (vscode-extension build job'ından gelir)
+          # VSIX (vscode-extension build job'ından gelir) — hem latest pointer
+          # `altaris.vsix` hem versiyonlu `altaris-X.Y.Z.vsix` flatlanır.
           vsix=$(find dist -type f -name "altaris.vsix" | head -1)
           if [ -z "$vsix" ]; then echo "MISSING altaris.vsix" >&2; exit 1; fi
           cp "$vsix" "flat/altaris.vsix"
+          # Versiyonlu VSIX (release asset için kalıcı isim)
+          versioned=$(find dist -type f -name "altaris-*.vsix" ! -name "altaris-darwin-*" ! -name "altaris-linux-*" ! -name "altaris-windows-*" | head -1)
+          if [ -z "$versioned" ]; then echo "MISSING altaris-<version>.vsix" >&2; exit 1; fi
+          cp "$versioned" "flat/$(basename "$versioned")"
           unexpected=$(find flat -type f -not -name 'altaris-*' -not -name 'altaris.vsix' | head)
           if [ -n "$unexpected" ]; then
             echo "REJECT: unexpected file(s) in artifact set: $unexpected" >&2
@@ -169,6 +186,7 @@ jobs:
             flat/altaris-linux-arm64
             flat/altaris-windows-x64.exe
             flat/altaris.vsix
+            flat/altaris-*.vsix
             flat/SHA256SUMS
           body: |
             Altaris CLI binary release.
