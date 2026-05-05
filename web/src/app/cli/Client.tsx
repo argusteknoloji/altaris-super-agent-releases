@@ -600,6 +600,47 @@ export default function CliClient({
             <span aria-hidden className="mr-2 inline-block size-1.5 translate-y-[-1px] rounded-full bg-[#9bd07e] align-middle" />
             {d.install.sigNote}
           </p>
+
+          {/* VS Code extension card */}
+          <div className="mt-10 grid gap-6 rounded-md border border-[rgba(120,80,50,0.32)] bg-[#0d0b0a] p-6 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+            <div>
+              <div className="flex items-baseline gap-3">
+                <span className="text-[10px] uppercase tracking-[0.32em] text-[#f08c50]">/ 04.b</span>
+                <h4 className="text-base font-medium tracking-tight text-[#ddd8d0]">{d.install.vscode.head}</h4>
+                <span className="text-[10px] uppercase tracking-[0.22em] text-[#7a7166]">{d.install.vscode.version}</span>
+              </div>
+              <p className="mt-3 max-w-2xl text-[13px] leading-relaxed text-[#9b9285]">
+                {d.install.vscode.body}
+              </p>
+              <div className="mt-4 flex flex-wrap items-stretch overflow-hidden rounded-sm border border-[rgba(120,80,50,0.28)]">
+                <span className="hidden items-center border-r border-[rgba(120,80,50,0.28)] bg-[#14110f] px-3 text-[10px] uppercase tracking-[0.22em] text-[#7a7166] sm:flex">
+                  {d.install.vscode.installCmdLabel}
+                </span>
+                <code className="flex-1 overflow-x-auto whitespace-nowrap bg-[#14110f] px-3 py-2.5 text-[12px] text-[#bdb4a6]">
+                  <span className="text-[#9bd07e]">$</span>{" "}
+                  {d.install.vscode.installCmd}
+                </code>
+                <button
+                  type="button"
+                  onClick={() => copy("vscode-cmd", d.install.vscode.installCmd)}
+                  className="border-l border-[rgba(120,80,50,0.28)] bg-[#14110f] px-3 text-[10px] uppercase tracking-[0.28em] text-[#9b9285] transition-colors hover:bg-[#1a1612] hover:text-[#f08c50]"
+                >
+                  {copied === "vscode-cmd" ? d.install.copied : d.install.copy}
+                </button>
+              </div>
+            </div>
+            <div className="flex flex-col gap-2 md:items-end">
+              <a
+                href={d.install.vscode.downloadUrl}
+                download
+                className="group inline-flex items-center gap-3 border border-[#f08c50] bg-[#f08c50] px-6 py-3 text-[10px] uppercase tracking-[0.3em] text-[#0a0908] transition-all duration-300 hover:bg-transparent hover:text-[#f08c50]"
+              >
+                <span>{d.install.vscode.downloadLabel}</span>
+                <span aria-hidden className="transition-transform group-hover:translate-y-0.5">↓</span>
+              </a>
+              <span className="text-[10px] uppercase tracking-[0.22em] text-[#7a7166]">altaris.vsix</span>
+            </div>
+          </div>
         </section>
 
         {/* CTA */}

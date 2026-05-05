@@ -847,7 +847,39 @@ export function hasAccessToIDEExtensionDiffFeature(
 const EXTENSION_ID =
   process.env.USER_TYPE === 'ant'
     ? 'anthropic.altaris-internal'
-    : 'anthropic.altaris'
+    : 'argus.altaris'
+
+/**
+ * Bundle edilmiş altaris.vsix'i bul. Release pipeline binary'nin yanına
+ * extension/altaris.vsix olarak yerleştirir; dev modunda repo kökündeki
+ * vscode-extension/altaris.vsix kullanılabilir.
+ */
+function findBundledVsix(): string | undefined {
+  const fs = getFsImplementation()
+  const exeDir = (() => {
+    try {
+      return resolve(process.execPath, '..')
+    } catch {
+      return undefined
+    }
+  })()
+  const candidates = [
+    exeDir ? join(exeDir, 'extension', 'altaris.vsix') : undefined,
+    exeDir ? join(exeDir, '..', 'extension', 'altaris.vsix') : undefined,
+    exeDir ? join(exeDir, 'altaris.vsix') : undefined,
+    // Dev fallback: repo kökünden çalışırken
+    join(getOriginalCwd(), 'vscode-extension', 'altaris.vsix'),
+    join(getOriginalCwd(), '..', 'vscode-extension', 'altaris.vsix'),
+  ].filter((p): p is string => typeof p === 'string')
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync && fs.existsSync(p)) return p
+    } catch {
+      /* ignore */
+    }
+  }
+  return undefined
+}
 
 export async function isIDEExtensionInstalled(
   ideType: IdeType,
@@ -889,9 +921,12 @@ async function installIDEExtension(ideType: IdeType): Promise<string | null> {
       if (!version || lt(version, getClaudeCodeVersion())) {
         // `code` may crash when invoked too quickly in succession
         await sleep(500)
+        // Prefer bundled VSIX next to the binary; fall back to marketplace.
+        const bundledVsix = findBundledVsix()
+        const installArg = bundledVsix ?? EXTENSION_ID
         const result = await execFileNoThrowWithCwd(
           command,
-          ['--force', '--install-extension', 'anthropic.altaris'],
+          ['--force', '--install-extension', installArg],
           {
             env: getInstallationEnv(),
           },

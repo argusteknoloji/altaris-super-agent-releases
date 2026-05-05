@@ -1,0 +1,73 @@
+{
+  "name": "altaris",
+  "displayName": "Altaris",
+  "description": "Altaris CLI ↔ VS Code köprüsü. Editör seçimini paylaş, diff'leri editor'da onayla, diagnostics'i CLI'a aktar.",
+  "version": "0.1.0",
+  "publisher": "argus",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["AI", "Other"],
+  "keywords": ["altaris", "argus", "ai", "agent", "cli"],
+  "main": "./dist/extension.js",
+  "icon": "icon.png",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      {
+        "command": "altaris.showStatus",
+        "title": "Altaris: Bağlantı durumunu göster"
+      },
+      {
+        "command": "altaris.restart",
+        "title": "Altaris: Köprüyü yeniden başlat"
+      },
+      {
+        "command": "altaris.openTerminal",
+        "title": "Altaris: Yeni terminal aç"
+      }
+    ],
+    "terminal": {
+      "profiles": [
+        {
+          "title": "Altaris",
+          "id": "altaris.terminal-profile",
+          "icon": "./media/altaris.svg"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Altaris",
+      "properties": {
+        "altaris.lockfileDir": {
+          "type": "string",
+          "default": "",
+          "description": "Lockfile dizini override (varsayılan: ~/.altaris/ide). Boş bırak."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.js",
+    "typecheck": "tsc -p . --noEmit",
+    "watch": "node esbuild.js --watch",
+    "package": "npm run build && vsce package --no-dependencies -o altaris.vsix",
+    "publish": "npm run build && vsce publish --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@types/ws": "^8.5.10",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.28.0",
+    "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/argusteknoloji/altaris"
+  },
+  "license": "PROPRIETARY"
+}

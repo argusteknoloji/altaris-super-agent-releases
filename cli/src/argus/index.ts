@@ -110,4 +110,18 @@ export function registerArgusCommands(program: Command): void {
     });
 
   registerVaultCommands(program);
+
+  // `altaris shell-install` — VS Code "Install 'code' command in PATH" muadili.
+  // Çalışan binary'i /usr/local/bin/altaris (Unix) veya %LOCALAPPDATA%\Programs\altaris
+  // (Windows) altına kurar; --with-vscode bayrağı bundle edilmiş VSIX'i kurar.
+  // NOT: Komut adı 'shell-install' (install-shell değil!) çünkü Commander prefix
+  // matching yapıyor ve 'install-shell' upstream 'install' komutuna routelanır.
+  program
+    .command("shell-install")
+    .description("'altaris' komutunu sistem PATH'ine kur (VS Code muadili)")
+    .option("--with-vscode", "Bundle edilmiş VS Code extension'ı (VSIX) da kur")
+    .action(async (opts: { withVscode?: boolean }) => {
+      const { altarisInstallShell } = await import("./installShell.js");
+      process.exit(await altarisInstallShell({ withVscode: opts.withVscode }));
+    });
 }

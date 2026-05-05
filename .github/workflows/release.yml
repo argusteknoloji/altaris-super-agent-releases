@@ -89,9 +89,28 @@ jobs:
           name: ${{ matrix.artifact }}
           path: cli/release/${{ matrix.artifact }}
 
+  vsix:
+    name: Build VS Code extension VSIX
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: vscode-extension } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: latest }
+      - name: Install deps
+        run: bun install --frozen-lockfile
+      - name: Bundle (esbuild)
+        run: bun esbuild.js
+      - name: Package VSIX
+        run: bun ./node_modules/@vscode/vsce/vsce package --no-dependencies --skip-license -o altaris.vsix
+      - uses: actions/upload-artifact@v4
+        with:
+          name: altaris-vsix
+          path: vscode-extension/altaris.vsix
+
   publish:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
-    needs: build
+    needs: [build, vsix]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -107,9 +126,9 @@ jobs:
           fi
 
       - name: Flatten artifacts + compute SHA256SUMS
-        # Sıkı whitelist: yalnız beş bilinen artifact ismi. Sourcemap/.txt/
-        # log/profile gibi yan dosyalar ASLA copy edilmesin — public release
-        # asset olarak yalnız compiled binary çıksın.
+        # Sıkı whitelist: beş binary + bir VSIX. Sourcemap/.txt/log/profile
+        # gibi yan dosyalar ASLA copy edilmesin — public release asset olarak
+        # yalnız compiled binary ve VSIX çıksın.
         run: |
           mkdir -p flat
           for name in altaris-darwin-arm64 altaris-darwin-x64 \
@@ -119,7 +138,11 @@ jobs:
             if [ -z "$src" ]; then echo "MISSING $name" >&2; exit 1; fi
             cp "$src" "flat/$name"
           done
-          unexpected=$(find flat -type f -not -name 'altaris-*' | head)
+          # VSIX (vscode-extension build job'ından gelir)
+          vsix=$(find dist -type f -name "altaris.vsix" | head -1)
+          if [ -z "$vsix" ]; then echo "MISSING altaris.vsix" >&2; exit 1; fi
+          cp "$vsix" "flat/altaris.vsix"
+          unexpected=$(find flat -type f -not -name 'altaris-*' -not -name 'altaris.vsix' | head)
           if [ -n "$unexpected" ]; then
             echo "REJECT: unexpected file(s) in artifact set: $unexpected" >&2
             exit 1
@@ -145,6 +168,7 @@ jobs:
             flat/altaris-linux-x64
             flat/altaris-linux-arm64
             flat/altaris-windows-x64.exe
+            flat/altaris.vsix
             flat/SHA256SUMS
           body: |
             Altaris CLI binary release.
@@ -159,8 +183,11 @@ jobs:
             | Linux x86_64        | `altaris-linux-x64`    |
             | Linux aarch64       | `altaris-linux-arm64`  |
             | Windows x64         | `altaris-windows-x64.exe` |
+            | VS Code extension   | `altaris.vsix` |
 
             Tek-satır kurulum komutları için: Altaris web portal → **CLI Kurulum** (`/setup`).
+
+            VS Code entegrasyonu: `altaris shell-install --with-vscode` (binary kurulduktan sonra) veya manuel `code --install-extension altaris.vsix`.
 
       # Prod sunucuda CLI binary host'tan API container'a bind mount;
       # release sonrası prod CLI'i de update et + container restart

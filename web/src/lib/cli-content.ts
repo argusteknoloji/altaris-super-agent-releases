@@ -68,6 +68,15 @@ export type CliDict = {
     copy: string;
     copied: string;
     sigNote: string;
+    vscode: {
+      head: string;
+      body: string;
+      downloadLabel: string;
+      downloadUrl: string;
+      version: string;
+      installCmd: string;
+      installCmdLabel: string;
+    };
   };
   cta: {
     eyebrow: string;
@@ -216,6 +225,15 @@ const TR: CliDict = {
     copy:    "kopyala",
     copied:  "kopyalandı",
     sigNote: "Apple Notarized · Authenticode · Linux GPG · supply-chain attestation",
+    vscode: {
+      head: "vs code entegrasyonu",
+      body: "Altaris CLI'ı VS Code (Cursor / Windsurf dahil) içinde çalıştırırken editör seçimini paylaşır, diff'leri editörde onaylar, diagnostics'i akıllı asistana iletir.",
+      downloadLabel: "VSIX indir",
+      downloadUrl: "/altaris.vsix",
+      version: "v0.1.0",
+      installCmd: "code --install-extension altaris.vsix",
+      installCmdLabel: "kurulum komutu",
+    },
   },
   cta: {
     eyebrow: "/ başla",
@@ -364,6 +382,15 @@ const EN: CliDict = {
     copy:    "copy",
     copied:  "copied",
     sigNote: "Apple Notarized · Authenticode · Linux GPG · supply-chain attestation",
+    vscode: {
+      head: "vs code integration",
+      body: "When you run Altaris CLI inside VS Code (Cursor / Windsurf included) it shares the editor selection, lets you approve diffs in-editor, and forwards diagnostics to the agent.",
+      downloadLabel: "Download VSIX",
+      downloadUrl: "/altaris.vsix",
+      version: "v0.1.0",
+      installCmd: "code --install-extension altaris.vsix",
+      installCmdLabel: "install command",
+    },
   },
   cta: {
     eyebrow: "/ get started",
@@ -512,6 +539,15 @@ const DE: CliDict = {
     copy:    "kopieren",
     copied:  "kopiert",
     sigNote: "Apple Notarized · Authenticode · Linux GPG · Supply-Chain-Attestation",
+    vscode: {
+      head: "vs code integration",
+      body: "Wenn Altaris CLI in VS Code (inkl. Cursor / Windsurf) läuft, teilt es die Editor-Auswahl, lässt Diffs im Editor bestätigen und leitet Diagnostics an den Agenten weiter.",
+      downloadLabel: "VSIX herunterladen",
+      downloadUrl: "/altaris.vsix",
+      version: "v0.1.0",
+      installCmd: "code --install-extension altaris.vsix",
+      installCmdLabel: "Installationsbefehl",
+    },
   },
   cta: {
     eyebrow: "/ los geht's",

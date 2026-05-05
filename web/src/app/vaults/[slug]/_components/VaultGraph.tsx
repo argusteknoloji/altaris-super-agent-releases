@@ -7,9 +7,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import cytoscape, { type Core, type ElementDefinition, type NodeSingular } from "cytoscape";
-import fcose from "cytoscape-fcose";
+import { ensureFcose } from "@/lib/cytoscape-setup";
 
-cytoscape.use(fcose);
+ensureFcose();
 
 type Node = { id: string; label: string; path: string | null; group: string };
 type Edge = { source: string; target: string };
@@ -79,8 +79,15 @@ export default function VaultGraph({ nodes, edges, onNodeOpen }: Props) {
 
   // Build cytoscape elements once per data change
   const elements: ElementDefinition[] = useMemo(() => {
+    // Wikilinks may point to pages that don't exist (e.g. `[[WIKI]]` referencing
+    // a stub). Cytoscape throws "Can not create edge `e8` with nonexistent
+    // source/target" on dangling edges, so we drop them up front.
+    const nodeIds = new Set(nodes.map(n => n.id));
+    const validEdges = edges.filter(
+      e => e.source !== e.target && nodeIds.has(e.source) && nodeIds.has(e.target),
+    );
     const degree = new Map<string, number>();
-    for (const e of edges) {
+    for (const e of validEdges) {
       degree.set(e.source, (degree.get(e.source) ?? 0) + 1);
       degree.set(e.target, (degree.get(e.target) ?? 0) + 1);
     }
@@ -94,12 +101,10 @@ export default function VaultGraph({ nodes, edges, onNodeOpen }: Props) {
         degree: degree.get(n.id) ?? 0,
       },
     }));
-    const edgeEls: ElementDefinition[] = edges
-      .filter(e => e.source !== e.target)
-      .map((e, i) => ({
-        group: "edges",
-        data: { id: `e${i}`, source: e.source, target: e.target },
-      }));
+    const edgeEls: ElementDefinition[] = validEdges.map((e, i) => ({
+      group: "edges",
+      data: { id: `e${i}`, source: e.source, target: e.target },
+    }));
     return [...nodeEls, ...edgeEls];
   }, [nodes, edges]);
 

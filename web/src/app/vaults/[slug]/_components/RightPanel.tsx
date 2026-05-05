@@ -12,9 +12,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import cytoscape, { type Core, type ElementDefinition, type NodeSingular } from "cytoscape";
-import fcose from "cytoscape-fcose";
+import { ensureFcose } from "@/lib/cytoscape-setup";
 
-cytoscape.use(fcose);
+ensureFcose();
 
 type GraphNode = { id: string; label: string; path: string | null; group: string };
 type GraphEdge = { source: string; target: string };
