@@ -18,11 +18,16 @@ async function forward(req: NextRequest, ctx: { params: Promise<{ path: string[]
   if (ct) headers["Content-Type"] = ct;
 
   const body = req.method === "GET" || req.method === "HEAD" ? undefined : await req.text();
-  const upstream = await fetch(target, { method: req.method, headers, body });
+  const upstream = await fetch(target, { method: req.method, headers, body, cache: "no-store" });
   const text = await upstream.text();
   return new Response(text, {
     status: upstream.status,
-    headers: { "Content-Type": upstream.headers.get("content-type") ?? "application/json" }
+    headers: {
+      "Content-Type": upstream.headers.get("content-type") ?? "application/json",
+      // Tenant-scoped, auth-bound — Next/edge/CDN/browser cache'lemesin
+      "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+      "Pragma": "no-cache"
+    }
   });
 }
 

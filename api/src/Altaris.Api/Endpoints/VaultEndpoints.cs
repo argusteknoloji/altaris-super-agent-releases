@@ -626,6 +626,9 @@ public static class VaultEndpoints
         if (tc.TenantSlug is null) return Results.Forbid();
         if (await AuthorizedVaultAsync(slug, db, tc, http) is null) return Results.NotFound();
         if (!store.VaultExists(tc.TenantSlug, slug)) return Results.NotFound();
+        // Tenant-scoped + auth-only → asla cache'lenmesin (browser, ara proxy, CDN)
+        http.Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0";
+        http.Response.Headers["Pragma"]        = "no-cache";
         return Results.Ok(store.BuildGraph(tc.TenantSlug, slug));
     }
 

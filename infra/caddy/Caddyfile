@@ -82,7 +82,12 @@ api.altarisplatform.com {
         # WebSocket / SSE: /ws/pty, /ws/remote-control, executive-brain stream
         flush_interval -1
     }
+    # API'nin tamamı tenant-scoped + auth-bound → asla cache'lenmesin
+    # (browser, ara proxy, CDN). WebSocket upgrade'lere zaten uygulanmaz.
     header {
+        Cache-Control             "no-store, no-cache, must-revalidate, max-age=0"
+        Pragma                    "no-cache"
+        Expires                   "0"
         Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
         -Server
     }
