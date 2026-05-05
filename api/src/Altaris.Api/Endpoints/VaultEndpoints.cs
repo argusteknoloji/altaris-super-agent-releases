@@ -31,6 +31,7 @@ public static class VaultEndpoints
         app.MapGet   ("/api/v1/vaults/{slug}/semantic-search", SemanticSearch).RequireAuthorization(); // ?q=...&k=10
         app.MapPost  ("/api/v1/vaults/{slug}/reindex", ReindexAll).RequireAuthorization();   // tenant-admin reembed
         app.MapGet   ("/api/v1/vaults/{slug}/graph",   Graph).RequireAuthorization();
+        app.MapGet   ("/api/v1/vaults/{slug}/tags",    GetTags).RequireAuthorization();
         // Skill ZIP upload — multipart/form-data, .altaris/skills/{name}/ altına extract
         app.MapPost  ("/api/v1/vaults/{slug}/upload-skill", UploadSkill)
             .RequireAuthorization()
@@ -630,6 +631,153 @@ public static class VaultEndpoints
         http.Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0";
         http.Response.Headers["Pragma"]        = "no-cache";
         return Results.Ok(store.BuildGraph(tc.TenantSlug, slug));
+    }
+
+    /// <summary>
+    ///   Vault'taki tag'leri sayım + dosya listesiyle döndürür. Sol panelde
+    ///   "Tags" tab'ı bunu render eder. Kaynak: VaultFile.Content (FTS index
+    ///   için zaten tutulan markdown body) — disk'e dönmeden tarama.
+    ///
+    ///   Tag tespiti (Obsidian convention):
+    ///     - YAML frontmatter `tags:` field'ı: inline `[a, b]` veya YAML list
+    ///       (`- a`). Frontmatter satırları code-fence olarak değil, ayrı
+    ///       blok olarak parse edilir.
+    ///     - Inline `#tag` (heading değil): satır başında değilse veya
+    ///       sonrasında space yoksa.
+    /// </summary>
+    private static async Task<IResult> GetTags(string slug, AltarisDbContext db, ITenantContext tc, HttpContext http)
+    {
+        if (tc.TenantId is null || tc.TenantSlug is null) return Results.Forbid();
+        if (await AuthorizedVaultAsync(slug, db, tc, http) is null) return Results.NotFound();
+
+        var vaultId = await db.Vaults
+            .Where(v => v.TenantId == tc.TenantId && v.Slug == slug)
+            .Select(v => v.Id)
+            .FirstOrDefaultAsync();
+        if (vaultId == Guid.Empty) return Results.NotFound();
+
+        var rows = await db.VaultFiles
+            .Where(f => f.VaultId == vaultId
+                     && (f.Path.EndsWith(".md") || f.Path.EndsWith(".markdown")))
+            .Select(f => new { f.Path, f.Content })
+            .ToListAsync();
+
+        var index = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in rows)
+        {
+            foreach (var tag in ExtractTags(row.Content))
+            {
+                if (!index.TryGetValue(tag, out var list))
+                {
+                    list = new List<string>();
+                    index[tag] = list;
+                }
+                if (!list.Contains(row.Path)) list.Add(row.Path);
+            }
+        }
+
+        var result = index
+            .OrderByDescending(kv => kv.Value.Count)
+            .ThenBy(kv => kv.Key)
+            .Select(kv => new { name = kv.Key, count = kv.Value.Count, files = kv.Value });
+
+        http.Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0";
+        return Results.Ok(result);
+    }
+
+    private static IEnumerable<string> ExtractTags(string? content)
+    {
+        if (string.IsNullOrEmpty(content)) yield break;
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // 1) Frontmatter (---...---) — sadece dosyanın en başındaysa
+        var fmEnd = -1;
+        if (content.StartsWith("---\n") || content.StartsWith("---\r\n"))
+        {
+            // Bir sonraki "---" bul
+            var startIdx = content.IndexOf('\n') + 1;
+            var idx = content.IndexOf("\n---", startIdx, StringComparison.Ordinal);
+            if (idx > 0)
+            {
+                fmEnd = idx + 4;
+                var fm = content.Substring(startIdx, idx - startIdx);
+                foreach (var tag in ParseFrontmatterTags(fm))
+                {
+                    if (seen.Add(tag)) yield return tag;
+                }
+            }
+        }
+
+        // 2) Inline #tag — heading'leri ve fenced code'ları atla
+        var lines = (fmEnd > 0 ? content.Substring(fmEnd) : content).Split('\n');
+        var inFence = false;
+        foreach (var raw in lines)
+        {
+            var line = raw.TrimEnd('\r');
+            var trimmed = line.TrimStart();
+            if (trimmed.StartsWith("```"))
+            {
+                inFence = !inFence;
+                continue;
+            }
+            if (inFence) continue;
+            // Heading satırı: `#{1,6} space text...` → atla (heading'in `# X`
+            // kısmındaki `#` tag değil)
+            if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"^#{1,6}\s"))
+                continue;
+            // Inline `#tag` — `#` öncesi non-word olmalı, sonrası letter/digit/underscore/dash/slash
+            foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(
+                line, @"(?<![\w])#([A-Za-z][A-Za-z0-9_/\-]*)"))
+            {
+                var tag = m.Groups[1].Value;
+                if (seen.Add(tag)) yield return tag;
+            }
+        }
+    }
+
+    private static IEnumerable<string> ParseFrontmatterTags(string fm)
+    {
+        // `tags: [a, b, c]` veya `tags:\n  - a\n  - b\n` veya `tags: a b c`
+        var lines = fm.Split('\n');
+        for (var i = 0; i < lines.Length; i++)
+        {
+            var raw = lines[i].TrimEnd('\r');
+            var m = System.Text.RegularExpressions.Regex.Match(raw, @"^\s*tags\s*:\s*(.*)$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (!m.Success) continue;
+            var rest = m.Groups[1].Value.Trim();
+            if (rest.StartsWith("["))
+            {
+                // Inline list
+                var inside = rest.Trim('[', ']');
+                foreach (var part in inside.Split(','))
+                {
+                    var t = part.Trim().Trim('"', '\'');
+                    if (!string.IsNullOrEmpty(t)) yield return t;
+                }
+            }
+            else if (string.IsNullOrEmpty(rest))
+            {
+                // YAML list — sonraki satırlar `- name`
+                for (var j = i + 1; j < lines.Length; j++)
+                {
+                    var sub = lines[j].TrimEnd('\r');
+                    var lm = System.Text.RegularExpressions.Regex.Match(sub, @"^\s*-\s+(.+)$");
+                    if (!lm.Success) break;
+                    var t = lm.Groups[1].Value.Trim().Trim('"', '\'');
+                    if (!string.IsNullOrEmpty(t)) yield return t;
+                }
+            }
+            else
+            {
+                // Whitespace-separated
+                foreach (var part in rest.Split(' ', '\t'))
+                {
+                    var t = part.Trim().Trim('"', '\'');
+                    if (!string.IsNullOrEmpty(t)) yield return t;
+                }
+            }
+        }
     }
 
     // ─── EMBEDDING / RAG (Sprint EB-1) ────────────────────────────────────

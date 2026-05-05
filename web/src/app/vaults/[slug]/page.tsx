@@ -150,7 +150,18 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
   const [filter, setFilter] = useState("");
   const [searchQ, setSearchQ] = useState("");
   const [searchHits, setSearchHits] = useState<Array<{ path: string; snippet: string; lineHint: number }>>([]);
-  const [sidebarTab, setSidebarTab] = useState<"files" | "search">("files");
+  const [sidebarTab, setSidebarTab] = useState<"files" | "search" | "tags">("files");
+  const [tags, setTags] = useState<Array<{ name: string; count: number; files: string[] }>>([]);
+  const [tagFilter, setTagFilter] = useState("");
+  const [expandedTag, setExpandedTag] = useState<string | null>(null);
+
+  async function loadTags() {
+    try {
+      const r = await fetch(`/api/proxy/vaults/${slug}/tags`, { cache: "no-store" });
+      if (r.ok) setTags(await r.json());
+    } catch { /* tags olmasa da editor çalışır */ }
+  }
+  useEffect(() => { loadTags(); /* eslint-disable-next-line */ }, [slug]);
   // Editor ref + pending scroll line (search hit'ten gelen satır)
   // Monaco instance'i tutmak için useRef; openFile sonrası satır highlight + reveal
   const editorRef = useRef<{ revealLineInCenter: (line: number) => void; setSelection: (range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number }) => void } | null>(null);
@@ -288,7 +299,7 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
       body: JSON.stringify({ path: activePath, content })
     });
     if (!r.ok) setError(await r.text());
-    else { setSavedContent(content); loadTree(); void loadVaultGraph(); }
+    else { setSavedContent(content); loadTree(); void loadVaultGraph(); void loadTags(); }
     setBusy(false);
   }
 
@@ -634,6 +645,17 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
             >
               🔎 ARAMA{searchHits.length > 0 ? ` (${searchHits.length})` : ""}
             </button>
+            <button
+              onClick={() => setSidebarTab("tags")}
+              className={
+                "flex-1 px-3 py-2 border-b-2 transition-colors " +
+                (sidebarTab === "tags"
+                  ? "border-orange-500 text-orange-300"
+                  : "border-transparent text-neutral-500 hover:text-neutral-300")
+              }
+            >
+              🏷 TAGS{tags.length > 0 ? ` (${tags.length})` : ""}
+            </button>
           </div>
 
           {sidebarTab === "files" && (
@@ -695,6 +717,67 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
                     <p className="mt-0.5 line-clamp-2 font-mono text-[11px] leading-snug text-neutral-400">{h.snippet}</p>
                   </button>
                 ))}
+              </div>
+            </>
+          )}
+
+          {sidebarTab === "tags" && (
+            <>
+              <div className="border-b border-neutral-800 p-3">
+                <input
+                  value={tagFilter}
+                  onChange={e => setTagFilter(e.target.value)}
+                  placeholder="tag filtrele…"
+                  className="w-full rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs"
+                />
+                <p className="mt-1 px-1 text-[10px] text-neutral-500">
+                  {tags.length} tag · frontmatter + inline #etiket
+                </p>
+              </div>
+              <div className="flex-1 overflow-y-auto text-xs">
+                {tags.length === 0 && (
+                  <p className="px-3 py-2 text-neutral-500">
+                    Henüz tag yok. Markdown dosyasında <code className="rounded bg-neutral-900 px-1">#etiket</code> ya da frontmatter <code className="rounded bg-neutral-900 px-1">tags:</code> ekle.
+                  </p>
+                )}
+                {tags
+                  .filter(t => !tagFilter || t.name.toLowerCase().includes(tagFilter.toLowerCase()))
+                  .map(tag => (
+                    <div key={tag.name} className="border-b border-neutral-900">
+                      <button
+                        onClick={() => setExpandedTag(expandedTag === tag.name ? null : tag.name)}
+                        className="flex w-full items-center justify-between px-3 py-2 text-left hover:bg-neutral-900"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className={"text-neutral-600 transition-transform " + (expandedTag === tag.name ? "rotate-90" : "")}>›</span>
+                          <span className="font-mono text-cyan-300">#{tag.name}</span>
+                        </span>
+                        <span className="rounded bg-neutral-800 px-1.5 py-0.5 text-[10px] text-neutral-400">
+                          {tag.count}
+                        </span>
+                      </button>
+                      {expandedTag === tag.name && (
+                        <div className="bg-neutral-900/40 pb-1">
+                          {tag.files.map(p => {
+                            const display = p.replace(/\.(md|markdown)$/i, "");
+                            const dir = display.includes("/") ? display.slice(0, display.lastIndexOf("/")) : null;
+                            const base = display.split("/").pop() ?? display;
+                            return (
+                              <button
+                                key={p}
+                                onClick={() => { openFile(p); setSidebarTab("files"); }}
+                                className="block w-full truncate px-6 py-1 text-left text-[11px] text-neutral-300 hover:bg-neutral-800/60"
+                                title={p}
+                              >
+                                {base}
+                                {dir && <span className="ml-1 text-[10px] text-neutral-600">{dir}</span>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ))}
               </div>
             </>
           )}
