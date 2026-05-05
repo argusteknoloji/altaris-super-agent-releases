@@ -127,17 +127,26 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
           if (!Number.isFinite(minX)) return null;
           return { minX, minY, maxX, maxY };
         }
-        function fitView(maxScale = 1.4, padPx = 80) {
+        function fitView(maxScale = 1.4, padPx = 80): boolean {
           const b = computeBBox();
-          if (!b) return;
+          if (!b) return false;
+          // cssW/cssH henüz set olmadıysa pad'lemeyi anlamlı tutamayız → atla
+          if (!(cssW > padPx * 2 + 10) || !(cssH > padPx * 2 + 10)) return false;
           const w = Math.max(1, b.maxX - b.minX);
           const h = Math.max(1, b.maxY - b.minY);
           const sx = (cssW - padPx * 2) / w;
           const sy = (cssH - padPx * 2) / h;
           const s = Math.max(0.05, Math.min(maxScale, Math.min(sx, sy)));
+          const tx = cssW / 2 - ((b.minX + b.maxX) / 2) * s;
+          const ty = cssH / 2 - ((b.minY + b.maxY) / 2) * s;
+          // Defansif: NaN/Infinity asla view'a girmesin (aksi halde tüm node'lar
+          // ekran dışına kayar → black screen)
+          if (!Number.isFinite(s) || !(s > 0)) return false;
+          if (!Number.isFinite(tx) || !Number.isFinite(ty)) return false;
           view.scale = s;
-          view.tx = cssW / 2 - ((b.minX + b.maxX) / 2) * s;
-          view.ty = cssH / 2 - ((b.minY + b.maxY) / 2) * s;
+          view.tx = tx;
+          view.ty = ty;
+          return true;
         }
 
         // ── Mouse: drag node OR pan empty space; wheel zoom anchored at cursor
@@ -277,6 +286,10 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
             live.width = tw; live.height = th;
           }
           cssW = w; cssH = h;
+          // Backstop: view bir şekilde NaN/0 olduysa identity'ye düş (black-screen guard)
+          if (!(view.scale > 0) || !Number.isFinite(view.tx) || !Number.isFinite(view.ty)) {
+            view.scale = 1; view.tx = w / 2; view.ty = h / 2;
+          }
 
           // Background (identity transform)
           ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -325,10 +338,11 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
         function tick() {
           if (cancelled) return;
           step();
-          // Alpha yeterince soğuduğunda son bir auto-fit → örnek görseldeki "compact" görünüm
-          if (!didFinalFit && alpha < 0.05) {
-            fitView(1.2, 90);
-            didFinalFit = true;
+          // Sim DURDUKTAN sonra fit et — alpha < 0.05'te fit edip de sim'in
+          // 0.005'e kadar drift etmesi cluster'ı viewport dışına kaydırıyordu
+          // (black screen). ALPHA_MIN'de sim donmuş hâldeyken pozisyon stabil.
+          if (!didFinalFit && alpha < ALPHA_MIN) {
+            if (fitView(1.2, 90)) didFinalFit = true;
           }
           paint();
           raf = requestAnimationFrame(tick);
@@ -339,8 +353,19 @@ export default function VaultGraphPage({ params }: { params: Promise<{ slug: str
         paint();
         raf = requestAnimationFrame(tick);
 
+        // ResizeObserver: parent layout değişirse (header lazy-load, sidebar
+        // collapse vb.) view eski cssW/cssH'a göre kalıyordu → cluster off-center.
+        // Sim oturduysa yeniden fit, henüz oturmadıysa view origin'i adapt et.
         ro = new ResizeObserver(() => {
+          const prevW = cssW, prevH = cssH;
           applyResize();
+          if (didFinalFit) {
+            fitView(1.2, 90);
+          } else if (cssW > 0 && cssH > 0 && prevW > 0 && prevH > 0) {
+            // Sim hâlâ koşuyor — view'i merkezde tutmak için tx/ty'yi orantıla
+            view.tx += (cssW - prevW) / 2;
+            view.ty += (cssH - prevH) / 2;
+          }
           paint();
         });
         ro.observe(canvas);
