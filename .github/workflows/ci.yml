@@ -45,14 +45,13 @@ jobs:
     defaults: { run: { working-directory: web } }
     steps:
       - uses: actions/checkout@v4
-      # pnpm setup-node cache:'pnpm' kullanmadan ÖNCE PATH'te olmalı.
-      - uses: pnpm/action-setup@v4
-        with: { version: 9 }
-      - uses: actions/setup-node@v4
-        with: { node-version: "22", cache: "pnpm", cache-dependency-path: web/pnpm-lock.yaml }
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm build
+      # web/ pnpm'den bun'a geçti (cli/ ile tutarlılık + Dockerfile da bun
+      # kullanıyor). Lockfile artık bun.lock; pnpm-lock.yaml retired.
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: latest }
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run build
         env:
           AUTH_SECRET: dummy-ci-secret-not-used-at-runtime
           AUTH_KEYCLOAK_ID: altaris-web

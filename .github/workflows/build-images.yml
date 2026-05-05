@@ -163,6 +163,20 @@ jobs:
             sleep 4
             echo "→ Health:"
             docker compose -f docker-compose.prod.yml --env-file .env.production ps web api
+            echo ""
+            # ─── Post-deploy temizlik (her successful deploy sonrası) ──────
+            # Her ":latest" tag'i geçişinde önceki image dangling kalıyor.
+            # 159 dangling birikip 24GB diski doldurmuştu → /api/proxy/me 500.
+            # Çözüm: deploy bitince 24 saatten eski unused image'ları sil.
+            # `until=24h` rollback penceresini korur (son ~10 deploy elde kalır,
+            # eskiler temizlenir). Build cache de kontrolden çıkmasın diye
+            # haftalık limit. Çalışan container'a bağlı image'lara dokunmaz.
+            echo "→ Post-deploy temizlik (24h+ unused image'lar)…"
+            docker image prune -af --filter "until=24h" 2>&1 | tail -3 || true
+            docker container prune -f --filter "until=24h" 2>&1 | tail -2 || true
+            docker builder prune -af --filter "until=168h" 2>&1 | tail -2 || true
+            echo "→ Disk:"
+            df -h / | tail -1
 
       - name: Smoke test
         run: |
