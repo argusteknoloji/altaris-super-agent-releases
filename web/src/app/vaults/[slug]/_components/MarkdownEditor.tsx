@@ -6,8 +6,8 @@
 // Faz 1.2: Wikilink syntax decoration + click-to-navigate + autocomplete.
 // Live preview decorations land in 1.3.
 
-import { useMemo } from "react";
-import CodeMirror from "@uiw/react-codemirror";
+import { useEffect, useMemo, useRef } from "react";
+import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import {
   Decoration,
@@ -35,6 +35,9 @@ interface Props {
   vaultFiles?: string[];
   /** [[Target]] üstüne tıklandığında parent navigate etsin. */
   onWikilinkClick?: (target: string) => void;
+  /** Outline panelden satır tıklanınca editor o satıra scroll yapar.
+   *  Aynı satıra art arda atlamak için epoch ile birlikte gönderilir. */
+  goTo?: { line: number; epoch: number } | null;
 }
 
 // `[[Page]]` veya `[[folder/Page]]` veya `[[Page|alias]]`
@@ -152,7 +155,24 @@ export default function MarkdownEditor({
   onSave,
   vaultFiles = [],
   onWikilinkClick,
+  goTo,
 }: Props) {
+  const cmRef = useRef<ReactCodeMirrorRef>(null);
+
+  // Outline → satıra scroll. Epoch değiştikçe (aynı line'a tekrar tıklasa bile) atla.
+  useEffect(() => {
+    if (!goTo) return;
+    const view = cmRef.current?.view;
+    if (!view) return;
+    const lineNo = Math.max(1, Math.min(goTo.line, view.state.doc.lines));
+    const lineObj = view.state.doc.line(lineNo);
+    view.dispatch({
+      selection: { anchor: lineObj.from },
+      scrollIntoView: true,
+    });
+    view.focus();
+  }, [goTo]);
+
   const extensions = useMemo(
     () => [
       markdown({ base: markdownLanguage, addKeymap: true }),
@@ -218,6 +238,7 @@ export default function MarkdownEditor({
 
   return (
     <CodeMirror
+      ref={cmRef}
       value={value}
       onChange={onChange}
       theme="dark"

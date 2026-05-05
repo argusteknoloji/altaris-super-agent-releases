@@ -17,6 +17,7 @@ const MarkdownEditor = dynamic(() => import("./_components/MarkdownEditor"), {
   ssr: false,
   loading: () => <div className="flex flex-1 items-center justify-center text-xs text-neutral-500">Editor yükleniyor…</div>
 });
+const RightPanel = dynamic(() => import("./_components/RightPanel"), { ssr: false });
 
 type McpEnvRow = { key: string; value: string };
 type McpFormState = {
@@ -156,6 +157,15 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [mcpModalOpen, setMcpModalOpen] = useState(false);
+  // Sağ panel (Obsidian Right Sidebar) — backlinks/outgoing/outline/local graph.
+  // Vault graph endpoint'i tek seferde çekiyoruz; her dosya değişiminde re-fetch
+  // gereksiz çünkü içerikte wikilink ekleme/silme save-and-reload ile zaten
+  // yeniden yüklenecek (loadVaultGraph debounce'lu refresh hook'u 1.5'e
+  // bırakılabilir).
+  const [vaultGraph, setVaultGraph] = useState<{ nodes: Array<{ id: string; label: string; path: string | null; group: string }>; edges: Array<{ source: string; target: string }> } | null>(null);
+  const [showRightPanel, setShowRightPanel] = useState(true);
+  const [editorGoTo, setEditorGoTo] = useState<{ line: number; epoch: number } | null>(null);
+
   // Obsidian-tarzı iki ana mod: Edit (CM6 source + light live-preview cilo)
   // ve Read (full HTML render). Tercih localStorage'da kalıcı.
   const [viewMode, setViewMode] = useState<"edit" | "read">("edit");
@@ -185,6 +195,16 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
   }
 
   useEffect(() => { loadTree(); /* eslint-disable-next-line */ }, [slug]);
+
+  // Vault graph — sağ panel için (backlinks + outgoing resolve + local graph).
+  // Tek fetch; save sonrası loadTree zaten tetikleniyor, save'de bunu da yenile.
+  async function loadVaultGraph() {
+    try {
+      const r = await fetch(`/api/proxy/vaults/${slug}/graph`, { cache: "no-store" });
+      if (r.ok) setVaultGraph(await r.json());
+    } catch { /* sağ panel olmasa da editor çalışır */ }
+  }
+  useEffect(() => { loadVaultGraph(); /* eslint-disable-next-line */ }, [slug]);
 
   // Vault yüklenince varsayılan dosyayı aç:
   //   1. URL ?file=X varsa onu (graph view'den tıklamış olabilir)
@@ -242,7 +262,7 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
       body: JSON.stringify({ path: activePath, content })
     });
     if (!r.ok) setError(await r.text());
-    else { setSavedContent(content); loadTree(); }
+    else { setSavedContent(content); loadTree(); void loadVaultGraph(); }
     setBusy(false);
   }
 
@@ -489,6 +509,20 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
             Graph
           </Link>
           {isMd && (
+            <button
+              onClick={() => setShowRightPanel(p => !p)}
+              className={
+                "rounded-md border px-3 py-1 text-xs transition-colors " +
+                (showRightPanel
+                  ? "border-neutral-600 bg-neutral-800 text-neutral-100"
+                  : "border-neutral-700 text-neutral-400 hover:bg-neutral-800")
+              }
+              title="Backlinks · Outline · Local graph paneli"
+            >
+              ☰ Panel
+            </button>
+          )}
+          {isMd && (
             <div className="inline-flex overflow-hidden rounded-md border border-neutral-700 text-xs">
               <button
                 onClick={() => setViewMode("edit")}
@@ -663,6 +697,7 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
                     value={content}
                     onChange={setContent}
                     onSave={save}
+                    goTo={editorGoTo}
                     vaultFiles={tree.map(t => t.path)}
                     onWikilinkClick={(target) => {
                       // [[Page]] → vault'ta bul:
@@ -720,6 +755,16 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
           )}
           {error && <p className="border-t border-neutral-800 bg-red-500/10 px-4 py-2 text-xs text-red-400">{error}</p>}
         </main>
+        {/* Sağ panel — sadece markdown dosyalarda + toggle açıkken */}
+        {isMd && showRightPanel && (
+          <RightPanel
+            currentPath={activePath}
+            content={content}
+            graph={vaultGraph}
+            onOpenFile={(path) => void openFile(path)}
+            onGoToLine={(line) => setEditorGoTo({ line, epoch: Date.now() })}
+          />
+        )}
       </div>
       {mcpModalOpen && (
         <McpServerModal
