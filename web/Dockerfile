@@ -1,14 +1,14 @@
 # syntax=docker/dockerfile:1.7
-# Altaris Web — Next.js 16 standalone build
-FROM node:22-alpine AS deps
+# Altaris Web — Next.js 16 standalone build (bun-managed deps + build).
+# Switched from pnpm to bun (cli/ subproject already on bun, monorepo
+# consistency + faster installs). Lockfile: bun.lock; pnpm-lock.yaml retired.
+FROM oven/bun:1.3-alpine AS deps
 WORKDIR /app
-RUN corepack enable
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
 
-FROM node:22-alpine AS build
+FROM oven/bun:1.3-alpine AS build
 WORKDIR /app
-RUN corepack enable
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 # CI'dan inject edilen build numarası ve git SHA. .dockerignore .git'i hariç
@@ -21,7 +21,7 @@ ARG GITHUB_SHA=
 ENV GITHUB_RUN_NUMBER=$GITHUB_RUN_NUMBER
 ENV GITHUB_SHA=$GITHUB_SHA
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN pnpm build
+RUN bun run build
 
 FROM node:22-alpine AS runtime
 RUN addgroup -S altaris && adduser -S altaris -G altaris

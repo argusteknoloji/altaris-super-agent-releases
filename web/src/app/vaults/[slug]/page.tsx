@@ -7,7 +7,13 @@ import { fmtDateTimeTR } from "@/lib/datetime";
 
 // Monaco bundle is heavy (~1.5 MB). Lazy-load + skip SSR so the rest of the
 // vault browser is interactive instantly.
+// Code files (.ts, .py, .json, ...) → Monaco (full IDE features).
+// Markdown (.md, .markdown) → CM6 (Obsidian-inspired, lighter, wikilink-aware).
 const MonacoEditor = dynamic(() => import("@monaco-editor/react").then(m => m.default), {
+  ssr: false,
+  loading: () => <div className="flex flex-1 items-center justify-center text-xs text-neutral-500">Editor yükleniyor…</div>
+});
+const MarkdownEditor = dynamic(() => import("./_components/MarkdownEditor"), {
   ssr: false,
   loading: () => <div className="flex flex-1 items-center justify-center text-xs text-neutral-500">Editor yükleniyor…</div>
 });
@@ -584,33 +590,41 @@ export default function VaultBrowserPage({ params }: { params: Promise<{ slug: s
           {activePath && (
             <div className="flex flex-1 overflow-hidden">
               <div className={isMd && showPreview ? "flex-1 border-r border-neutral-800" : "flex-1"}>
-                <MonacoEditor
-                  language={langOf(activePath)}
-                  theme="vs-dark"
-                  value={content}
-                  onChange={(v: string | undefined) => setContent(v ?? "")}
-                  options={{
-                    fontFamily: "ui-monospace, Menlo, monospace",
-                    fontSize: 13,
-                    minimap: { enabled: false },
-                    wordWrap: "on",
-                    scrollBeyondLastLine: false,
-                    automaticLayout: true,
-                    tabSize: 2
-                  }}
-                  onMount={(editor: any, monaco: { KeyMod: { CtrlCmd: number }; KeyCode: { KeyS: number } }) => {
-                    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => save());
-                    editorRef.current = editor;
-                    // İlk mount sırasında pending line varsa (search'ten geldi) reveal et
-                    if (pendingLineRef.current) {
-                      const line = pendingLineRef.current;
-                      setTimeout(() => {
-                        editor.revealLineInCenter(line);
-                        editor.setSelection({ startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 999 });
-                      }, 80);
-                    }
-                  }}
-                />
+                {isMd ? (
+                  <MarkdownEditor
+                    value={content}
+                    onChange={setContent}
+                    onSave={save}
+                  />
+                ) : (
+                  <MonacoEditor
+                    language={langOf(activePath)}
+                    theme="vs-dark"
+                    value={content}
+                    onChange={(v: string | undefined) => setContent(v ?? "")}
+                    options={{
+                      fontFamily: "ui-monospace, Menlo, monospace",
+                      fontSize: 13,
+                      minimap: { enabled: false },
+                      wordWrap: "on",
+                      scrollBeyondLastLine: false,
+                      automaticLayout: true,
+                      tabSize: 2
+                    }}
+                    onMount={(editor: any, monaco: { KeyMod: { CtrlCmd: number }; KeyCode: { KeyS: number } }) => {
+                      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => save());
+                      editorRef.current = editor;
+                      // İlk mount sırasında pending line varsa (search'ten geldi) reveal et
+                      if (pendingLineRef.current) {
+                        const line = pendingLineRef.current;
+                        setTimeout(() => {
+                          editor.revealLineInCenter(line);
+                          editor.setSelection({ startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 999 });
+                        }, 80);
+                      }
+                    }}
+                  />
+                )}
               </div>
               {isMd && showPreview && (
                 <div
