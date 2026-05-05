@@ -20,18 +20,31 @@ function readGitSha(): string {
 function readBuildNumber(): string {
   // CI'da: GITHUB_RUN_NUMBER (web/Dockerfile build-arg ile container'a inject)
   //        her workflow run'da +1, kalıcı, deterministik.
-  // Lokal: git commit count → her commit'le artar, package.json'a el sürmeden
-  //        versiyon otomatik ilerler. Docker build context'inde .git
-  //        .dockerignore ile hariç → fallback "0".
+  // Lokal: git commit count → her commit'le artar.
+  //        Docker build context'inde .git .dockerignore ile hariç → fallback "0".
   if (process.env.GITHUB_RUN_NUMBER) return process.env.GITHUB_RUN_NUMBER;
   try { return execSync("git rev-list --count HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim(); }
   catch { return "0"; }
 }
-const PKG_VERSION   = readPkgVersion();
-const BUILD_NUMBER  = readBuildNumber();
-// SemVer build metadata: "+build.N" sürüm sırasını etkilemez, sadece
-// deploy doğrulama için TopNav rozetinde görünür (#N suffix'i).
-const BUILD_VERSION = `${PKG_VERSION}+build.${BUILD_NUMBER}`;
+const PKG_VERSION  = readPkgVersion();
+const BUILD_NUMBER = readBuildNumber();
+
+// Versiyon stratejisi:
+//   - package.json sadece MAJOR.MINOR'u kontrol eder (1.0.0, 1.1.0, 2.0.0).
+//     Pre-release suffix (-rc.1, -beta.3) MANUEL korunur.
+//   - PATCH her CI run'ında GITHUB_RUN_NUMBER'dan türetilir → her push otomatik
+//     bir patch bump (1.0.85 → 1.0.86 → 1.0.87 ...). package.json'a el sürmeden
+//     dashboard rozetinde versiyon ilerler.
+//   - Pre-release versiyonlarda (örn 1.1.0-rc.1) MANUEL kontrol; auto-bump yok.
+function deriveVersion(): string {
+  // Pre-release suffix varsa olduğu gibi kullan (manuel canary/RC kontrolü).
+  if (PKG_VERSION.includes("-")) return PKG_VERSION;
+  // "1.0.0" → ["1", "0", "0"]; major.minor sabit, patch = build number.
+  const parts = PKG_VERSION.split(".");
+  if (parts.length < 2) return PKG_VERSION;
+  return `${parts[0]}.${parts[1]}.${BUILD_NUMBER}`;
+}
+const BUILD_VERSION = deriveVersion();
 const BUILD_SHA     = readGitSha();
 const BUILD_TIME    = new Date().toISOString();
 
