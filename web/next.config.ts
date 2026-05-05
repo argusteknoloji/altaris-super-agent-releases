@@ -17,23 +17,21 @@ function readGitSha(): string {
   try { return execSync("git rev-parse --short HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim(); }
   catch { return "dev"; }
 }
-function readGitCommitCount(): string | null {
-  // .git yoksa (Docker context'inde olduğu gibi) null → fallback'e düşer
+function readBuildNumber(): string {
+  // CI'da: GITHUB_RUN_NUMBER (web/Dockerfile build-arg ile container'a inject)
+  //        her workflow run'da +1, kalıcı, deterministik.
+  // Lokal: git commit count → her commit'le artar, package.json'a el sürmeden
+  //        versiyon otomatik ilerler. Docker build context'inde .git
+  //        .dockerignore ile hariç → fallback "0".
+  if (process.env.GITHUB_RUN_NUMBER) return process.env.GITHUB_RUN_NUMBER;
   try { return execSync("git rev-list --count HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim(); }
-  catch { return null; }
+  catch { return "0"; }
 }
-function computeVersion(): string {
-  // Öncelik:
-  //   1) ALTARIS_VERSION env var — CI build-images.yml --build-arg ile inject eder
-  //      (her main push'ta github.run_number ile auto-bump)
-  //   2) Git commit count tabanlı dinamik versiyon — lokal dev / .git mevcut
-  //   3) package.json version — son fallback
-  if (process.env.ALTARIS_VERSION) return process.env.ALTARIS_VERSION;
-  const count = readGitCommitCount();
-  if (count) return `0.1.0-alpha.${count}`;
-  return readPkgVersion();
-}
-const BUILD_VERSION = computeVersion();
+const PKG_VERSION   = readPkgVersion();
+const BUILD_NUMBER  = readBuildNumber();
+// SemVer build metadata: "+build.N" sürüm sırasını etkilemez, sadece
+// deploy doğrulama için TopNav rozetinde görünür (#N suffix'i).
+const BUILD_VERSION = `${PKG_VERSION}+build.${BUILD_NUMBER}`;
 const BUILD_SHA     = readGitSha();
 const BUILD_TIME    = new Date().toISOString();
 
@@ -43,6 +41,7 @@ const config: NextConfig = {
   poweredByHeader: false,
   env: {
     NEXT_PUBLIC_BUILD_VERSION: BUILD_VERSION,
+    NEXT_PUBLIC_BUILD_NUMBER:  BUILD_NUMBER,
     NEXT_PUBLIC_BUILD_SHA:     BUILD_SHA,
     NEXT_PUBLIC_BUILD_TIME:    BUILD_TIME,
   },
