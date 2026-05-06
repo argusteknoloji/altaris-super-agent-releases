@@ -132,3 +132,82 @@ docker compose -f docker-compose.prod.yml exec api dotnet ef database update
   /etc/caddy/certs/privkey.pem` for each site block in `Caddyfile`
 - Provider config: switch all chat sessions to local LLM endpoints (Ollama,
   LM Studio) via `/admin/providers`
+
+## 10. VS Code uzantısı — Marketplace yayını
+
+`altaris-vscode` uzantısı iki kanaldan dağıtılır:
+
+| Kanal | Hedef | Dosya |
+|---|---|---|
+| GitHub Releases | Açık kullanıcı + air-gapped müşteri | `altaris.vsix` + `altaris-X.Y.Z.vsix` |
+| VS Code Marketplace | Genel müşteri | `vsce publish` (manuel) |
+| `web/public/altaris.vsix` | Kapalı portal indirmesi | Release sonrası senkron edilir |
+
+**Marketplace yayın akışı:**
+
+```bash
+# 1. PAT oluştur — https://dev.azure.com/<org>/_usersSettings/tokens
+#    Scope: Marketplace > Manage
+# 2. GitHub repo secrets: VSCE_PAT = <PAT>
+# 3. Workflow tetikle (manuel dispatch)
+gh workflow run vsce-publish.yml -f version=0.1.0-alpha.X
+```
+
+`.github/workflows/vsce-publish.yml` — `workflow_dispatch` ile çalışır,
+`vsce package` + `vsce publish` adımlarını sırayla yürütür. Air-gapped müşteriler
+için Marketplace yayını ATLANIR; sadece GitHub release + `web/public/altaris.vsix`
+dağıtılır.
+
+VSIX sürüm bump CI'da otomatik. Lokal build'de atlamak için:
+
+```bash
+ALTARIS_NO_VERSION_BUMP=1 cd vscode-extension && npm run package
+```
+
+## 11. Vault sync — production considerations
+
+`VaultEventBroker` şu an **in-memory** pub/sub. Bu, tek pod'lu deploylar için
+yeterlidir; yatay ölçeklemede iki uyarı vardır:
+
+- **Multi-pod kayıp event riski:** Pod A'ya `PUT` gelen değişiklik, sadece Pod A
+  içindeki SSE consumer'lara broadcast edilir. Pod B'ye bağlı CLI istemcisi event
+  almaz.
+- **TODO — Redis adapter:** `IVaultEventBroker` arayüzünün Redis pub/sub
+  implementasyonu eklenince horizontal scale destekli hale gelecek.
+
+Ara çözüm: prod'da `api` servisini tek replica çalıştırın
+(`docker-compose.prod.yml` → `replicas: 1`) veya sticky-session ile vault SSE
+endpoint'ini sabit pod'a yönlendirin.
+
+SSE endpoint:
+
+```
+GET /api/v1/vaults/{slug}/events     Accept: text/event-stream
+```
+
+## 12. CLI uzantı auto-update akışı
+
+CLI başlatıldığında `checkExtensionUpdateOnce` günde bir kez VS Code uzantısı
+sürümünü kontrol eder. Yeni sürüm varsa kullanıcıya:
+
+1. CLI status bar'da "Altaris VS Code 0.1.X mevcut" notice
+2. `altaris shell-install --with-vscode` ile tek komutla güncelleme
+3. Atlamak için `ALTARIS_SKIP_EXT_UPDATE_CHECK=1`
+
+## 13. Tag + release flow
+
+```bash
+# 1. CHANGELOG güncelle (cli/, vscode-extension/)
+# 2. Tag at — workflow tetiklenir
+git tag v0.1.0-alpha.X && git push origin v0.1.0-alpha.X
+```
+
+`.github/workflows/release.yml` otomatik üretir:
+
+- 5 platform binary: `altaris-darwin-arm64`, `altaris-darwin-x64`,
+  `altaris-linux-x64`, `altaris-linux-arm64`, `altaris-windows-x64.exe`
+- `altaris.vsix` (latest pointer) + `altaris-X.Y.Z.vsix` (sürümlü)
+- `SHA256SUMS` — tüm asset'lerin checksum'ları
+- Release `argusteknoloji/altaris-super-agent-releases` repo'suna push edilir
+
+Marketplace yayını ayrı workflow ile manuel tetiklenir (bkz. §10).

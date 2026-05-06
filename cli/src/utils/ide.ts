@@ -982,12 +982,21 @@ function versionLt(a: string, b: string): boolean {
 }
 
 /**
- * Faz 21D: günde bir kez yeni VSIX sürümü kontrolü. Update varsa stderr'e bilgi
- * notu yazar; otomatik install yapmaz (kullanıcı kontrolünde olsun).
+ * Faz 21D + Faz 24B: günde bir kez yeni VSIX sürümü kontrolü.
+ *
+ * Davranış (Faz 24B'den itibaren):
+ *  - Default: yeni sürüm tespit edilirse arka planda **otomatik install** eder.
+ *    Bunun için VSIX'i GitHub release'inden indirir (findBundledVsix download
+ *    fallback'i) ve `code --force --install-extension <vsix>` çalıştırır.
+ *  - Opt-out: ALTARIS_EXTENSION_AUTO_UPDATE=0 → eski davranış (sadece notice).
+ *  - Disable: ALTARIS_EXTENSION_AUTO_UPDATE=off → kontrol bile yapma.
  *
  * Cache: ~/.altaris/extension-update-checked (timestamp tutar)
  */
 export async function checkExtensionUpdateOnce(): Promise<void> {
+  const mode = (process.env.ALTARIS_EXTENSION_AUTO_UPDATE ?? '1').toLowerCase()
+  if (mode === 'off' || mode === 'false' || mode === 'no') return
+
   try {
     const realFs = await import('fs')
     const homedir = (await import('os')).homedir()
@@ -1007,6 +1016,8 @@ export async function checkExtensionUpdateOnce(): Promise<void> {
     const latest = await resolveLatestVsix()
     if (!latest) return
 
+    const wantSilentInstall = mode !== '0' && mode !== 'notice'
+
     // Tüm VS Code-uyumlu IDE'lerde kurulu sürümü tara
     const ideTypes: IdeType[] = ['vscode', 'cursor', 'windsurf']
     for (const ideType of ideTypes) {
@@ -1015,13 +1026,49 @@ export async function checkExtensionUpdateOnce(): Promise<void> {
         if (!command) continue
         const installed = await getInstalledVSCodeExtensionVersion(command)
         if (!installed) continue
-        if (versionLt(installed, latest.version)) {
+        if (!versionLt(installed, latest.version)) continue
+
+        if (!wantSilentInstall) {
+          // Eski mode: sadece bilgi notu
           process.stderr.write(
             `\n⚡ Altaris VS Code extension güncellemesi mevcut: ${installed} → ${latest.version}\n` +
-            `   Güncellemek için: altaris shell-install --with-vscode\n\n`,
+            `   Güncellemek için: altaris shell-install --with-vscode\n` +
+            `   (otomatik install için: ALTARIS_EXTENSION_AUTO_UPDATE=1)\n\n`,
           )
-          return // tek IDE için bilgi yeter
+          return
         }
+
+        // Otomatik silent install
+        process.stderr.write(
+          `⚡ Altaris VS Code extension güncellemesi: ${installed} → ${latest.version} · arka planda kuruluyor…\n`,
+        )
+        try {
+          const vsix = await findBundledVsix()
+          if (!vsix) {
+            process.stderr.write(`   VSIX yerel/cache'de yok ve indirilemedi. Manuel: altaris shell-install --with-vscode\n`)
+            return
+          }
+          await sleep(300)
+          const result = await execFileNoThrowWithCwd(
+            command,
+            ['--force', '--install-extension', vsix],
+            { env: getInstallationEnv() },
+          )
+          if (result.code === 0) {
+            process.stderr.write(`✓ Altaris VS Code extension ${latest.version}'e güncellendi. Editör yeniden başlatınca aktif.\n`)
+          } else {
+            process.stderr.write(
+              `   Otomatik kurulum başarısız (${result.code}). Manuel: altaris shell-install --with-vscode\n` +
+              `   Detay: ${result.stderr || result.error || ''}\n`,
+            )
+          }
+        } catch (err) {
+          process.stderr.write(
+            `   Otomatik kurulum hatası: ${(err as Error).message}\n` +
+            `   Manuel: altaris shell-install --with-vscode\n`,
+          )
+        }
+        return // tek IDE için yeter
       } catch { /* ignore */ }
     }
   } catch {
