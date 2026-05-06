@@ -31,9 +31,10 @@ export default function NewJobPage() {
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/proxy/vaults", { cache: "no-store" })
+    // /api/proxy/vaults catch-all path zorunlu kılıyor — index için vaults-root
+    fetch("/api/proxy/vaults-root", { cache: "no-store" })
       .then(r => r.ok ? r.json() : [])
-      .then(setVaults)
+      .then(data => setVaults(Array.isArray(data) ? data : (data?.vaults ?? [])))
       .catch(() => {});
     fetch("/api/proxy/executive-brain/agents", { cache: "no-store" })
       .then(r => r.ok ? r.json() : [])

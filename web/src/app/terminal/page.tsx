@@ -14,9 +14,17 @@ export default function TerminalPage() {
   const [active, setActive] = useState<{ vault: string | null; mode: "altaris" | "shell" } | null>(null);
 
   useEffect(() => {
-    fetch("/api/proxy/vaults", { cache: "no-store" })
+    // /api/proxy/vaults catch-all `[...path]` boş path kabul etmiyor → 404
+    // dönüyordu ve "Vault yok" gösteriliyordu. Doğru endpoint: vaults-root.
+    fetch("/api/proxy/vaults-root", { cache: "no-store" })
       .then(r => r.ok ? r.json() : [])
-      .then(setVaults)
+      .then(data => {
+        // API tenant-scope edilmiş bir liste döner (admin → tüm tenant
+        // vault'ları, normal kullanıcı → kendi tenant'ınınkileri). Hem array
+        // hem {vaults:[...]} formatına tolerant ol.
+        const list = Array.isArray(data) ? data : (data?.vaults ?? []);
+        setVaults(list);
+      })
       .catch(() => setVaults([]));
   }, []);
 
