@@ -293,21 +293,26 @@ export default function VaultGraph({ nodes, edges, onNodeOpen }: Props) {
         }
       }
 
-      // 3. Search filter (eşleşmeyenleri fade — hidden değil)
-      cy.elements().removeClass("faded");
+      // 3. Search filter — Obsidian tarzı: eşleşmeyen + komşu olmayan node'ları
+      // tamamen GİZLE (.hidden), sadece match + 1-hop komşuları görünür kalsın.
+      // Eski .faded davranışı kullanıcıyı yoğun graph'larda zorluyordu.
+      cy.elements().removeClass("faded").removeClass("highlighted");
       if (settings.search) {
         const q = settings.search;
         const matches = cy.nodes().filter((n: NodeSingular) =>
           (n.data("label") ?? "").toLowerCase().includes(q),
         );
         if (matches.length > 0) {
-          cy.elements().addClass("faded");
-          matches.removeClass("faded").addClass("highlighted");
-          matches.connectedEdges().removeClass("faded");
-          matches.openNeighborhood().removeClass("faded");
+          // Search-related set: matches + 1-hop neighborhood (kendisi + komşular + edge'leri)
+          const visible = matches.closedNeighborhood();
+          // Diğer her şeyi gizle (search dışı düğümler ekrandan kaybolsun)
+          cy.elements().difference(visible).addClass("hidden");
+          // Eşleşmeleri vurgu (kalın border + label always-on)
+          matches.addClass("highlighted");
+        } else {
+          // Hiç eşleşme yoksa kullanıcı boş ekran görmesin — tümü görünür kalsın
+          // (alternatif: hiçbir şey gösterme; ama kafa karıştırır)
         }
-      } else {
-        cy.elements().removeClass("highlighted");
       }
 
       // 4. Label visibility — degree >= threshold olanlar
