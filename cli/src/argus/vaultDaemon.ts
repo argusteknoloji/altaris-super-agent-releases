@@ -27,7 +27,7 @@
 
 import { createHash } from "node:crypto";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { watch } from "node:fs";
+import chokidar, { type FSWatcher } from "chokidar";
 import { dirname, join, relative } from "node:path";
 import { getApiBase } from "./apiConfig.js";
 import { getAccessToken } from "./login.js";
@@ -231,7 +231,7 @@ export async function startVaultDaemon(opts: DaemonOptions): Promise<DaemonHandl
       } catch (e) {
         const msg = (e as Error).message;
         if (msg.includes("HTTP 409") && remote) {
-          // Conflict — kullanıcıdan resolution iste
+          // Conflict — strateji ALTARIS_CONFLICT_STRATEGY env veya callback
           let serverContent = "";
           try {
             const fresh = await api(
@@ -241,12 +241,20 @@ export async function startVaultDaemon(opts: DaemonOptions): Promise<DaemonHandl
             serverContent = fresh.content;
           } catch { /* ignore */ }
           const remoteHash = sha256Of(serverContent);
-          const choice = await resolveConflict(rel, localHash, remoteHash);
+
+          // Env stratejisi callback'i override eder
+          const envStrategy = (process.env.ALTARIS_CONFLICT_STRATEGY ?? "").toLowerCase();
+          let choice: "theirs" | "mine" | "skip";
+          if (envStrategy === "theirs" || envStrategy === "mine" || envStrategy === "skip") {
+            choice = envStrategy;
+          } else {
+            choice = await resolveConflict(rel, localHash, remoteHash);
+          }
+
           if (choice === "theirs") {
             await writeFile(full, serverContent, "utf8");
             log(`[daemon] ⊕ conflict ${rel} → theirs (lokal üzerine yazıldı)\n`);
           } else if (choice === "mine") {
-            // Force push: parentChecksum'ı yeni server hash'i yap
             try {
               await api("PUT", `/api/v1/vaults/${encodeURIComponent(opts.slug)}/file`, {
                 path: rel,
@@ -258,9 +266,27 @@ export async function startVaultDaemon(opts: DaemonOptions): Promise<DaemonHandl
               log(`[daemon] mine push fail ${rel}: ${(e2 as Error).message}\n`);
             }
           } else {
-            const sidecar = full + `.conflict-${Date.now()}`;
+            // Sidecar + conflict index dosyası — kullanıcı sonra
+            // `altaris vault resolve <path>` ile çözebilir.
+            const ts = Date.now();
+            const sidecar = full + `.conflict-${ts}`;
             await writeFile(sidecar, serverContent, "utf8");
-            log(`[daemon] ⚠ conflict ${rel} — kapalı (sidecar: ${sidecar})\n`);
+            try {
+              const indexDir = join(opts.localDir, ".altaris", "conflicts");
+              await mkdir(indexDir, { recursive: true });
+              const indexPath = join(indexDir, encodeURIComponent(rel) + ".json");
+              await writeFile(indexPath, JSON.stringify({
+                path: rel,
+                ts,
+                localHash,
+                remoteHash,
+                sidecar,
+                slug: opts.slug,
+              }, null, 2), "utf8");
+            } catch (e3) {
+              log(`[daemon] conflict index yazılamadı: ${(e3 as Error).message}\n`);
+            }
+            log(`[daemon] ⚠ conflict ${rel} — açık (resolve: altaris vault resolve "${rel}")\n`);
           }
         } else {
           log(`[daemon] push fail ${rel}: ${msg}\n`);
@@ -277,18 +303,39 @@ export async function startVaultDaemon(opts: DaemonOptions): Promise<DaemonHandl
     }, debounceMs);
   };
 
-  // ── fs.watch — recursive (macOS + Win destekler; Linux fallback)
-  let watcher: ReturnType<typeof watch> | null = null;
+  // ── chokidar watcher — tüm platformlarda recursive + güvenilir
+  let watcher: FSWatcher | null = null;
   try {
-    watcher = watch(opts.localDir, { recursive: true }, (_event, filename) => {
-      if (!filename) return;
-      const rel = filename.toString().replace(/\\/g, "/");
+    watcher = chokidar.watch(opts.localDir, {
+      ignoreInitial: true,
+      ignored: [
+        /(^|[/\\])\../,                // dotfiles top-level (.git, .DS_Store)
+        /node_modules/,
+        /\.altaris[/\\]cache/,
+        /\.conflict-\d+\.md$/,
+        /\.swp$/,
+        /\.tmp$/,
+        /\.swap$/,
+      ],
+      awaitWriteFinish: { stabilityThreshold: 200, pollInterval: 50 },
+    });
+
+    const handleChange = (full: string) => {
+      const rel = relative(opts.localDir, full).replace(/\\/g, "/");
+      if (!rel || rel.startsWith("..")) return;
       if (shouldIgnore(rel)) return;
       dirty.add(rel);
       scheduleFlush();
+    };
+
+    watcher.on("add", handleChange);
+    watcher.on("change", handleChange);
+    watcher.on("unlink", handleChange); // delete de readTextSafe → null → DELETE push
+    watcher.on("error", (err: unknown) => {
+      log(`[daemon] watcher error: ${err instanceof Error ? err.message : String(err)}\n`);
     });
   } catch (e) {
-    log(`[daemon] fs.watch hatası (Linux'ta recursive desteklenmiyor olabilir): ${(e as Error).message}\n`);
+    log(`[daemon] chokidar başlatma hatası: ${(e as Error).message}\n`);
   }
 
   // ── Remote → Local SSE pipeline ────────────────────────────────────────
@@ -357,7 +404,7 @@ export async function startVaultDaemon(opts: DaemonOptions): Promise<DaemonHandl
     async stop() {
       stopped = true;
       if (pushTimer) clearTimeout(pushTimer);
-      if (watcher) watcher.close();
+      if (watcher) await watcher.close();
       sseAbort.abort();
       try { await sseLoop; } catch { /* ignore */ }
       log(`[daemon] durduruldu · ${opts.slug}\n`);

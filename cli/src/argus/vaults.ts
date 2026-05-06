@@ -499,6 +499,158 @@ async function cmdUse(slug: string, opts: { remoteControl?: boolean; sync?: bool
   return code;
 }
 
+// ─── Conflict commands (Faz 23E) ─────────────────────────────────────────────
+
+interface ConflictEntry {
+  path: string;
+  ts: number;
+  localHash: string;
+  remoteHash: string;
+  sidecar: string;
+  slug: string;
+}
+
+/**
+ * Local vault dizinini bul (cwd, cwd/<slug>, ~/.altaris/vaults/<slug>).
+ * cmdUse'daki resolution mantığının aynısı, küçük versiyonu.
+ */
+async function findVaultDir(slug?: string): Promise<string | null> {
+  const candidates: string[] = [];
+  if (slug) candidates.push(join(process.cwd(), slug));
+  candidates.push(process.cwd());
+  if (slug) candidates.push(join(LOCAL_ROOT, slug));
+  for (const c of candidates) {
+    try {
+      const s = await stat(c);
+      if (!s.isDirectory()) continue;
+      try { await stat(join(c, ".altaris")); return c; } catch { /* */ }
+    } catch { /* */ }
+  }
+  return null;
+}
+
+async function listConflicts(localDir: string): Promise<ConflictEntry[]> {
+  const dir = join(localDir, ".altaris", "conflicts");
+  try {
+    const files = await readdir(dir);
+    const out: ConflictEntry[] = [];
+    for (const f of files) {
+      if (!f.endsWith(".json")) continue;
+      try {
+        const raw = await readFile(join(dir, f), "utf8");
+        out.push(JSON.parse(raw) as ConflictEntry);
+      } catch { /* skip corrupt */ }
+    }
+    return out.sort((a, b) => b.ts - a.ts);
+  } catch {
+    return [];
+  }
+}
+
+async function cmdConflicts(slug?: string): Promise<number> {
+  const localDir = await findVaultDir(slug);
+  if (!localDir) {
+    process.stderr.write(`Vault dizini bulunamadı (cwd${slug ? `, cwd/${slug}, ~/.altaris/vaults/${slug}` : ""}).\n`);
+    return 1;
+  }
+  const conflicts = await listConflicts(localDir);
+  if (conflicts.length === 0) {
+    process.stdout.write("Açık conflict yok.\n");
+    return 0;
+  }
+  process.stdout.write(`${conflicts.length} açık conflict (${localDir}):\n\n`);
+  for (const c of conflicts) {
+    const age = Math.round((Date.now() - c.ts) / 1000);
+    process.stdout.write(`  ${c.path}\n`);
+    process.stdout.write(`    yaş: ${age}s · sidecar: ${c.sidecar.replace(localDir + "/", "")}\n`);
+    process.stdout.write(`    çöz: altaris vault resolve "${c.path}" --theirs|--mine|--keep-both\n\n`);
+  }
+  return 0;
+}
+
+async function cmdResolve(
+  path: string,
+  opts: { theirs?: boolean; mine?: boolean; keepBoth?: boolean; slug?: string },
+): Promise<number> {
+  const flags = [opts.theirs, opts.mine, opts.keepBoth].filter(Boolean).length;
+  if (flags !== 1) {
+    process.stderr.write("Tam olarak bir bayrak: --theirs | --mine | --keep-both\n");
+    return 2;
+  }
+  const localDir = await findVaultDir(opts.slug);
+  if (!localDir) {
+    process.stderr.write(`Vault dizini bulunamadı.\n`);
+    return 1;
+  }
+
+  // Conflict entry'sini bul
+  const indexDir = join(localDir, ".altaris", "conflicts");
+  const indexPath = join(indexDir, encodeURIComponent(path) + ".json");
+  let entry: ConflictEntry;
+  try {
+    entry = JSON.parse(await readFile(indexPath, "utf8")) as ConflictEntry;
+  } catch {
+    process.stderr.write(`Bu yol için açık conflict yok: ${path}\n`);
+    return 1;
+  }
+
+  const slug = entry.slug;
+  const fullPath = join(localDir, path);
+  const t = await getToken();
+  if (!t) { process.stderr.write("`altaris login`.\n"); return 1; }
+
+  if (opts.theirs) {
+    // Sidecar (server kopyası) → asıl dosya üzerine yaz, dosyayı bir sonraki
+    // daemon push'unda (veya şimdi push) parentChecksum güncellensin
+    let serverContent = "";
+    try { serverContent = await readFile(entry.sidecar, "utf8"); } catch { /* */ }
+    if (!serverContent) {
+      // Fallback: server'dan tekrar çek
+      try {
+        const fresh = await api<{ path: string; content: string }>(
+          t, "GET",
+          `/api/v1/vaults/${encodeURIComponent(slug)}/file?path=${encodeURIComponent(path)}`,
+        );
+        serverContent = fresh.content;
+      } catch (e) {
+        process.stderr.write(`server kopyası alınamadı: ${(e as Error).message}\n`);
+        return 1;
+      }
+    }
+    await writeFile(fullPath, serverContent, "utf8");
+    process.stdout.write(`✓ theirs uygulandı: ${path}\n`);
+  } else if (opts.mine) {
+    // Lokal içeriği force push (parentChecksum = remoteHash)
+    const localText = await readFile(fullPath, "utf8");
+    try {
+      await api(t, "PUT", `/api/v1/vaults/${encodeURIComponent(slug)}/file`, {
+        path,
+        content: localText,
+        parentChecksum: entry.remoteHash,
+      });
+      process.stdout.write(`✓ mine pushlandı: ${path}\n`);
+    } catch (e) {
+      process.stderr.write(`push hatası: ${(e as Error).message}\n`);
+      return 1;
+    }
+  } else if (opts.keepBoth) {
+    // Sidecar kalsın, asıl dosya local olarak kalsın, conflict index'i sil
+    process.stdout.write(`✓ keep-both: sidecar (${entry.sidecar}) ve lokal dosya korundu, conflict marker temizlendi\n`);
+  }
+
+  // Conflict index'i sil
+  try {
+    const { rm } = await import("node:fs/promises");
+    await rm(indexPath, { force: true });
+    if (!opts.keepBoth) {
+      // Sidecar'ı temizle (theirs/mine için artık gereksiz)
+      try { await rm(entry.sidecar, { force: true }); } catch { /* */ }
+    }
+  } catch { /* */ }
+
+  return 0;
+}
+
 // ─── Commander wiring ────────────────────────────────────────────────────────
 
 export function registerVaultCommands(program: Command): void {
@@ -532,6 +684,21 @@ export function registerVaultCommands(program: Command): void {
       process.exit(await cmdPush(slug, opts)));
 
   vault.command("open <slug>").description("Lokal mirror'ı dosya gezgininde aç").action(async (slug: string) => process.exit(await cmdOpen(slug)));
+
+  vault.command("conflicts [slug]")
+    .description("Açık (çözülmemiş) conflict'leri listele")
+    .action(async (slug?: string) => process.exit(await cmdConflicts(slug)));
+
+  vault.command("resolve <path>")
+    .description("Bir conflict'i çöz: --theirs (server) | --mine (lokal force push) | --keep-both")
+    .option("--theirs", "Server kopyasını uygula (lokal içerik üzerine yazılır)")
+    .option("--mine", "Lokal içeriği force push et (parentChecksum güncellenir)")
+    .option("--keep-both", "Sidecar dosyayı koru, lokal dosya da kalsın, conflict marker'ı temizle")
+    .option("--slug <slug>", "Vault slug (varsayılan: cwd auto-detect)")
+    .action(async (
+      path: string,
+      opts: { theirs?: boolean; mine?: boolean; keepBoth?: boolean; slug?: string }
+    ) => process.exit(await cmdResolve(path, opts)));
 
   vault.command("use <slug>")
     .description("Vault'u sync et + o dizinde yeni bir altaris interactive aç (daemon arka planda)")
