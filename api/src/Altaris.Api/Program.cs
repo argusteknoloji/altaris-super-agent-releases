@@ -84,6 +84,7 @@ try
     Directory.CreateDirectory(vaultsRoot);
     builder.Services.AddSingleton(new VaultStorageOptions { RootDir = vaultsRoot });
     builder.Services.AddSingleton<VaultStorage>();
+    builder.Services.AddVaultEventBroker();
 
     var pgConn = builder.Configuration.GetConnectionString("Postgres")
                  ?? "Host=localhost;Port=5433;Database=altaris;Username=altaris;Password=altaris_dev";

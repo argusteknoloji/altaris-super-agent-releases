@@ -62,7 +62,18 @@ public static class PtyEndpoints
             { ctx.Response.StatusCode = 403; return; }
             var root = Environment.GetEnvironmentVariable("ALTARIS_VAULTS_ROOT") ?? "/srv/altaris/vaults";
             vaultCwd = Path.Combine(root, tenant.TenantSlug, vaultSlug);
-            if (!Directory.Exists(vaultCwd)) vaultCwd = null;
+            if (!Directory.Exists(vaultCwd))
+            {
+                // Vault DB'de var ama disk üzerindeki dizini henüz yok — sessiz
+                // şekilde HOME'a düşmek yerine kullanıcıya net hata gönder.
+                await Send(ws, JsonSerializer.Serialize(new {
+                    type = "error",
+                    message = $"Vault dizini bulunamadı: {vaultCwd}. " +
+                              "API container'ı /srv/altaris/vaults bind mount'unu görüyor mu kontrol edin."
+                }), CancellationToken.None);
+                await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "vault dir missing", CancellationToken.None);
+                return;
+            }
         }
 
         string fileName;
@@ -143,10 +154,27 @@ public static class PtyEndpoints
         psi.Environment["FORCE_COLOR"] = "1";
         psi.Environment["NO_UPDATE_NOTIFIER"] = "1";
 
-        var proc = Process.Start(psi);
+        Process? proc;
+        try
+        {
+            proc = Process.Start(psi);
+        }
+        catch (Exception ex)
+        {
+            // Yaygın iki neden: (1) altaris binary'si PATH'te yok, (2) /usr/bin/script
+            // yok (debian-slim'de bsdextrautils paketi). Mesajı ws'e gönder ki kullanıcı
+            // sadece "connection closed" görmesin.
+            await Send(ws, JsonSerializer.Serialize(new {
+                type = "error",
+                message = $"Shell spawn başarısız ({spawnFile}): {ex.Message}"
+            }), CancellationToken.None);
+            session.Status = "error"; session.EndedAt = DateTimeOffset.UtcNow;
+            await db.SaveChangesAsync();
+            return;
+        }
         if (proc is null)
         {
-            await Send(ws, JsonSerializer.Serialize(new { type = "error", message = "Failed to spawn shell" }), CancellationToken.None);
+            await Send(ws, JsonSerializer.Serialize(new { type = "error", message = $"Process.Start({spawnFile}) null döndü" }), CancellationToken.None);
             session.Status = "error"; session.EndedAt = DateTimeOffset.UtcNow;
             await db.SaveChangesAsync();
             return;
@@ -339,6 +367,10 @@ public static class PtyEndpoints
     private static (string file, string args) WrapWithPty(string cmd, string args)
     {
         if (OperatingSystem.IsWindows()) return (cmd, args);
+        // /usr/bin/script yoksa (debian-slim default'unda bsdextrautils kurulu
+        // değil) wrap'i tamamen atla — CLI Ink TTY check'inde bail edebilir,
+        // ama "connection closed" demekten daha iyi bir hata davranışı.
+        if (!File.Exists("/usr/bin/script")) return (cmd, args);
         var combined = string.IsNullOrEmpty(args) ? cmd : $"{cmd} {args}";
         if (OperatingSystem.IsMacOS())
         {

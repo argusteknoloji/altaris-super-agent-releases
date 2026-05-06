@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Altaris.Domain.Entities;
 using Altaris.Infrastructure.MultiTenancy;
 using Altaris.Infrastructure.Persistence;
@@ -24,6 +25,7 @@ public static class VaultEndpoints
         app.MapGet   ("/api/v1/vaults/{slug}/file",    GetFile).RequireAuthorization();      // ?path=relative
         app.MapPut   ("/api/v1/vaults/{slug}/file",    PutFile).RequireAuthorization();      // body: {path, content, parentChecksum?}
         app.MapDelete("/api/v1/vaults/{slug}/file",    DeleteFile).RequireAuthorization();
+        app.MapGet   ("/api/v1/vaults/{slug}/events",  StreamEvents).RequireAuthorization();
 
         app.MapPatch ("/api/v1/vaults/{slug}",         PatchVault).RequireAuthorization();   // body: {visibility?, name?}
 
@@ -269,6 +271,70 @@ public static class VaultEndpoints
     }
 
     /// <summary>
+    ///   Server-Sent Events stream'i — vault'ta yapılan PUT/DELETE event'lerini
+    ///   bağlı client'lara push eder. Web UI veya local CLI daemon, başka
+    ///   makinelerden gelen değişiklikleri bu stream üzerinden görür.
+    ///
+    ///   Format: her event `data: {json}\n\n`. 30 sn'de bir `: ping\n\n`
+    ///   heartbeat (Caddy/proxy idle timeout'u tetiklememesi için).
+    /// </summary>
+    private static async Task<IResult> StreamEvents(
+        string slug, AltarisDbContext db, ITenantContext tc,
+        IVaultEventBroker broker, HttpContext http, CancellationToken ct)
+    {
+        if (tc.TenantId is null) return Results.Forbid();
+        if (await AuthorizedVaultAsync(slug, db, tc, http, ct) is null) return Results.NotFound();
+
+        http.Response.Headers.Append("Content-Type", "text/event-stream");
+        http.Response.Headers.Append("Cache-Control", "no-cache");
+        http.Response.Headers.Append("X-Accel-Buffering", "no"); // nginx/caddy buffering kapat
+        await http.Response.Body.FlushAsync(ct);
+
+        IAsyncEnumerable<VaultFileEvent> stream;
+        try
+        {
+            stream = broker.Subscribe(tc.TenantId.Value, slug, ct);
+        }
+        catch
+        {
+            return Results.Problem("Event broker subscribe edilemedi", statusCode: 503);
+        }
+
+        // Heartbeat task — 30sn'de bir ': ping\n\n' (SSE comment) yaz.
+        using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var heartbeat = Task.Run(async () =>
+        {
+            try
+            {
+                while (!heartbeatCts.IsCancellationRequested)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(30), heartbeatCts.Token);
+                    await http.Response.WriteAsync(": ping\n\n", heartbeatCts.Token);
+                    await http.Response.Body.FlushAsync(heartbeatCts.Token);
+                }
+            }
+            catch { /* client disconnect — main loop da çıkacak */ }
+        }, heartbeatCts.Token);
+
+        try
+        {
+            await foreach (var ev in stream.WithCancellation(ct))
+            {
+                var json = JsonSerializer.Serialize(ev);
+                await http.Response.WriteAsync($"data: {json}\n\n", ct);
+                await http.Response.Body.FlushAsync(ct);
+            }
+        }
+        catch (OperationCanceledException) { /* client disconnected */ }
+        finally
+        {
+            heartbeatCts.Cancel();
+            try { await heartbeat; } catch { }
+        }
+        return Results.Empty;
+    }
+
+    /// <summary>
     ///   PUT body. <c>ParentChecksum</c> is the SHA-256 the client believes the
     ///   server currently has — when present, the server checks before writing
     ///   and returns 409 + a conflict envelope if it doesn't match (typical
@@ -280,12 +346,18 @@ public static class VaultEndpoints
         string slug, PutFileRequest body, AltarisDbContext db, ITenantContext tc,
         VaultStorage store,
         IServiceScopeFactory scopeFactory,
+        IVaultEventBroker broker,
         HttpContext http,
         CancellationToken ct)
     {
         if (tc.TenantId is null || tc.TenantSlug is null) return Results.Forbid();
         if (await AuthorizedVaultAsync(slug, db, tc, http, ct) is null) return Results.NotFound();
         if (!store.VaultExists(tc.TenantSlug, slug)) return Results.NotFound();
+
+        // "created" vs "updated" ayrımı için yazımdan önce var-yok bak.
+        bool existedBefore;
+        try { existedBefore = !string.IsNullOrEmpty(store.ComputeChecksum(tc.TenantSlug, slug, body.Path)); }
+        catch { existedBefore = false; }
 
         // Conflict detection — if the client sent a parentChecksum it must match
         // the server-side current checksum (or both must be empty for new files).
@@ -347,6 +419,12 @@ public static class VaultEndpoints
         }
 
         await db.SaveChangesAsync(ct);
+
+        // SSE pub/sub — bağlı subscriber'lara file change event yayınla.
+        var newSha = VaultStorage.ComputeChecksum(body.Content);
+        broker.Broadcast(tc.TenantId.Value, slug, new VaultFileEvent(
+            existedBefore ? "updated" : "created",
+            body.Path, newSha, DateTimeOffset.UtcNow, tc.UserId));
 
         // Embedding pipeline — fire-and-forget AYRI scope'la (request scope
         // bittikten sonra DbContext dispose olur). Provider yoksa veya
@@ -446,7 +524,9 @@ public static class VaultEndpoints
     }
 
     private static async Task<IResult> DeleteFile(
-        string slug, string path, AltarisDbContext db, ITenantContext tc, VaultStorage store, HttpContext http, CancellationToken ct)
+        string slug, string path, AltarisDbContext db, ITenantContext tc, VaultStorage store,
+        IVaultEventBroker broker,
+        HttpContext http, CancellationToken ct)
     {
         if (tc.TenantId is null || tc.TenantSlug is null) return Results.Forbid();
         if (await AuthorizedVaultAsync(slug, db, tc, http, ct) is null) return Results.NotFound();
@@ -467,6 +547,10 @@ public static class VaultEndpoints
         if (idx is not null) db.VaultFiles.Remove(idx);
 
         await db.SaveChangesAsync(ct);
+
+        broker.Broadcast(tc.TenantId.Value, slug, new VaultFileEvent(
+            "deleted", path, null, DateTimeOffset.UtcNow, tc.UserId));
+
         return Results.NoContent();
     }
 

@@ -1,6 +1,6 @@
 {
   "name": "@argus/altaris-cli",
-  "version": "0.1.0-alpha.50",
+  "version": "0.1.0-alpha.51",
   "description": "Altaris — Argus Teknoloji enterprise agentic AI terminal. Local-first, multi-provider, multi-tenant.",
   "type": "module",
   "bin": {

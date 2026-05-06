@@ -15,10 +15,11 @@
 
 import { mkdir, readFile, writeFile, stat, readdir } from "node:fs/promises";
 import { homedir, platform } from "node:os";
-import { join, dirname, relative as relPath, sep as PSEP } from "node:path";
+import { join, dirname, resolve as resolvePath, relative as relPath, sep as PSEP } from "node:path";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import type { Command } from "commander";
+import { scaffoldVaultLocally } from "./vaultLocalScaffold.js";
 
 const CREDS_PATH = join(homedir(), ".altaris", "credentials.json");
 const FALLBACK_API_BASE = process.env.ALTARIS_API_BASE ?? "http://localhost:5050";
@@ -109,7 +110,10 @@ async function cmdList(): Promise<number> {
   return 0;
 }
 
-async function cmdCreate(slug: string, opts: { name?: string; sync?: boolean }): Promise<number> {
+async function cmdCreate(
+  slug: string,
+  opts: { name?: string; sync?: boolean; here?: boolean; into?: string; legacyMirror?: boolean }
+): Promise<number> {
   const t = await getToken();
   if (!t) { process.stderr.write("Önce: altaris login\n"); return 1; }
   const name = (opts.name ?? slug).trim();
@@ -118,14 +122,46 @@ async function cmdCreate(slug: string, opts: { name?: string; sync?: boolean }):
     process.stdout.write(`✓ kasa oluşturuldu: ${created.slug} · ${created.fileCount} dosya · ${fmtBytes(created.byteSize)}\n`);
     process.stdout.write(`  Web: ${process.env.ALTARIS_WEB_BASE ?? "http://localhost:3000"}/vaults/${created.slug}\n`);
 
-    // Default: lokal mirror'ı da hemen kur. --no-sync ile devre dışı.
-    if (opts.sync !== false) {
-      await syncOne(t, created.slug);
-      process.stdout.write(`  Lokal: ${join(LOCAL_ROOT, created.slug)}\n`);
-      process.stdout.write(`  Aç:    altaris vault use ${created.slug}\n`);
-    } else {
-      process.stdout.write(`  Lokal mirror için: altaris vault sync ${created.slug}\n`);
+    // --no-sync: sadece sunucuda yarat
+    if (opts.sync === false) {
+      process.stdout.write(`  Lokal scaffold için: altaris vault sync ${created.slug}\n`);
+      return 0;
     }
+
+    // Hedef dizin seçimi: --into <dir>  >  --here  >  default cwd/<slug>
+    let targetDir: string;
+    if (opts.into) {
+      targetDir = resolvePath(opts.into);
+    } else if (opts.here) {
+      targetDir = process.cwd();
+    } else {
+      targetDir = join(process.cwd(), created.slug);
+    }
+
+    // Yeni akış: lokal scaffold cwd-tabanlı
+    const apiBase = await getApiBase();
+    const result = await scaffoldVaultLocally({
+      slug: created.slug,
+      targetDir,
+      api: apiBase,
+      token: t
+    });
+
+    process.stdout.write(`✓ Vault \`${created.slug}\` lokalde hazır: ${targetDir}\n`);
+    process.stdout.write(`  ${result.written} dosya yazıldı${result.skipped ? `, ${result.skipped} atlandı` : ""}.\n`);
+    process.stdout.write(`  Aç:   cd ${targetDir} && altaris\n`);
+    process.stdout.write(`  Sync: altaris vault use ${created.slug}  (daemon başlatır)\n`);
+
+    // Opsiyonel: eski ~/.altaris/vaults/<slug>/ aynası
+    if (opts.legacyMirror) {
+      try {
+        await syncOne(t, created.slug);
+        process.stdout.write(`  Legacy mirror: ${join(LOCAL_ROOT, created.slug)}\n`);
+      } catch (e) {
+        process.stderr.write(`  ⚠ legacy mirror başarısız: ${(e as Error).message}\n`);
+      }
+    }
+
     return 0;
   } catch (e) {
     process.stderr.write(`hata: ${(e as Error).message}\n`);
@@ -371,25 +407,68 @@ async function cmdOpen(slug: string): Promise<number> {
  *
  * --remote-control geçirilirse child'a forward edilir → otomatik yayına alır.
  */
-async function cmdUse(slug: string, opts: { remoteControl?: boolean; sync?: boolean }): Promise<number> {
+async function cmdUse(slug: string, opts: { remoteControl?: boolean; sync?: boolean; daemon?: boolean }): Promise<number> {
   const wantSync = opts.sync !== false;   // default true
-  if (wantSync) {
+  const wantDaemon = opts.daemon !== false; // default true
+
+  // Vault local dir resolution:
+  //  1. cwd/<slug>  (Faz 23B scaffold lokasyonu)
+  //  2. cwd kendisi (eğer kullanıcı zaten vault root'unda ise — .altaris/ var mı diye kontrol)
+  //  3. ~/.altaris/vaults/<slug> (legacy mirror)
+  const candidates = [
+    join(process.cwd(), slug),
+    process.cwd(),
+    join(LOCAL_ROOT, slug),
+  ];
+  let localDir: string | null = null;
+  for (const c of candidates) {
+    try {
+      const s = await stat(c);
+      if (s.isDirectory()) {
+        // .altaris/ varsa veya wiki/ varsa vault dir kabul et
+        try {
+          await stat(join(c, ".altaris"));
+          localDir = c; break;
+        } catch { /* deneme devam */ }
+        try {
+          await stat(join(c, "wiki"));
+          localDir = c; break;
+        } catch { /* deneme devam */ }
+      }
+    } catch { /* deneme devam */ }
+  }
+
+  if (wantSync && !localDir) {
     process.stderr.write(`▸ sync ${slug}…\n`);
     const code = await cmdSync(slug);
     if (code !== 0) return code;
+    localDir = join(LOCAL_ROOT, slug);
   }
 
-  const localDir = join(LOCAL_ROOT, slug);
-  try { await stat(localDir); }
-  catch {
-    process.stderr.write(`Lokal mirror açılamadı: ${localDir}\n`);
+  if (!localDir) {
+    process.stderr.write(`Lokal vault dizini bulunamadı (cwd, cwd/${slug}, ~/.altaris/vaults/${slug}).\n`);
     return 1;
   }
 
-  // process.argv[1] genelde altaris binary'sinin gerçek path'i
-  // (~/.local/bin/altaris symlink veya /path/to/cli/bin/altaris).
-  const altarisBin = process.argv[1];
+  // Daemon başlat (arka planda, file watcher + SSE)
+  let daemonHandle: { stop(): Promise<void> } | null = null;
+  if (wantDaemon) {
+    try {
+      const { startVaultDaemon } = await import("./vaultDaemon.js");
+      daemonHandle = await startVaultDaemon({
+        slug,
+        localDir,
+        // Conflict'lerde MVP: sidecar fallback (skip) — interactive prompt
+        // PTY-aware bir UI gerekli, sonra eklenecek (Faz 23E).
+        resolveConflict: async () => "skip",
+      });
+    } catch (e) {
+      process.stderr.write(`▸ daemon başlatılamadı: ${(e as Error).message}\n`);
+    }
+  }
 
+  // process.argv[1] genelde altaris binary'sinin gerçek path'i
+  const altarisBin = process.argv[1];
   const childArgs: string[] = [];
   if (opts.remoteControl) childArgs.push("--remote-control");
 
@@ -406,13 +485,18 @@ async function cmdUse(slug: string, opts: { remoteControl?: boolean; sync?: bool
     }
   });
 
-  return await new Promise<number>(resolve => {
+  const code = await new Promise<number>(resolve => {
     child.on("exit", code => resolve(code ?? 0));
     child.on("error", err => {
       process.stderr.write(`spawn error: ${err.message}\n`);
       resolve(1);
     });
   });
+
+  if (daemonHandle) {
+    await daemonHandle.stop().catch(() => { /* ignore */ });
+  }
+  return code;
 }
 
 // ─── Commander wiring ────────────────────────────────────────────────────────
@@ -423,11 +507,16 @@ export function registerVaultCommands(program: Command): void {
   vault.command("list").description("Kasaları listele").action(async () => process.exit(await cmdList()));
 
   vault.command("create <slug>")
-    .description("Yeni kasa oluştur (server scaffold + DB + lokal mirror)")
+    .description("Yeni kasa oluştur (server scaffold + cwd lokal scaffold)")
     .option("-n, --name <name>", "Görünür ad (varsayılan slug)")
-    .option("--no-sync", "Sadece sunucuda yarat, lokale mirror'lama")
-    .action(async (slug: string, opts: { name?: string; sync?: boolean }) =>
-      process.exit(await cmdCreate(slug, opts)));
+    .option("--no-sync", "Sadece sunucuda yarat, lokal scaffold yapma")
+    .option("--here", "Lokal scaffold'u cwd'nin kendisine yaz (boş olmalı)")
+    .option("--into <dir>", "Lokal scaffold için özel hedef dizin")
+    .option("--legacy-mirror", "Eski ~/.altaris/vaults/<slug>/ aynasını da kur")
+    .action(async (
+      slug: string,
+      opts: { name?: string; sync?: boolean; here?: boolean; into?: string; legacyMirror?: boolean }
+    ) => process.exit(await cmdCreate(slug, opts)));
 
   vault.command("delete <slug>").description("Kasayı sil (sahibi)").action(async (slug: string) => process.exit(await cmdDelete(slug)));
 
@@ -445,9 +534,10 @@ export function registerVaultCommands(program: Command): void {
   vault.command("open <slug>").description("Lokal mirror'ı dosya gezgininde aç").action(async (slug: string) => process.exit(await cmdOpen(slug)));
 
   vault.command("use <slug>")
-    .description("Vault'u sync et + o dizinde yeni bir altaris interactive aç (kasayla çalışmak için)")
+    .description("Vault'u sync et + o dizinde yeni bir altaris interactive aç (daemon arka planda)")
     .option("--remote-control", "Açılan oturumu Argus Remote Control ile yayına al")
     .option("--no-sync", "Önce sync atlamak için (offline/hızlı)")
-    .action(async (slug: string, opts: { remoteControl?: boolean; sync?: boolean }) =>
+    .option("--no-daemon", "Bidirectional sync daemon'ı başlatma (sadece bir kerelik mod)")
+    .action(async (slug: string, opts: { remoteControl?: boolean; sync?: boolean; daemon?: boolean }) =>
       process.exit(await cmdUse(slug, opts)));
 }

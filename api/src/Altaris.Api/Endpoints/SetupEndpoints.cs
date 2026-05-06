@@ -48,6 +48,12 @@ public static class SetupEndpoints
                 : $"https://github.com/{repo}/releases/download/{version}/{asset}";
 
         var apiBase = cfg["Setup:PublicApiBase"] ?? "http://localhost:5050";
+        var webBase = cfg["Setup:PublicWebBase"] ?? "http://localhost:3000";
+
+        // macOS + Linux için tek-satır kurucu — /install endpoint'i POSIX shell
+        // installer döner; uname -s/-m ile platform tespit edip uygun binary'yi
+        // /usr/local/bin (yoksa ~/.local/bin) altına atomik şekilde kurar.
+        var posixOneLiner = $"curl -fsSL {webBase}/install | sh";
 
         var assets = new[]
         {
@@ -55,39 +61,25 @@ public static class SetupEndpoints
                 Os: "macos", Arch: "arm64",
                 Filename: "altaris-darwin-arm64",
                 DownloadUrl: Url("altaris-darwin-arm64"),
-                InstallScript:
-                    $"curl -fsSL -o /tmp/altaris {Url("altaris-darwin-arm64")} \\\n" +
-                    "  && chmod +x /tmp/altaris \\\n" +
-                    "  && mkdir -p ~/.local/bin \\\n" +
-                    "  && mv /tmp/altaris ~/.local/bin/altaris \\\n" +
-                    "  && echo 'export PATH=\"$HOME/.local/bin:$PATH\"' >> ~/.zshrc",
+                InstallScript: posixOneLiner,
                 PostInstallHint: $"altaris login   # API: {apiBase}"),
             new CliAsset(
                 Os: "macos", Arch: "x64",
                 Filename: "altaris-darwin-x64",
                 DownloadUrl: Url("altaris-darwin-x64"),
-                InstallScript:
-                    $"curl -fsSL -o /tmp/altaris {Url("altaris-darwin-x64")} \\\n" +
-                    "  && chmod +x /tmp/altaris \\\n" +
-                    "  && mkdir -p ~/.local/bin && mv /tmp/altaris ~/.local/bin/altaris",
+                InstallScript: posixOneLiner,
                 PostInstallHint: $"altaris login   # API: {apiBase}"),
             new CliAsset(
                 Os: "linux", Arch: "x64",
                 Filename: "altaris-linux-x64",
                 DownloadUrl: Url("altaris-linux-x64"),
-                InstallScript:
-                    $"curl -fsSL -o /tmp/altaris {Url("altaris-linux-x64")} \\\n" +
-                    "  && chmod +x /tmp/altaris \\\n" +
-                    "  && sudo mv /tmp/altaris /usr/local/bin/altaris",
+                InstallScript: posixOneLiner,
                 PostInstallHint: $"altaris login   # API: {apiBase}"),
             new CliAsset(
                 Os: "linux", Arch: "arm64",
                 Filename: "altaris-linux-arm64",
                 DownloadUrl: Url("altaris-linux-arm64"),
-                InstallScript:
-                    $"curl -fsSL -o /tmp/altaris {Url("altaris-linux-arm64")} \\\n" +
-                    "  && chmod +x /tmp/altaris \\\n" +
-                    "  && sudo mv /tmp/altaris /usr/local/bin/altaris",
+                InstallScript: posixOneLiner,
                 PostInstallHint: $"altaris login   # API: {apiBase}"),
             new CliAsset(
                 Os: "windows", Arch: "x64",
@@ -112,7 +104,7 @@ public static class SetupEndpoints
             version,
             repo,
             apiBase,
-            webBase = cfg["Setup:PublicWebBase"] ?? "http://localhost:3000",
+            webBase,
             assets
         });
     }

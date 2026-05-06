@@ -297,6 +297,7 @@ altaris vault create proje-alpha \\
   --name "Proje Alpha"                  # yeni vault + lokal mirror
 altaris vault use proje-alpha           # vault dizininde interactive aç
 altaris --remote-control                # web'den izlenebilir mod (broadcast)
+altaris shell-install --with-vscode     # VS Code / Cursor / Windsurf extension kurulumu
 altaris update                          # son sürümü GitHub'dan çek + atomik replace`}
             </pre>
           </div>
