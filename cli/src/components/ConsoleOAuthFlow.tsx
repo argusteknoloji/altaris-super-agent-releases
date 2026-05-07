@@ -26,10 +26,17 @@ type Props = {
 };
 
 export function ConsoleOAuthFlow({ onDone }: Props) {
+  // Remote PTY (web terminal) içinde API tarafı access_token'ı env'e enjekte
+  // ediyor — bu stub'ı ne göster ne de bekle. Aksi halde kullanıcı her oturumda
+  // "bulut oturum açma kullanılmıyor" ekranını boşuna görüyor.
+  const isRemote = process.env.ALTARIS_REMOTE === '1';
+
   useEffect(() => {
-    const t = setTimeout(() => onDone(), 1800);
+    const t = setTimeout(() => onDone(), isRemote ? 0 : 1800);
     return () => clearTimeout(t);
-  }, [onDone]);
+  }, [onDone, isRemote]);
+
+  if (isRemote) return null;
 
   return (
     <Box flexDirection="column" gap={1} paddingX={1}>

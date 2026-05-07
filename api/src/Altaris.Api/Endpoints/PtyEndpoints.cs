@@ -159,6 +159,18 @@ public static class PtyEndpoints
         psi.Environment["TERM"] = "xterm-256color";
         psi.Environment["ALTARIS_REMOTE"] = "1";
         psi.Environment["ALTARIS_SESSION_ID"] = session.Id.ToString();
+        // Web kullanıcısının auth token'ını CLI'ye env üzerinden geçir — PTY içinde
+        // tekrar `altaris login` koşmaya gerek kalmasın. Token ws query'den
+        // (access_token=...) ya da Authorization header'dan okunur.
+        var ptyAccessToken = ctx.Request.Query["access_token"].ToString();
+        if (string.IsNullOrEmpty(ptyAccessToken))
+        {
+            var authHdr = ctx.Request.Headers.Authorization.ToString();
+            if (authHdr.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+                ptyAccessToken = authHdr.Substring(7);
+        }
+        if (!string.IsNullOrEmpty(ptyAccessToken))
+            psi.Environment["ALTARIS_ACCESS_TOKEN"] = ptyAccessToken;
         if (vaultCwd is not null)
         {
             psi.Environment["ALTARIS_VAULT_SLUG"] = vaultSlug;

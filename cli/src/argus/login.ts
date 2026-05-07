@@ -299,6 +299,11 @@ export async function altarisWhoami(): Promise<number> {
 }
 
 export async function getAccessToken(): Promise<string | null> {
+  // Remote/PTY context'te API tarafı access_token'ı env üzerinden enjekte eder
+  // (PtyEndpoints — ALTARIS_ACCESS_TOKEN). credentials.json okumadan önce env'e
+  // bak; web'den gelen oturum CLI'de tekrar login istemeden çalışsın.
+  const fromEnv = process.env.ALTARIS_ACCESS_TOKEN;
+  if (fromEnv && fromEnv.length > 0) return fromEnv;
   try {
     const raw = await readFile(tokenStorePath(), "utf8");
     const cred = JSON.parse(raw) as { access_token: string; expires_at: number };
