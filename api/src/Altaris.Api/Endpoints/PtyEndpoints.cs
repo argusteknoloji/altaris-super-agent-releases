@@ -38,10 +38,25 @@ public static class PtyEndpoints
         PtySessionManager mgr, PresenceTracker presence)
     {
         if (!ctx.WebSockets.IsWebSocketRequest) { ctx.Response.StatusCode = 400; return; }
-        if (tenant.TenantId is null || tenant.UserId is null || tenant.TenantSlug is null)
-        { ctx.Response.StatusCode = 403; return; }
 
+        // Tenant/vault doğrulama hatalarını handshake öncesi 4xx ile dönmek yerine
+        // WS'i accept edip `error` mesajı gönderiyoruz. Aksi halde tarayıcıda yalnızca
+        // jenerik "connection closed" görünüyordu — kullanıcı sebebi anlamıyordu.
         using var ws = await ctx.WebSockets.AcceptWebSocketAsync();
+
+        async Task FailAsync(string message)
+        {
+            await Send(ws, JsonSerializer.Serialize(new { type = "error", message }), CancellationToken.None);
+            if (ws.State == WebSocketState.Open)
+                await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "auth/setup error", CancellationToken.None);
+        }
+
+        if (tenant.TenantId is null || tenant.UserId is null || tenant.TenantSlug is null)
+        {
+            await FailAsync("Tenant bilgisi token'dan okunamadı (tenantSlug/tid claim eksik). " +
+                            "Keycloak client mapper'larını kontrol edin.");
+            return;
+        }
 
         // ?command=altaris  → spawn the Altaris agentic AI binary (default)
         // ?command=shell    → spawn the OS login shell (bash/cmd)
@@ -56,10 +71,10 @@ public static class PtyEndpoints
         {
             var v = await db.Vaults.AsNoTracking().FirstOrDefaultAsync(
                 x => x.TenantId == tenant.TenantId && x.Slug == vaultSlug);
-            if (v is null) { ctx.Response.StatusCode = 404; return; }
+            if (v is null) { await FailAsync($"Vault bulunamadı: slug='{vaultSlug}', tenant='{tenant.TenantSlug}'."); return; }
             // Owner veya admin değilse kapat
             if (!Permissions.OwnershipAuth.OwnsOrAdmin(ctx, tenant, v.OwnerUserId))
-            { ctx.Response.StatusCode = 403; return; }
+            { await FailAsync("Bu vault'a erişim yetkiniz yok (owner veya admin değilsiniz)."); return; }
             var root = Environment.GetEnvironmentVariable("ALTARIS_VAULTS_ROOT") ?? "/srv/altaris/vaults";
             vaultCwd = Path.Combine(root, tenant.TenantSlug, vaultSlug);
             if (!Directory.Exists(vaultCwd))

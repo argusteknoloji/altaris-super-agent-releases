@@ -293,6 +293,7 @@ function ClaudeConnectModal({ onClose, onConnected }: { onClose: () => void; onC
                 className="w-full rounded bg-neutral-900 border border-neutral-700 px-3 py-2 text-xs"
               >
                 <option value="claude-opus-4-7">Claude Opus 4.7 (en güçlü, yavaş + pahalı)</option>
+                <option value="claude-opus-4-6">Claude Opus 4.6 (güçlü, dengeli)</option>
                 <option value="claude-sonnet-4-6">Claude Sonnet 4.6 (dengeli — günlük iş)</option>
                 <option value="claude-haiku-4-5">Claude Haiku 4.5 (en hızlı + ucuz)</option>
               </select>

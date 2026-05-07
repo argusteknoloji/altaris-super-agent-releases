@@ -11,6 +11,8 @@ services:
     image: pgvector/pgvector:pg16
     container_name: altaris-postgres
     restart: unless-stopped
+    labels:
+      - "autoheal=true"
     environment:
       POSTGRES_USER:     ${POSTGRES_USER:?required}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
@@ -30,6 +32,8 @@ services:
     image: postgres:16-alpine
     container_name: altaris-keycloak-db
     restart: unless-stopped
+    labels:
+      - "autoheal=true"
     environment:
       POSTGRES_USER:     ${KC_DB_USER:?required}
       POSTGRES_PASSWORD: ${KC_DB_PASSWORD:?required}
@@ -75,6 +79,8 @@ services:
     image: redis:7-alpine
     container_name: altaris-redis
     restart: unless-stopped
+    labels:
+      - "autoheal=true"
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?required}"]
     volumes:
       - redis-data:/data
@@ -92,6 +98,8 @@ services:
       dockerfile: Dockerfile
     container_name: altaris-api
     restart: unless-stopped
+    labels:
+      - "autoheal=true"
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__Postgres: "Host=postgres;Port=5432;Database=${POSTGRES_DB};Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD};Pooling=true;Maximum Pool Size=64"
@@ -148,6 +156,18 @@ services:
       dockerfile: Dockerfile
     container_name: altaris-web
     restart: unless-stopped
+    labels:
+      - "autoheal=true"
+    # Healthcheck Dockerfile'da tanımlı; ama image'daki default `localhost`
+    # Alpine'da IPv6 ::1'e resolve oluyor ve Next.js IPv4-only dinlediği için
+    # FAIL ediyor. Burada IPv4 ile override ediyoruz — autoheal'ın yanlış
+    # tetiklenmemesi için kritik.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- --timeout=3 http://127.0.0.1:3000/ >/dev/null 2>&1 || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     environment:
       NODE_ENV: production
       AUTH_SECRET:          ${WEB_AUTH_SECRET:?required}
@@ -188,6 +208,25 @@ services:
       - caddy-config:/config
     depends_on: [web, api, keycloak]
     networks: [internal]
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # autoheal: yalnızca `autoheal=true` label'ı taşıyan container'ları izler;
+  # healthcheck → unhealthy olunca otomatik `docker restart` eder. 9 saatlik
+  # web hang'i (2026-05-06) sonrası eklendi. Docker socket'e read+write erişim
+  # gerekiyor; `caddy`/`autoheal` kendisi zaten host-bağımsız oldukları için
+  # label'lanmadı (kritik path'te değil + sonsuz restart loop riski).
+  autoheal:
+    image: willfarrell/autoheal:1.2.0
+    container_name: altaris-autoheal
+    restart: unless-stopped
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: "autoheal"
+      AUTOHEAL_INTERVAL:        "30"
+      AUTOHEAL_START_PERIOD:    "60"
+      AUTOHEAL_DEFAULT_STOP_TIMEOUT: "10"
+      CURL_TIMEOUT:             "30"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
 
   pg-backup:
     image: postgres:16-alpine

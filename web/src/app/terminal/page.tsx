@@ -82,6 +82,17 @@ export default function TerminalPage() {
 }
 
 function TerminalView({ vault, mode, onExit }: { vault: string | null; mode: "altaris" | "shell"; onExit: () => void }) {
+  // tenantSlug, header'da gösterilen `cd /srv/altaris/vaults/<tenant>/<vault>`
+  // ipucu satırı için kullanılıyor. `useSession()` <SessionProvider> sarmalı
+  // olmadığında null dönüp "<tenant>" placeholder'ına düşürüyordu — bunun yerine
+  // projedeki diğer sayfalar gibi /api/proxy/me'den okuyoruz.
+  const [tenantSlug, setTenantSlug] = useState<string | null>(null);
+  useEffect(() => {
+    fetch("/api/proxy/me", { cache: "no-store" })
+      .then(r => r.ok ? r.json() : null)
+      .then((me: { tenantSlug?: string } | null) => setTenantSlug(me?.tenantSlug ?? null))
+      .catch(() => {});
+  }, []);
   const containerRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"connecting" | "ready" | "closed" | "error">("connecting");
 
@@ -149,7 +160,7 @@ function TerminalView({ vault, mode, onExit }: { vault: string | null; mode: "al
             {!vault && <span className="ml-2 rounded bg-neutral-800 px-2 py-0.5 text-xs text-neutral-400">host-shell</span>}
           </h1>
           <p className="text-xs text-neutral-500">
-            {vault ? `Vault dizininde Altaris CLI · cd /srv/altaris/vaults/<tenant>/${vault}` : "Sunucu host shell"}
+            {vault ? `Vault dizininde Altaris CLI · cd /srv/altaris/vaults/${tenantSlug ?? "<tenant>"}/${vault}` : "Sunucu host shell"}
           </p>
         </div>
         <div className="flex items-center gap-3">
