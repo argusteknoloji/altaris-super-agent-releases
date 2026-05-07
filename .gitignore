@@ -53,9 +53,13 @@ infra/keycloak-db-data/
 infra/postgres-data/
 infra/redis-data/
 
-# CLI binary outputs
+# CLI binary outputs — bun --compile çıktıları, CI'de rebuild ediliyor (release.yml).
+# Lokal `bun run build` çıktıları ve bin/altaris.bak-* yedekleri git'e GİRMEMELİ.
+# import-specifier.* dosyaları kaynak (commit'lenmiş) — onları muaf tut.
 cli/dist/
 cli/release/
+cli/bin/altaris
+cli/bin/altaris.bak-*
 
 # Desktop (Tauri) build outputs
 desktop/dist/
