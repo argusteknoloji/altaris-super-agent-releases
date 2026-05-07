@@ -3,6 +3,25 @@ import type { InputEvent } from '../ink/events/input-event.js'
 import { type Key, useInput } from '../ink.js'
 import { useOptionalKeybindingContext } from './KeybindingContext.js'
 import type { KeybindingContextName } from './types.js'
+import { logForDebugging } from '../utils/debug.js'
+
+// Diagnostic: log Ctrl-modified keys to track dispatch path.
+// Cheap when --debug-file is not set (logForDebugging short-circuits).
+function logCtrlDispatch(
+  src: string,
+  input: string,
+  key: Key,
+  contexts: readonly KeybindingContextName[],
+  resolveType: string,
+  matchedAction: string | undefined,
+  hasHandler: boolean,
+): void {
+  if (!key.ctrl && !(input.length === 1 && input.charCodeAt(0) <= 31)) return
+  const codes = Array.from(input).map(c => c.charCodeAt(0)).join(',')
+  logForDebugging(
+    `[paste-key] src=${src} ctrl=${key.ctrl} input=${JSON.stringify(input)} codes=[${codes}] resolve=${resolveType}${matchedAction ? ` action=${matchedAction}` : ''} hasHandler=${hasHandler} contexts=${JSON.stringify(contexts)}`,
+  )
+}
 
 type Options = {
   /** Which context this binding belongs to (default: 'Global') */
@@ -158,6 +177,15 @@ export function useKeybindings(
       const uniqueContexts = [...new Set(contextsToCheck)]
 
       const result = keybindingContext.resolve(input, key, uniqueContexts)
+      logCtrlDispatch(
+        'useKeybindings',
+        input,
+        key,
+        uniqueContexts,
+        result.type,
+        result.type === 'match' ? result.action : undefined,
+        result.type === 'match' ? result.action in handlers : false,
+      )
 
       switch (result.type) {
         case 'match':

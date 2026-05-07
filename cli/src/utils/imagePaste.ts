@@ -146,6 +146,7 @@ export async function hasImageInClipboard(): Promise<boolean> {
 }
 
 export async function getImageFromClipboard(): Promise<ImageWithDimensions | null> {
+  logForDebugging(`[paste] getImageFromClipboard called platform=${process.platform}`);
   // Fast path: native NSPasteboard reader (macOS only). Reads PNG bytes
   // directly in-process and downsamples via CoreGraphics if over the
   // dimension cap. ~5ms cold, sub-ms warm — vs. ~1.5s for the osascript
@@ -164,6 +165,7 @@ export async function getImageFromClipboard(): Promise<ImageWithDimensions | nul
         throw new Error('native clipboard reader unavailable')
       }
       const native = readClipboard(IMAGE_MAX_WIDTH, IMAGE_MAX_HEIGHT)
+      logForDebugging(`[paste] native NSPasteboard read → ${native ? `ok ${native.width}x${native.height} pngLen=${native.png?.length ?? '?'}` : 'null (no image)'}`)
       if (!native) {
         return null
       }
@@ -202,11 +204,13 @@ export async function getImageFromClipboard(): Promise<ImageWithDimensions | nul
         },
       }
     } catch (e) {
+      logForDebugging(`[paste] native path threw: ${(e as Error)?.message ?? String(e)} — falling through to osascript`)
       logError(e as Error)
       // Fall through to osascript fallback.
     }
   }
 
+  logForDebugging(`[paste] entering osascript/exec fallback`)
   const { commands, screenshotPath } = getClipboardCommands()
   try {
     // Check if clipboard has image
@@ -214,6 +218,7 @@ export async function getImageFromClipboard(): Promise<ImageWithDimensions | nul
       shell: true,
       reject: false,
     })
+    logForDebugging(`[paste] osascript checkImage exitCode=${checkResult.exitCode}`)
     if (checkResult.exitCode !== 0) {
       return null
     }
@@ -223,12 +228,31 @@ export async function getImageFromClipboard(): Promise<ImageWithDimensions | nul
       shell: true,
       reject: false,
     })
+    logForDebugging(`[paste] osascript saveImage exitCode=${saveResult.exitCode} path=${screenshotPath}`)
     if (saveResult.exitCode !== 0) {
       return null
     }
 
+    // macOS Retina screenshots are routinely 5120×2880, well past the 1568×1568
+    // API cap. Sharp's resize path fails intermittently in the bun-compiled
+    // standalone binary (--external sharp + native module load quirks), which
+    // surfaces as silent paste failures. Pre-resize with the macOS-native
+    // `sips -Z 1568` tool before handing the buffer to the JS resizer — sips
+    // is reliable, has no node_modules dependency, and is no-op when the
+    // image is already within the cap. Best-effort: ignore failures and let
+    // the normal resize path try its luck.
+    if (process.platform === 'darwin') {
+      const sipsResult = await execa(
+        'sips',
+        ['-Z', String(IMAGE_MAX_WIDTH), screenshotPath],
+        { reject: false },
+      )
+      logForDebugging(`[paste] sips pre-resize exitCode=${sipsResult.exitCode}`)
+    }
+
     // Read the image and convert to base64
     let imageBuffer = getFsImplementation().readFileBytesSync(screenshotPath)
+    logForDebugging(`[paste] osascript bufferLen=${imageBuffer?.length ?? 'null'} firstBytes=${imageBuffer ? Array.from(imageBuffer.slice(0, 4)).map(b => b.toString(16).padStart(2, '0')).join(' ') : 'n/a'}`)
 
     // BMP is not supported by the API — convert to PNG via Sharp.
     // This handles WSL2 where Windows copies images as BMP by default.
@@ -255,12 +279,14 @@ export async function getImageFromClipboard(): Promise<ImageWithDimensions | nul
     // Cleanup (fire-and-forget, don't await)
     void execa(commands.deleteFile, { shell: true, reject: false })
 
+    logForDebugging(`[paste] osascript path success base64Len=${base64Image.length} mediaType=${mediaType}`)
     return {
       base64: base64Image,
       mediaType,
       dimensions: resized.dimensions,
     }
-  } catch {
+  } catch (e) {
+    logForDebugging(`[paste] osascript path THREW: ${(e as Error)?.message ?? String(e)} stack=${(e as Error)?.stack?.split('\n')[1]?.trim() ?? 'n/a'}`)
     return null
   }
 }
