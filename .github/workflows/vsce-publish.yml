@@ -68,6 +68,7 @@ jobs:
           name: altaris-vsix-${{ steps.resolve-version.outputs.version }}
           path: vscode-extension/altaris.vsix
           if-no-files-found: error
+          retention-days: 7
 
       - name: Publish to Marketplace
         if: ${{ inputs.dry-run != true }}

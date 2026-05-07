@@ -88,6 +88,10 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: cli/release/${{ matrix.artifact }}
+          # Artifact'ler publish job tarafından aynı run içinde indirilip
+          # release'a yükleniyor. CI artifact'i sadece job-arası transfer için
+          # — uzun retention quota'yı doldurur (1.3GB+ birikti). 1 gün yeter.
+          retention-days: 1
 
   vsix:
     name: Build VS Code extension VSIX
@@ -119,6 +123,7 @@ jobs:
           path: |
             vscode-extension/altaris.vsix
             vscode-extension/altaris-*.vsix
+          retention-days: 1
 
   publish:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
