@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="sunset" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffb464"/>
+      <stop offset="55%" stop-color="#d97757"/>
+      <stop offset="100%" stop-color="#c15f3c"/>
+    </linearGradient>
+    <radialGradient id="dotGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#ffd49a" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#ffd49a" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="64" height="64" rx="13" ry="13" fill="#0a0908"/>
+  <!-- subtle inner ring (orbit) -->
+  <circle cx="32" cy="32" r="24" fill="none" stroke="#3a2a20" stroke-width="1"/>
+  <!-- bold A glyph -->
+  <path d="M 32 12 L 53 52 L 44 52 L 39.5 43 L 24.5 43 L 20 52 L 11 52 Z M 28 35 L 36 35 L 32 26 Z" fill="url(#sunset)"/>
+  <!-- AI agent orbit dot, top-right -->
+  <circle cx="51" cy="13" r="6.5" fill="url(#dotGlow)"/>
+  <circle cx="51" cy="13" r="3.2" fill="#ffd49a"/>
+</svg>
