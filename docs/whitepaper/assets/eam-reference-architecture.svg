@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">
+  <!-- Background -->
+  <rect x="0" y="0" width="1200" height="800" fill="#0a0908"/>
+
+  <!-- Corner label -->
+  <text x="48" y="52" font-size="14" letter-spacing="4" fill="#f08c50">EAM REFERENCE ARCHITECTURE</text>
+  <line x1="48" y1="66" x2="372" y2="66" stroke="#d97757" stroke-width="1" opacity="0.5"/>
+
+  <!-- ================= HUMAN-AI INTERFACE band ================= -->
+  <rect x="48" y="96" width="1104" height="104" fill="none" stroke="#f08c50" stroke-width="1.5"/>
+  <rect x="48" y="96" width="1104" height="104" fill="#f08c50" opacity="0.06"/>
+  <text x="600" y="138" font-size="18" letter-spacing="6" fill="#f08c50" text-anchor="middle">HUMAN-AI INTERFACE</text>
+  <text x="600" y="172" font-size="15" letter-spacing="2" fill="#ddd8d0" text-anchor="middle">CLI &#183; Web &#183; Desktop &#183; Mobile &#183; IDE</text>
+
+  <!-- Connectors: interface band -> management grid (three drops) -->
+  <line x1="240" y1="200" x2="240" y2="248" stroke="#8a8378" stroke-width="1" opacity="0.7"/>
+  <line x1="600" y1="200" x2="600" y2="248" stroke="#8a8378" stroke-width="1" opacity="0.7"/>
+  <line x1="960" y1="200" x2="960" y2="248" stroke="#8a8378" stroke-width="1" opacity="0.7"/>
+
+  <!-- ================= MANAGEMENT GRID 2 x 3 ================= -->
+  <!-- Row 1 -->
+  <!-- Box 1: Agent Orchestration -->
+  <g>
+    <rect x="48" y="248" width="352" height="148" fill="none" stroke="#d97757" stroke-width="1.2"/>
+    <rect x="48" y="248" width="352" height="148" fill="#d97757" opacity="0.05"/>
+    <line x1="64" y1="292" x2="88" y2="292" stroke="#f08c50" stroke-width="2"/>
+    <text x="64" y="324" font-size="17" fill="#ddd8d0">Agent Orchestration</text>
+    <text x="64" y="354" font-size="13" fill="#8a8378">Task dispatch, multi-agent</text>
+    <text x="64" y="374" font-size="13" fill="#8a8378">coordination, scheduling</text>
+  </g>
+
+  <!-- Box 2: Model & Provider Management -->
+  <g>
+    <rect x="424" y="248" width="352" height="148" fill="none" stroke="#d97757" stroke-width="1.2"/>
+    <rect x="424" y="248" width="352" height="148" fill="#d97757" opacity="0.05"/>
+    <line x1="440" y1="292" x2="464" y2="292" stroke="#f08c50" stroke-width="2"/>
+    <text x="440" y="324" font-size="17" fill="#ddd8d0">Model &amp; Provider Mgmt</text>
+    <text x="440" y="354" font-size="13" fill="#8a8378">Multi-LLM routing, model</text>
+    <text x="440" y="374" font-size="13" fill="#8a8378">selection, context &amp; fallback</text>
+  </g>
+
+  <!-- Box 3: Identity & Access -->
+  <g>
+    <rect x="800" y="248" width="352" height="148" fill="none" stroke="#d97757" stroke-width="1.2"/>
+    <rect x="800" y="248" width="352" height="148" fill="#d97757" opacity="0.05"/>
+    <line x1="816" y1="292" x2="840" y2="292" stroke="#f08c50" stroke-width="2"/>
+    <text x="816" y="324" font-size="17" fill="#ddd8d0">Identity &amp; Access</text>
+    <text x="816" y="354" font-size="13" fill="#8a8378">SSO, tenant isolation,</text>
+    <text x="816" y="374" font-size="13" fill="#8a8378">role-based tool permissions</text>
+  </g>
+
+  <!-- Row 2 -->
+  <!-- Box 4: Knowledge & Vault Management -->
+  <g>
+    <rect x="48" y="420" width="352" height="148" fill="none" stroke="#d97757" stroke-width="1.2"/>
+    <rect x="48" y="420" width="352" height="148" fill="#d97757" opacity="0.05"/>
+    <line x1="64" y1="464" x2="88" y2="464" stroke="#f08c50" stroke-width="2"/>
+    <text x="64" y="496" font-size="17" fill="#ddd8d0">Knowledge &amp; Vault Mgmt</text>
+    <text x="64" y="526" font-size="13" fill="#8a8378">Enterprise knowledge bases,</text>
+    <text x="64" y="546" font-size="13" fill="#8a8378">isolation, synchronization</text>
+  </g>
+
+  <!-- Box 5: Cost & Usage Analytics -->
+  <g>
+    <rect x="424" y="420" width="352" height="148" fill="none" stroke="#d97757" stroke-width="1.2"/>
+    <rect x="424" y="420" width="352" height="148" fill="#d97757" opacity="0.05"/>
+    <line x1="440" y1="464" x2="464" y2="464" stroke="#f08c50" stroke-width="2"/>
+    <text x="440" y="496" font-size="17" fill="#ddd8d0">Cost &amp; Usage Analytics</text>
+    <text x="440" y="526" font-size="13" fill="#8a8378">Token budgets, model pricing,</text>
+    <text x="440" y="546" font-size="13" fill="#8a8378">usage visibility, ROI</text>
+  </g>
+
+  <!-- Box 6: Audit & Compliance -->
+  <g>
+    <rect x="800" y="420" width="352" height="148" fill="none" stroke="#d97757" stroke-width="1.2"/>
+    <rect x="800" y="420" width="352" height="148" fill="#d97757" opacity="0.05"/>
+    <line x1="816" y1="464" x2="840" y2="464" stroke="#f08c50" stroke-width="2"/>
+    <text x="816" y="496" font-size="17" fill="#ddd8d0">Audit &amp; Compliance</text>
+    <text x="816" y="526" font-size="13" fill="#8a8378">Action trails, session records,</text>
+    <text x="816" y="546" font-size="13" fill="#8a8378">regulatory alignment</text>
+  </g>
+
+  <!-- Inner grid connectors (row1 -> row2) -->
+  <line x1="224" y1="396" x2="224" y2="420" stroke="#8a8378" stroke-width="1" opacity="0.5"/>
+  <line x1="600" y1="396" x2="600" y2="420" stroke="#8a8378" stroke-width="1" opacity="0.5"/>
+  <line x1="976" y1="396" x2="976" y2="420" stroke="#8a8378" stroke-width="1" opacity="0.5"/>
+
+  <!-- Connectors: grid -> foundation band -->
+  <line x1="240" y1="568" x2="240" y2="616" stroke="#8a8378" stroke-width="1" opacity="0.7"/>
+  <line x1="600" y1="568" x2="600" y2="616" stroke="#8a8378" stroke-width="1" opacity="0.7"/>
+  <line x1="960" y1="568" x2="960" y2="616" stroke="#8a8378" stroke-width="1" opacity="0.7"/>
+
+  <!-- ================= FOUNDATION band ================= -->
+  <rect x="48" y="616" width="1104" height="96" fill="none" stroke="#8a8378" stroke-width="1.2" stroke-dasharray="6 4"/>
+  <rect x="48" y="616" width="1104" height="96" fill="#8a8378" opacity="0.05"/>
+  <text x="600" y="658" font-size="16" letter-spacing="5" fill="#ddd8d0" text-anchor="middle">ENTERPRISE SYSTEMS &#183; LLM PROVIDERS</text>
+  <text x="600" y="688" font-size="13" letter-spacing="1" fill="#8a8378" text-anchor="middle">Systems of record, data sources, foundation model APIs</text>
+
+  <!-- Side caption -->
+  <text x="48" y="756" font-size="12" letter-spacing="2" fill="#8a8378">EAM &#8212; ENTERPRISE AI MANAGEMENT &#183; SEVEN-COMPONENT REFERENCE MODEL</text>
+  <text x="1152" y="756" font-size="12" letter-spacing="2" fill="#8a8378" text-anchor="end">ARGUS &#183; ALTARIS</text>
+</svg>
