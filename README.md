@@ -69,11 +69,15 @@ Tüm sürümler ve sürüm notları **[Releases](https://github.com/argusteknolo
 ilişkilerinizi yönetir; EAM yapay zekanızı yönetir. Kategoriyi tanımlayan
 whitepaper:
 
+**Enterprise AI Management (EAM)** — your ERP manages your resources, your
+CRM manages your customer relationships; EAM manages your AI. The whitepaper
+that defines the category:
+
 - 🇹🇷 [Kurumsal Yapay Zeka Yönetimi (EAM) — Türkçe](docs/whitepaper/eam-whitepaper.tr.md) · [PDF](docs/whitepaper/altaris-eam-whitepaper-tr.pdf)
 - 🇬🇧 [Enterprise AI Management (EAM) — English](docs/whitepaper/eam-whitepaper.en.md) · [PDF](docs/whitepaper/altaris-eam-whitepaper-en.pdf)
 - 🌐 Web: [altarisplatform.com/whitepaper](https://altarisplatform.com/whitepaper)
 
-*Yazar: Burak Demirsoy · Argus Teknoloji A.Ş. — Haziran 2026, v1.0*
+*Yazar / Author: Burak Demirsoy · Argus Teknoloji A.Ş. — Haziran / June 2026, v1.0*
 
 ---
 
